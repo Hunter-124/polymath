@@ -13,6 +13,14 @@
 /vcpkg_installed/
 /third_party/vcpkg/
 
+# Externally-fetched submodule checkouts (run: git submodule update --init).
+# (third_party/sqlite3 is a vendored amalgamation and IS committed.)
+/third_party/llama.cpp/
+/third_party/whisper.cpp/
+/third_party/piper/
+/third_party/hnswlib/
+/third_party/miniaudio/
+
 # Runtime data (large / private)
 /models/
 /media/

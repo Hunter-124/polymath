@@ -4,6 +4,8 @@
 # the live-frame QQuickImageProvider, compiled into this same target so the QML
 # and its backing C++ ship together.
 qt_add_qml_module(pm_ui
+    STATIC          # static so the model/provider symbols link into pm_app and
+                    # the whole app stays a single binary (no pm_ui.dll)
     URI Polymath
     VERSION 1.0
     QML_FILES

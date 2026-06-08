@@ -1,5 +1,6 @@
 #include "vad.h"
 #include "onnx_util.h"
+#include "audio_common.h"
 #include "logging.h"
 
 #include <array>

@@ -9,7 +9,8 @@
 //
 #include "service.h"
 #include "tool_registry.h"
-#include "types.h"
+#include "event_bus.h"   // also provides types.h + Q_DECLARE_METATYPE for the
+                          // payload types used in this class's slots (Utterance)
 #include <QObject>
 #include <QString>
 #include <atomic>

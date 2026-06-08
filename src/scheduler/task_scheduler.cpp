@@ -135,7 +135,7 @@ void TaskScheduler::drainQueue() {
     draining_ = true;
     PM_INFO("TaskScheduler: idle — draining {} queued task(s)", pending);
     EventBus::instance().publishNotice({"info", "scheduler",
-        "Idle detected — running " + std::to_string(pending) + " deep-work task(s)."});
+        QString::fromStdString("Idle detected — running " + std::to_string(pending) + " deep-work task(s).")});
 
     inf_.requestHeavy(true);
 
@@ -147,7 +147,7 @@ void TaskScheduler::drainQueue() {
 
     inf_.requestHeavy(false);
     draining_ = false;
-    PM_INFO("TaskScheduler: queue drained / paused (idle={})", idle_);
+    PM_INFO("TaskScheduler: queue drained / paused (idle={})", idle_.load());
 }
 
 std::optional<TaskScheduler::QueuedTask> TaskScheduler::popNextQueued() {

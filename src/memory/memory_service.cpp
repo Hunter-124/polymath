@@ -278,8 +278,8 @@ void MemoryService::runRetentionSweep() {
                 removed_transcripts, removed_events, ambient_days, events_days);
         EventBus::instance().publishNotice(
             {"info", "memory",
-             "Retention sweep: removed " + std::to_string(removed_transcripts) +
-                 " transcript(s) and " + std::to_string(removed_events) + " event(s)."});
+             QString::fromStdString("Retention sweep: removed " + std::to_string(removed_transcripts) +
+                 " transcript(s) and " + std::to_string(removed_events) + " event(s).")});
     } else {
         PM_DEBUG("MemoryService: retention sweep — nothing past TTL");
     }

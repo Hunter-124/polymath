@@ -257,7 +257,7 @@ void VisionService::enrollUser(qint64 user_id, const QString& name) {
     if (embeddings.empty()) {
         EventBus::instance().publishNotice(
             {"warn", "vision",
-             "enrollment for '" + name.toStdString() + "' found no face"});
+             QString::fromStdString("enrollment for '" + name.toStdString() + "' found no face")});
         return;
     }
 
@@ -292,8 +292,8 @@ void VisionService::enrollUser(qint64 user_id, const QString& name) {
             user_id, name.toStdString(), embeddings.size());
     EventBus::instance().publishNotice(
         {"info", "vision",
-         "enrolled '" + name.toStdString() + "' (" +
-             std::to_string(embeddings.size()) + " samples)"});
+         QString::fromStdString("enrolled '" + name.toStdString() + "' (" +
+             std::to_string(embeddings.size()) + " samples)")});
 }
 
 // --- object finder ----------------------------------------------------------

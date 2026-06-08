@@ -1,6 +1,7 @@
 // Smoke test for the tool registry + the reference shopping tools.
 #include "tool_registry.h"
 #include "database.h"
+#undef NDEBUG   // keep assert() active even in Release (otherwise the test is a no-op)
 #include <cassert>
 #include <cstdio>
 #include <filesystem>

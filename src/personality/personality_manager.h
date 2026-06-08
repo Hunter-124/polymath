@@ -35,6 +35,7 @@ class PersonalityManager : public QObject, public IService {
     Q_OBJECT
 public:
     explicit PersonalityManager(Database& db, QObject* parent = nullptr);
+    ~PersonalityManager() override;   // out-of-line: unique_ptr<QFileSystemWatcher>
 
     void start() override;
     void stop() override;

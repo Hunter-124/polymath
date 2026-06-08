@@ -48,8 +48,9 @@ public:
     // Drop accumulated state (call when capture restarts).
     void reset();
 
+public:
+    struct Impl;   // opaque; defined in the .cpp and named by file-local helpers
 private:
-    struct Impl;
     std::unique_ptr<Impl> d_;
 
     std::string  phrase_;

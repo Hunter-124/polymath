@@ -32,8 +32,9 @@ struct WakeWord::Impl {
     std::unique_ptr<Ort::Session> cls;
     Ort::MemoryInfo mem{Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)};
 
-    // I/O names retrieved at load time (kept alive for inference calls).
-    Ort::AllocatedStringPtr mel_in, mel_out, emb_in, emb_out, cls_in, cls_out;
+    // I/O names retrieved at load time (copied to std::string so Impl stays
+    // default-constructible — Ort::AllocatedStringPtr's deleter has no default).
+    std::string mel_in, mel_out, emb_in, emb_out, cls_in, cls_out;
 
     // Rolling feature buffers.
     std::deque<std::array<float, kMelBins>> mel_frames;   // accumulated mel frames
@@ -71,12 +72,12 @@ bool WakeWord::load(const std::filesystem::path& model_dir, const std::string& p
     }
 
     Ort::AllocatorWithDefaultOptions alloc;
-    d_->mel_in  = d_->mel->GetInputNameAllocated(0, alloc);
-    d_->mel_out = d_->mel->GetOutputNameAllocated(0, alloc);
-    d_->emb_in  = d_->emb->GetInputNameAllocated(0, alloc);
-    d_->emb_out = d_->emb->GetOutputNameAllocated(0, alloc);
-    d_->cls_in  = d_->cls->GetInputNameAllocated(0, alloc);
-    d_->cls_out = d_->cls->GetOutputNameAllocated(0, alloc);
+    d_->mel_in  = d_->mel->GetInputNameAllocated(0, alloc).get();
+    d_->mel_out = d_->mel->GetOutputNameAllocated(0, alloc).get();
+    d_->emb_in  = d_->emb->GetInputNameAllocated(0, alloc).get();
+    d_->emb_out = d_->emb->GetOutputNameAllocated(0, alloc).get();
+    d_->cls_in  = d_->cls->GetInputNameAllocated(0, alloc).get();
+    d_->cls_out = d_->cls->GetOutputNameAllocated(0, alloc).get();
 
     reset();
     ready_ = true;
@@ -96,8 +97,8 @@ static void runMel(WakeWord::Impl& d, const float* samples, int n) {
     std::array<int64_t, 2> shape{1, n};
     Ort::Value in = Ort::Value::CreateTensor<float>(
         d.mem, const_cast<float*>(samples), n, shape.data(), shape.size());
-    const char* in_names[]  = { d.mel_in.get() };
-    const char* out_names[] = { d.mel_out.get() };
+    const char* in_names[]  = { d.mel_in.c_str() };
+    const char* out_names[] = { d.mel_out.c_str() };
     auto out = d.mel->Run(Ort::RunOptions{nullptr}, in_names, &in, 1, out_names, 1);
 
     auto info = out[0].GetTensorTypeAndShapeInfo();
@@ -123,8 +124,8 @@ static void runEmbeddings(WakeWord::Impl& d) {
         std::array<int64_t, 4> shape{1, kEmbWindowMels, kMelBins, 1};
         Ort::Value in = Ort::Value::CreateTensor<float>(
             d.mem, win.data(), win.size(), shape.data(), shape.size());
-        const char* in_names[]  = { d.emb_in.get() };
-        const char* out_names[] = { d.emb_out.get() };
+        const char* in_names[]  = { d.emb_in.c_str() };
+        const char* out_names[] = { d.emb_out.c_str() };
         auto out = d.emb->Run(Ort::RunOptions{nullptr}, in_names, &in, 1, out_names, 1);
 
         const float* edata = out[0].GetTensorData<float>();
@@ -151,8 +152,8 @@ static float runClassifier(WakeWord::Impl& d) {
     std::array<int64_t, 3> shape{1, kClsWindowEmb, kEmbDim};
     Ort::Value in = Ort::Value::CreateTensor<float>(
         d.mem, feat.data(), feat.size(), shape.data(), shape.size());
-    const char* in_names[]  = { d.cls_in.get() };
-    const char* out_names[] = { d.cls_out.get() };
+    const char* in_names[]  = { d.cls_in.c_str() };
+    const char* out_names[] = { d.cls_out.c_str() };
     auto out = d.cls->Run(Ort::RunOptions{nullptr}, in_names, &in, 1, out_names, 1);
 
     // Bound unbounded embedding growth (keep ~2 s of history).

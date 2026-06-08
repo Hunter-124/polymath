@@ -77,9 +77,8 @@ private:
 
 } // namespace polymath
 
-Q_DECLARE_METATYPE(polymath::Utterance)
-Q_DECLARE_METATYPE(polymath::Frame)
-Q_DECLARE_METATYPE(polymath::Detection)
+// Utterance / Frame / Detection are Q_DECLARE_METATYPE'd in types.h (at their
+// definitions). The event-only payloads below are declared here.
 Q_DECLARE_METATYPE(polymath::WakeWordEvent)
 Q_DECLARE_METATYPE(polymath::SpeakRequest)
 Q_DECLARE_METATYPE(polymath::TokenChunk)

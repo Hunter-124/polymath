@@ -48,7 +48,7 @@ void CameraWorker::setOnline(bool on) {
         emit onlineChanged(camera_id_, on);
         EventBus::instance().publishNotice(
             {on ? "info" : "warn", "vision",
-             "camera '" + name_ + "' " + (on ? "online" : "offline")});
+             QString::fromStdString("camera '" + name_ + "' " + (on ? "online" : "offline"))});
     }
 }
 

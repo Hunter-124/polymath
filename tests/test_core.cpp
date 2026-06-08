@@ -2,6 +2,7 @@
 // schema, round-trip settings and a shopping item.
 #include "database.h"
 #include "config.h"
+#undef NDEBUG   // keep assert() active even in Release (otherwise the test is a no-op)
 #include <cassert>
 #include <cstdio>
 #include <filesystem>

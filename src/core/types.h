@@ -96,3 +96,12 @@ inline int64_t to_unix(TimePoint t) {
 }
 
 } // namespace polymath
+
+// Qt metatype registration for the value types passed as queued-signal payloads.
+// Declared here, at the type definitions, so every consumer sees them before any
+// Q_OBJECT slot/signal references them (prevents QMetaTypeId double-instantiation
+// when a header declares e.g. a slot taking const Utterance&).
+#include <QMetaType>
+Q_DECLARE_METATYPE(polymath::Utterance)
+Q_DECLARE_METATYPE(polymath::Frame)
+Q_DECLARE_METATYPE(polymath::Detection)

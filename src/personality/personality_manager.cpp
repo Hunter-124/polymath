@@ -50,6 +50,8 @@ Personality defaultPersona() {
 
 } // namespace
 
+PersonalityManager::~PersonalityManager() = default;  // QFileSystemWatcher complete here
+
 PersonalityManager::PersonalityManager(Database& db, QObject* parent)
     : QObject(parent), db_(db) {
     // Single-shot debounce: every filesystem event restarts the countdown.

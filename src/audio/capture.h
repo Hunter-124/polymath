@@ -34,8 +34,9 @@ public:
     // The ring the worker drains. Stable for the lifetime of the Capture.
     FloatRing& ring() { return ring_; }
 
+public:
+    struct Impl;   // opaque; defined in the .cpp and named by the miniaudio callback
 private:
-    struct Impl;
     std::unique_ptr<Impl> d_;
     FloatRing             ring_{1u << 16};   // ~4 s @ 16 kHz
 };

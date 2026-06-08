@@ -399,8 +399,8 @@ DaySummary Summarizer::summarizeDay(int64_t day_unix) {
 
     EventBus::instance().publishNotice(
         {"info", "memory",
-         "Daily summary ready for " + ymd(start) + " (" +
-             std::to_string(out.reminder_ids.size()) + " reminder(s))."});
+         QString::fromStdString("Daily summary ready for " + ymd(start) + " (" +
+             std::to_string(out.reminder_ids.size()) + " reminder(s)).")});
 
     return out;
 }

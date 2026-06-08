@@ -1,8 +1,10 @@
 #include "tts_piper.h"
 #include "logging.h"
 
+#include <chrono>
 #include <map>
 #include <mutex>
+#include <thread>
 
 // miniaudio implementation lives in capture.cpp; here we only use the API.
 #define MA_NO_DECODING
@@ -164,8 +166,8 @@ bool TtsPiper::speak(const std::string& text, const std::string& voice) {
 
     // Spin until the buffer drains. miniaudio drives the callback on its own
     // thread; we just wait on this (already off-UI) worker thread.
-    while (!state.done) ma_sleep(10);
-    ma_sleep(50);   // let the last period flush
+    while (!state.done) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));   // let the last period flush
 
     ma_device_uninit(&device);
     PM_DEBUG("audio.tts: spoke {} samples @ {} Hz", pcm.size(), sr);

@@ -7,6 +7,11 @@ set(LLAMA_BUILD_TESTS   OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER  OFF CACHE BOOL "" FORCE)
 set(LLAMA_CURL          OFF CACHE BOOL "" FORCE)
+# Tools include `mtmd` (multimodal/VLM). Off for the initial bring-up: it is the
+# fastest-drifting part of llama.cpp and only powers describeImage(), which is
+# guarded by POLYMATH_HAVE_MTMD and cleanly stubs when absent. Re-enable once the
+# mtmd API is pinned/reconciled to restore the VLM "find my keys" path.
+set(LLAMA_BUILD_TOOLS   OFF CACHE BOOL "" FORCE)
 if(POLYMATH_USE_CUDA)
   set(GGML_CUDA ON CACHE BOOL "" FORCE)
 endif()
@@ -34,3 +39,12 @@ target_include_directories(miniaudio INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/minia
 
 add_library(hnswlib INTERFACE)
 target_include_directories(hnswlib INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/hnswlib)
+
+# ---- SQLite (vendored amalgamation, built static) --------------------------
+# Compiled into the app (no sqlite3.dll) so there is exactly one sqlite3 with our
+# CRT — the vcpkg sqlite3 DLL produced spurious SQLITE_NOMEM at runtime. Aliased
+# to the vcpkg target name so the module CMakeLists link it unchanged.
+add_library(sqlite3_local STATIC ${CMAKE_CURRENT_SOURCE_DIR}/sqlite3/sqlite3.c)
+target_include_directories(sqlite3_local PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/sqlite3)
+target_compile_definitions(sqlite3_local PRIVATE SQLITE_ENABLE_FTS5 SQLITE_THREADSAFE=1)
+add_library(unofficial::sqlite3::sqlite3 ALIAS sqlite3_local)
