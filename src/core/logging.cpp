@@ -19,6 +19,7 @@ void init(const std::string& log_dir) {
     logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%t] %v");
     spdlog::set_default_logger(logger);
     spdlog::flush_on(spdlog::level::warn);
+    spdlog::flush_every(std::chrono::seconds(3));   // don't lose buffered INFO
 }
 
 } // namespace polymath::logging

@@ -1,114 +1,85 @@
 <#
 .SYNOPSIS
-  Downloads the default Polymath model set into data/models/.
+  Downloads Polymath's default LOCAL model set (Gemma-based) into data/models/,
+  in the exact layout the app loads from.
 
 .DESCRIPTION
-  Pulls the GGUF LLMs, whisper ASR model, Piper TTS voices, and the ONNX models
-  (wake word, VAD, person detection, face recognition, embeddings) into the
-  canonical layout documented in docs/MODELS.md. Everything is local and free.
+  LLMs are Gemma (per preference): Gemma 3n E4B (fast/resident), Gemma 3 27B QAT
+  (heavy/deep-work), Gemma 3 4B QAT + mmproj (vision VLM), EmbeddingGemma (memory).
+  Plus whisper ASR, Piper voices, and the ONNX perception models. All local + free.
 
-  All model roles are reconfigurable in the in-app Model Manager, so you can
-  point at different files later — this just bootstraps sensible defaults.
+.PARAMETER Root      App data root (default: .\data next to the repo).
+.PARAMETER NoHeavy   Skip the big 27B heavy model (~16 GB).
+.PARAMETER NoLLM     Skip all GGUF LLMs (just perception/voice models).
 
-.PARAMETER Root
-  App data root (defaults to .\data next to the repo, matching the portable build).
-
-.PARAMETER Minimal
-  Skip the large/optional downloads (heavy LLM, vision VLM).
-
-.EXAMPLE
-  pwsh scripts/fetch-models.ps1 -Minimal
+.EXAMPLE  pwsh scripts/fetch-models.ps1
 #>
 [CmdletBinding()]
-param(
-  [string]$Root = (Join-Path $PSScriptRoot '..\data'),
-  [switch]$Minimal
-)
+param([string]$Root = (Join-Path $PSScriptRoot '..\data'), [switch]$NoHeavy, [switch]$NoLLM)
 
 $ErrorActionPreference = 'Stop'
 $models = Join-Path $Root 'models'
-
-# Canonical sub-layout (see docs/MODELS.md). The C++ side + Model Manager read
-# from here; keep these names if you want zero-config first run.
-$dirs = @{
-  llm       = Join-Path $models 'llm'
-  embed     = Join-Path $models 'embeddings'
-  whisper   = Join-Path $models 'whisper'
-  piper     = Join-Path $models 'piper'
-  wakeword  = Join-Path $models 'onnx\wakeword'
-  vad       = Join-Path $models 'onnx\vad'
-  yolo      = Join-Path $models 'onnx\yolo'
-  face      = Join-Path $models 'onnx\face'
-  vlm       = Join-Path $models 'vlm'
-}
-$dirs.Values | ForEach-Object { New-Item -ItemType Directory -Force -Path $_ | Out-Null }
-
-# Download manifest: each entry = @{ url; dest; optional }.
-# NOTE: URLs point at the canonical Hugging Face / GitHub release assets. If a
-# repo has moved, update the url — the destination layout is what matters.
 $HF = 'https://huggingface.co'
-$manifest = @(
-  # --- Fast LLM (resident, real-time) -------------------------------------
-  @{ url = "$HF/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf";
-     dest = Join-Path $dirs.llm 'Qwen2.5-7B-Instruct-Q4_K_M.gguf'; optional = $false }
 
-  # --- Embeddings (memory / RAG) ------------------------------------------
-  @{ url = "$HF/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf";
-     dest = Join-Path $dirs.embed 'nomic-embed-text-v1.5.Q4_K_M.gguf'; optional = $false }
+# Layout the C++ code reads from (do not rename — paths are hard-referenced):
+#   models/llm, models/vlm, models/embeddings        (LLM GGUFs; auto-registered)
+#   models/whisper/*.bin                              (ASR)
+#   models/piper/<voice>/<voice>.onnx(.json)          (TTS)
+#   models/vad/silero_vad.onnx                        (VAD)
+#   models/wakeword/{melspectrogram,embedding_model,hey_jarvis}.onnx
+#   models/yolov8n.onnx  models/scrfd_500m.onnx  models/arcface_r100.onnx  (vision)
+@('llm','vlm','embeddings','whisper','vad','wakeword','piper') |
+  ForEach-Object { New-Item -ItemType Directory -Force (Join-Path $models $_) | Out-Null }
 
-  # --- Whisper ASR --------------------------------------------------------
-  @{ url = "$HF/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin";
-     dest = Join-Path $dirs.whisper 'ggml-base.en.bin'; optional = $false }
-  @{ url = "$HF/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin";
-     dest = Join-Path $dirs.whisper 'ggml-tiny.en.bin'; optional = $false }  # ambient
+function Fetch($url, $dest) {
+  if (Test-Path $dest) { Write-Host "  [skip] $(Split-Path $dest -Leaf)" -ForegroundColor DarkGray; return }
+  New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+  Write-Host "  [get ] $(Split-Path $dest -Leaf)" -ForegroundColor Cyan
+  # curl with resume (-C -) handles the multi-GB GGUFs better than Invoke-WebRequest.
+  & curl.exe -L --fail --retry 3 -C - -o $dest $url
+  if ($LASTEXITCODE -ne 0) { Write-Warning "    failed: $url" }
+}
 
-  # --- Piper TTS voices (per-personality) ---------------------------------
-  @{ url = "$HF/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx";
-     dest = Join-Path $dirs.piper 'en_GB-alan-medium.onnx'; optional = $false }
-  @{ url = "$HF/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx.json";
-     dest = Join-Path $dirs.piper 'en_GB-alan-medium.onnx.json'; optional = $false }
-  @{ url = "$HF/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx";
-     dest = Join-Path $dirs.piper 'en_US-amy-medium.onnx'; optional = $false }
-  @{ url = "$HF/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx.json";
-     dest = Join-Path $dirs.piper 'en_US-amy-medium.onnx.json'; optional = $false }
-
-  # --- Silero VAD ----------------------------------------------------------
-  @{ url = 'https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx';
-     dest = Join-Path $dirs.vad 'silero_vad.onnx'; optional = $false }
-
-  # --- Person detection (YOLO, ONNX) --------------------------------------
-  @{ url = "$HF/Xenova/yolov8n/resolve/main/onnx/model.onnx";
-     dest = Join-Path $dirs.yolo 'yolov8n.onnx'; optional = $false }
-
-  # --- Heavy LLM (on-demand deep work) — large, optional ------------------
-  @{ url = "$HF/bartowski/Qwen2.5-32B-Instruct-GGUF/resolve/main/Qwen2.5-32B-Instruct-Q4_K_M.gguf";
-     dest = Join-Path $dirs.llm 'Qwen2.5-32B-Instruct-Q4_K_M.gguf'; optional = $true }
-
-  # --- Vision VLM (image analysis / find-object) — large, optional --------
-  @{ url = "$HF/ggml-org/Qwen2-VL-7B-Instruct-GGUF/resolve/main/Qwen2-VL-7B-Instruct-Q4_K_M.gguf";
-     dest = Join-Path $dirs.vlm 'Qwen2-VL-7B-Instruct-Q4_K_M.gguf'; optional = $true }
-  @{ url = "$HF/ggml-org/Qwen2-VL-7B-Instruct-GGUF/resolve/main/mmproj-Qwen2-VL-7B-Instruct-f16.gguf";
-     dest = Join-Path $dirs.vlm 'mmproj-Qwen2-VL-7B-Instruct-f16.gguf'; optional = $true }
-)
-
-function Get-Model($item) {
-  if (Test-Path $item.dest) { Write-Host "  [skip] $(Split-Path $item.dest -Leaf) (exists)" -ForegroundColor DarkGray; return }
-  Write-Host "  [get ] $(Split-Path $item.dest -Leaf)" -ForegroundColor Cyan
-  try {
-    Invoke-WebRequest -Uri $item.url -OutFile $item.dest -UseBasicParsing
-  } catch {
-    Write-Warning "    failed: $($item.url)`n    $($_.Exception.Message)"
-    Write-Warning "    (download manually into $($item.dest) — the URL may have moved)"
+if (-not $NoLLM) {
+  Write-Host "Gemma LLMs ->" -ForegroundColor Green
+  # Fast (resident): Gemma 3n E4B, Q4_K_M (~4 GB) — efficient, big-VRAM headroom.
+  Fetch "$HF/unsloth/gemma-3n-E4B-it-GGUF/resolve/main/gemma-3n-E4B-it-Q4_K_M.gguf" "$models/llm/gemma-3n-E4B-it-Q4_K_M.gguf"
+  # Vision VLM: Gemma 3 4B Q4 + projector (multimodal). Ungated unsloth mirror
+  # (the official google/* QAT repos are gated and 401 without an HF token).
+  Fetch "$HF/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf" "$models/vlm/gemma-3-4b-it-Q4_K_M.gguf"
+  Fetch "$HF/unsloth/gemma-3-4b-it-GGUF/resolve/main/mmproj-F16.gguf"            "$models/vlm/mmproj-gemma-3-4b-f16.gguf"
+  # Embeddings: EmbeddingGemma 300M Q8 (~300 MB).
+  Fetch "$HF/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf" "$models/embeddings/embeddinggemma-300M-Q8_0.gguf"
+  # Heavy (on-demand deep-work): Gemma 3 27B Q4_K_M (~16 GB) — partial offload.
+  if (-not $NoHeavy) {
+    Fetch "$HF/unsloth/gemma-3-27b-it-GGUF/resolve/main/gemma-3-27b-it-Q4_K_M.gguf" "$models/llm/gemma-3-27b-it-Q4_K_M.gguf"
   }
 }
 
-Write-Host "Polymath model fetch -> $models" -ForegroundColor Green
-Write-Host "openWakeWord + face-recognition (SCRFD/ArcFace) ONNX models:" -ForegroundColor Yellow
-Write-Host "  these ship as multi-file bundles; see docs/MODELS.md for the exact files and links." -ForegroundColor Yellow
+Write-Host "Whisper ASR ->" -ForegroundColor Green
+Fetch "$HF/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" "$models/whisper/ggml-base.en.bin"
+Fetch "$HF/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin" "$models/whisper/ggml-tiny.en.bin"
 
-foreach ($m in $manifest) {
-  if ($Minimal -and $m.optional) { continue }
-  Get-Model $m
+Write-Host "Piper voices ->" -ForegroundColor Green
+foreach ($v in @(
+  @{ id='en_GB-alan-medium';      path='en/en_GB/alan/medium' },
+  @{ id='en_US-amy-medium';       path='en/en_US/amy/medium' })) {
+  Fetch "$HF/rhasspy/piper-voices/resolve/main/$($v.path)/$($v.id).onnx"      "$models/piper/$($v.id)/$($v.id).onnx"
+  Fetch "$HF/rhasspy/piper-voices/resolve/main/$($v.path)/$($v.id).onnx.json" "$models/piper/$($v.id)/$($v.id).onnx.json"
 }
 
-Write-Host "`nDone. Review docs/MODELS.md, then launch Polymath and assign roles in the Model Manager." -ForegroundColor Green
+Write-Host "VAD + wake word ->" -ForegroundColor Green
+Fetch "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx" "$models/vad/silero_vad.onnx"
+$oww = 'https://github.com/dscripka/openWakeWord/releases/download/v0.5.1'
+Fetch "$oww/melspectrogram.onnx"   "$models/wakeword/melspectrogram.onnx"
+Fetch "$oww/embedding_model.onnx"  "$models/wakeword/embedding_model.onnx"
+Fetch "$oww/hey_jarvis_v0.1.onnx"  "$models/wakeword/hey_jarvis.onnx"   # default wake phrase
+
+Write-Host "Vision (YOLO + face) ->" -ForegroundColor Green
+Fetch "$HF/Xenova/yolov8n/resolve/main/onnx/model.onnx" "$models/yolov8n.onnx"
+# InsightFace SCRFD detector + ArcFace recognizer (ONNX, buffalo_l pack). Named
+# to match the code; the architectures are interface-compatible with the loaders.
+Fetch "$HF/immich-app/buffalo_l/resolve/main/detection/model.onnx"   "$models/scrfd_500m.onnx"
+Fetch "$HF/immich-app/buffalo_l/resolve/main/recognition/model.onnx" "$models/arcface_r100.onnx"
+
+Write-Host "`nDone. Launch Polymath — LLMs auto-register on first run (Model Manager to adjust roles)." -ForegroundColor Green

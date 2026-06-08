@@ -4,11 +4,14 @@
 #include "database.h"
 #include "event_bus.h"
 #include "logging.h"
+#include "paths.h"
 
 #include <QMetaObject>
 #include <QThread>
 
 #include <algorithm>
+#include <cctype>
+#include <filesystem>
 
 // InferenceManager — owns the tiered model pool and arbitrates the ~8 GB VRAM
 // budget. Loads the registry from the `models` table, keeps the active Fast
@@ -75,7 +78,69 @@ void InferenceManager::stop() {
 // ---------------------------------------------------------------------------
 //  registry (mirror of the `models` table)
 // ---------------------------------------------------------------------------
+void InferenceManager::autoDiscoverModels() {
+    namespace fs = std::filesystem;
+    const auto root = Paths::instance().models();
+    std::error_code ec;
+    if (!fs::exists(root, ec)) return;
+
+    auto lc = [](std::string s) {
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        return s;
+    };
+
+    int inserted = 0;
+    // models/llm -> fast|heavy (by size hint), models/vlm -> vision (+mmproj),
+    // models/embeddings -> embedding.
+    for (const char* sub : {"llm", "vlm", "embeddings"}) {
+        const auto dir = root / sub;
+        if (!fs::exists(dir, ec)) continue;
+
+        std::string mmproj;   // the projector in this dir, if any (for vision)
+        for (auto& e : fs::directory_iterator(dir, ec))
+            if (lc(e.path().filename().string()).find("mmproj") != std::string::npos)
+                mmproj = e.path().string();
+
+        for (auto& e : fs::directory_iterator(dir, ec)) {
+            if (e.path().extension() != ".gguf") continue;
+            const std::string fname = lc(e.path().filename().string());
+            if (fname.find("mmproj") != std::string::npos) continue;   // projector
+
+            const std::string subS = sub;
+            std::string role = "fast";
+            int n_ctx = 8192;
+            if (subS == "vlm")              role = "vision";
+            else if (subS == "embeddings")  { role = "embedding"; n_ctx = 2048; }
+            else if (fname.find("27b") != std::string::npos ||
+                     fname.find("32b") != std::string::npos ||
+                     fname.find("70b") != std::string::npos)
+                role = "heavy";
+
+            const std::string path = e.path().string();
+            bool exists = false;
+            db_.query("SELECT 1 FROM models WHERE path=?1", {path},
+                      [&](const Row&) { exists = true; });
+            if (exists) continue;
+
+            const std::string id = e.path().stem().string();
+            // is_active=1 only if no other model of this role exists yet.
+            db_.exec(
+                "INSERT INTO models(id,display_name,path,role,n_ctx,n_gpu_layers,"
+                "chat_template,mmproj_path,is_active) VALUES(?1,?1,?2,?3,?4,999,'',?5,"
+                "(SELECT CASE WHEN EXISTS(SELECT 1 FROM models WHERE role=?3) THEN 0 ELSE 1 END))",
+                {id, path, role, n_ctx, role == "vision" ? mmproj : std::string()});
+            ++inserted;
+        }
+    }
+    if (inserted)
+        PM_INFO("InferenceManager: auto-registered {} new model(s) from {}",
+                inserted, root.string());
+}
+
 void InferenceManager::reloadRegistry() {
+    autoDiscoverModels();   // pick up any newly-downloaded models on disk
+
     std::vector<ModelSpec> specs;
     std::unordered_map<int, std::string> active;
 

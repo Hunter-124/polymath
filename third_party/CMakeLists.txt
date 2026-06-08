@@ -7,11 +7,14 @@ set(LLAMA_BUILD_TESTS   OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER  OFF CACHE BOOL "" FORCE)
 set(LLAMA_CURL          OFF CACHE BOOL "" FORCE)
-# Tools include `mtmd` (multimodal/VLM). Off for the initial bring-up: it is the
-# fastest-drifting part of llama.cpp and only powers describeImage(), which is
-# guarded by POLYMATH_HAVE_MTMD and cleanly stubs when absent. Re-enable once the
-# mtmd API is pinned/reconciled to restore the VLM "find my keys" path.
-set(LLAMA_BUILD_TOOLS   OFF CACHE BOOL "" FORCE)
+# Tools include `mtmd` (multimodal/VLM) — needed for describeImage()/"find my
+# keys". ON now that the mtmd API is reconciled. Targeted builds (pm_inference)
+# only compile the `mtmd` library, not the standalone tool executables.
+set(LLAMA_BUILD_TOOLS   ON CACHE BOOL "" FORCE)
+# mtmd lives under tools/, which is only added when COMMON is also built (it
+# defaults OFF for a subdirectory build). Targeting pm_inference still compiles
+# only the mtmd + common libs, not the standalone tool executables.
+set(LLAMA_BUILD_COMMON  ON CACHE BOOL "" FORCE)
 if(POLYMATH_USE_CUDA)
   set(GGML_CUDA ON CACHE BOOL "" FORCE)
 endif()

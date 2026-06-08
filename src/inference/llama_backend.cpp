@@ -18,6 +18,7 @@
 // guarded; define POLYMATH_HAVE_MTMD to enable describeImage().
 #  ifdef POLYMATH_HAVE_MTMD
 #    include <mtmd.h>
+#    include <mtmd-helper.h>   // mtmd_helper_bitmap_init_from_buf / eval_chunks
 #  endif
 #endif
 
@@ -374,8 +375,12 @@ std::string LlamaBackend::describeImage(const Frame& frame, std::string_view pro
 
     // Decode the JPEG bytes into an mtmd bitmap (RGB). API: helper name is
     // mtmd_helper_bitmap_init_from_buf in recent tags.
-    mtmd_bitmap* bmp = mtmd_helper_bitmap_init_from_buf(
-        d_->mtmd, frame.jpeg.data(), frame.jpeg.size());
+    // mtmd-helper now returns a wrapper {bitmap, video_ctx} and takes a
+    // `placeholder` flag. For a still image video_ctx is null; stb_image decodes
+    // the JPEG internally.
+    mtmd_helper_bitmap_wrapper bmp_wrap = mtmd_helper_bitmap_init_from_buf(
+        d_->mtmd, frame.jpeg.data(), frame.jpeg.size(), /*placeholder*/ false);
+    mtmd_bitmap* bmp = bmp_wrap.bitmap;
     if (!bmp) {
         PM_ERROR("LlamaBackend::describeImage: failed to decode frame JPEG");
         return {};

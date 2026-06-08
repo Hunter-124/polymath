@@ -69,6 +69,9 @@ private:
     const ModelSpec* specForRole(ModelRole role) const;   // active spec, or null
     const ModelSpec* specById(const std::string& id) const;
     void          emitVram();
+    // Scan models/{llm,vlm,embeddings} for .gguf and register any new files in
+    // the `models` table with an inferred role (so downloaded models just work).
+    void          autoDiscoverModels();
     static const char* roleName(ModelRole role);
 
     Database& db_;

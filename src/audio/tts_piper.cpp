@@ -1,9 +1,13 @@
 #include "tts_piper.h"
 #include "logging.h"
 
+#include <QProcess>
+#include <QStringList>
+#include <QByteArray>
+
+#include <nlohmann/json.hpp>
 #include <chrono>
-#include <map>
-#include <mutex>
+#include <fstream>
 #include <thread>
 
 // miniaudio implementation lives in capture.cpp; here we only use the API.
@@ -12,113 +16,100 @@
 #define MA_NO_GENERATION
 #include "miniaudio.h"
 
-// Piper is gated by POLYMATH_HAVE_PIPER (set by CMake when third_party/piper is
-// present). Pinned to piper 1.2.x (piper.hpp: piper::PiperConfig, piper::Voice,
-// piper::initialize / loadVoice / textToAudio / terminate). Without it the
-// module still compiles; speak() logs and returns false.
-#if defined(POLYMATH_HAVE_PIPER)
-#  include "piper.hpp"
-#endif
+// TTS via the prebuilt Piper engine (piper.exe), driven as a subprocess:
+//   text -> stdin ; raw s16 mono PCM -> stdout.
+// This avoids building libpiper/piper-phonemize/espeak-ng from source (a painful
+// chain on Windows). The engine (piper.exe + dlls + espeak-ng-data) is deployed
+// to <data>/models/piper-engine/; voices live in <data>/models/piper/<voice>/.
 
 namespace polymath::audio {
 
 struct TtsPiper::Impl {
     std::filesystem::path voices_dir;
     std::string           default_voice;
+    std::filesystem::path piper_exe;     // models/piper-engine/piper.exe
 
-#if defined(POLYMATH_HAVE_PIPER)
-    piper::PiperConfig                            config;
-    std::map<std::string, std::unique_ptr<piper::Voice>> voices;  // lazy cache
-    std::mutex                                    mtx;
-
-    // Loads (or returns cached) voice. Returns nullptr if files missing.
-    piper::Voice* voice(const std::filesystem::path& voices_dir, const std::string& name) {
-        std::lock_guard<std::mutex> lk(mtx);
-        auto it = voices.find(name);
-        if (it != voices.end()) return it->second.get();
-
-        const auto dir   = voices_dir / name;
-        const auto model = dir / (name + ".onnx");
-        const auto cfg   = dir / (name + ".onnx.json");
-        if (!std::filesystem::exists(model) || !std::filesystem::exists(cfg)) {
-            PM_WARN("audio.tts: voice '{}' not found under {}", name, dir.string());
-            return nullptr;
-        }
-        auto v = std::make_unique<piper::Voice>();
-        std::optional<piper::SpeakerId> sid;
+    // Read a voice's sample rate from its .onnx.json (Piper config), default 22050.
+    int sampleRate(const std::filesystem::path& cfg) const {
         try {
-            piper::loadVoice(config, model.string(), cfg.string(), *v, sid, false);
-        } catch (const std::exception& e) {
-            PM_ERROR("audio.tts: loadVoice('{}') failed: {}", name, e.what());
-            return nullptr;
-        }
-        auto* raw = v.get();
-        voices.emplace(name, std::move(v));
-        return raw;
+            std::ifstream in(cfg);
+            auto j = nlohmann::json::parse(in);
+            if (j.contains("audio") && j["audio"].contains("sample_rate"))
+                return j["audio"]["sample_rate"].get<int>();
+        } catch (...) {}
+        return 22050;
     }
-#endif
 };
 
 TtsPiper::TtsPiper() : d_(std::make_unique<Impl>()) {}
-
-TtsPiper::~TtsPiper() {
-#if defined(POLYMATH_HAVE_PIPER)
-    if (ready_) piper::terminate(d_->config);
-#endif
-}
+TtsPiper::~TtsPiper() = default;
 
 bool TtsPiper::init(const std::filesystem::path& voices_dir, const std::string& default_voice) {
     d_->voices_dir    = voices_dir;
     d_->default_voice = default_voice;
-    ready_            = false;
-#if defined(POLYMATH_HAVE_PIPER)
-    try {
-        // espeak-ng data ships alongside the voices for phonemisation.
-        d_->config.eSpeakDataPath = (voices_dir / "espeak-ng-data").string();
-        piper::initialize(d_->config);
-    } catch (const std::exception& e) {
-        PM_ERROR("audio.tts: piper::initialize failed: {}", e.what());
-        return false;
-    }
-    ready_ = true;
-    PM_INFO("audio.tts: Piper ready (default voice '{}')", default_voice);
-    return true;
-#else
-    PM_WARN("audio.tts: built without Piper; speak() is a no-op");
-    return false;
-#endif
+    // Engine sits next to the voices: <models>/piper-engine/piper.exe.
+    d_->piper_exe = voices_dir.parent_path() / "piper-engine" / "piper.exe";
+    ready_ = std::filesystem::exists(d_->piper_exe);
+    if (ready_)
+        PM_INFO("audio.tts: Piper engine at {} (default voice '{}')",
+                d_->piper_exe.string(), default_voice);
+    else
+        PM_WARN("audio.tts: piper.exe not found at {} — TTS disabled "
+                "(run scripts/fetch-models.ps1)", d_->piper_exe.string());
+    return ready_;
 }
 
 bool TtsPiper::synthesize(const std::string& text, const std::string& voice,
                           std::vector<int16_t>& out_pcm, int& out_sample_rate) {
     out_pcm.clear();
-    out_sample_rate = 22050;   // typical Piper voice rate; overwritten below
+    out_sample_rate = 22050;
     if (!ready_ || text.empty()) return false;
 
-#if defined(POLYMATH_HAVE_PIPER)
-    const std::string name = voice.empty() ? d_->default_voice : voice;
-    piper::Voice* v = d_->voice(d_->voices_dir, name);
-    if (!v) {
-        // Fall back to default voice if the requested one is missing.
-        if (name != d_->default_voice) v = d_->voice(d_->voices_dir, d_->default_voice);
-        if (!v) return false;
-    }
-
-    piper::SynthesisResult result;
-    try {
-        // textToAudio appends int16 samples; pass an empty audio-callback so it
-        // collects the whole utterance into out_pcm.
-        piper::textToAudio(d_->config, *v, text, out_pcm, result, nullptr);
-    } catch (const std::exception& e) {
-        PM_ERROR("audio.tts: textToAudio failed: {}", e.what());
+    // Resolve the voice files, falling back to the default voice.
+    auto resolve = [&](const std::string& name) -> std::filesystem::path {
+        auto model = d_->voices_dir / name / (name + ".onnx");
+        return std::filesystem::exists(model) ? model : std::filesystem::path{};
+    };
+    std::string name = voice.empty() ? d_->default_voice : voice;
+    std::filesystem::path model = resolve(name);
+    if (model.empty() && name != d_->default_voice) { name = d_->default_voice; model = resolve(name); }
+    if (model.empty()) {
+        PM_WARN("audio.tts: voice '{}' not found under {}", name, d_->voices_dir.string());
         return false;
     }
-    out_sample_rate = v->synthesisConfig.sampleRate;
+    const auto cfg = d_->voices_dir / name / (name + ".onnx.json");
+    out_sample_rate = d_->sampleRate(cfg);
+
+    // Run piper.exe: text on stdin, raw s16 mono PCM on stdout. The working dir
+    // is the engine folder so it locates espeak-ng-data/ + its DLLs.
+    QProcess proc;
+    proc.setWorkingDirectory(QString::fromStdString(d_->piper_exe.parent_path().string()));
+    proc.setProgram(QString::fromStdString(d_->piper_exe.string()));
+    proc.setArguments(QStringList{}
+        << "--model"  << QString::fromStdString(model.string())
+        << "--config" << QString::fromStdString(cfg.string())
+        << "--output_raw");
+    proc.start();
+    if (!proc.waitForStarted(5000)) {
+        PM_ERROR("audio.tts: failed to start piper.exe");
+        return false;
+    }
+    proc.write(text.data(), static_cast<qint64>(text.size()));
+    proc.closeWriteChannel();
+    if (!proc.waitForFinished(30000)) {
+        PM_ERROR("audio.tts: piper.exe timed out");
+        proc.kill();
+        return false;
+    }
+    const QByteArray raw = proc.readAllStandardOutput();
+    if (raw.isEmpty()) {
+        PM_ERROR("audio.tts: piper produced no audio ({})",
+                 QString::fromUtf8(proc.readAllStandardError().left(200)).toStdString());
+        return false;
+    }
+    out_pcm.resize(static_cast<size_t>(raw.size()) / sizeof(int16_t));
+    std::memcpy(out_pcm.data(), raw.constData(), out_pcm.size() * sizeof(int16_t));
     return !out_pcm.empty();
-#else
-    (void)text; (void)voice;
-    return false;
-#endif
 }
 
 bool TtsPiper::speak(const std::string& text, const std::string& voice) {
@@ -126,7 +117,7 @@ bool TtsPiper::speak(const std::string& text, const std::string& voice) {
     int sr = 22050;
     if (!synthesize(text, voice, pcm, sr) || pcm.empty()) return false;
 
-    // Blocking playback via a temporary miniaudio device + a tiny SPSC cursor.
+    // Blocking playback via a temporary miniaudio device + a tiny cursor.
     struct PlaybackState {
         const int16_t* data = nullptr;
         size_t         total = 0;
@@ -164,10 +155,8 @@ bool TtsPiper::speak(const std::string& text, const std::string& voice) {
         return false;
     }
 
-    // Spin until the buffer drains. miniaudio drives the callback on its own
-    // thread; we just wait on this (already off-UI) worker thread.
     while (!state.done) std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));   // let the last period flush
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));   // flush last period
 
     ma_device_uninit(&device);
     PM_DEBUG("audio.tts: spoke {} samples @ {} Hz", pcm.size(), sr);

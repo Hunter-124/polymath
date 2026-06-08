@@ -44,3 +44,6 @@ CMakeUserPresets.json
 
 # Misc
 *.log
+
+# Downloaded prebuilt Piper engine (fetched by scripts)
+/third_party/piper-engine/
