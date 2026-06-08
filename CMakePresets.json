@@ -1,0 +1,55 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "POLYMATH_ONNXRUNTIME_ROOT": "$env{ONNXRUNTIME_ROOT}"
+      }
+    },
+    {
+      "name": "cuda-release",
+      "displayName": "CUDA Release",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "POLYMATH_USE_CUDA": "ON",
+        "GGML_CUDA": "ON"
+      }
+    },
+    {
+      "name": "cuda-debug",
+      "displayName": "CUDA Debug",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "POLYMATH_USE_CUDA": "ON",
+        "GGML_CUDA": "ON"
+      }
+    },
+    {
+      "name": "cpu-release",
+      "displayName": "CPU-only Release (no GPU)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "POLYMATH_USE_CUDA": "OFF",
+        "GGML_CUDA": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "cuda-release", "configurePreset": "cuda-release" },
+    { "name": "cuda-debug", "configurePreset": "cuda-debug" },
+    { "name": "cpu-release", "configurePreset": "cpu-release" }
+  ],
+  "testPresets": [
+    { "name": "cuda-release", "configurePreset": "cuda-release", "output": { "outputOnFailure": true } }
+  ]
+}

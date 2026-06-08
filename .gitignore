@@ -1,0 +1,38 @@
+# Build
+/build/
+/out/
+/install/
+*.obj
+*.o
+*.lib
+*.pdb
+*.exe
+*.dll
+
+# vcpkg
+/vcpkg_installed/
+/third_party/vcpkg/
+
+# Runtime data (large / private)
+/models/
+/media/
+/data/
+/vectors/
+/documents/
+*.gguf
+*.onnx
+*.bin
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+
+# IDE
+/.vs/
+/.vscode/
+.idea/
+CMakeSettings.json
+CMakeUserPresets.json
+
+# Misc
+*.log

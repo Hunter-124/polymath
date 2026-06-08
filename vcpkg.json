@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "polymath",
+  "version": "0.1.0",
+  "description": "Local AI home assistant (Qt Quick + llama.cpp + whisper.cpp + ONNX Runtime)",
+  "builtin-baseline": "0000000000000000000000000000000000000000",
+  "dependencies": [
+    { "name": "qtbase", "default-features": false, "features": ["gui", "widgets", "concurrent", "network"] },
+    "qtdeclarative",
+    "qtmultimedia",
+    { "name": "opencv4", "default-features": false, "features": ["dnn", "ffmpeg", "jpeg", "png"] },
+    "sqlite3",
+    "nlohmann-json",
+    "fmt",
+    "spdlog",
+    "libsamplerate"
+  ],
+  "overrides": [],
+  "comment": "ONNX Runtime (GPU), llama.cpp, whisper.cpp and Piper are NOT taken from vcpkg. ONNX Runtime GPU is downloaded as a prebuilt package (see docs/BUILD.md); the inference sub-engines are vendored as git submodules under third_party/ and built with CUDA via add_subdirectory."
+}
