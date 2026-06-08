@@ -1,0 +1,59 @@
+#include "tool_registry.h"
+
+#include "shopping_tool.h"
+#include "web_search.h"
+#include "fetch_page.h"
+#include "documents.h"
+#include "print.h"
+#include "reminders.h"
+#include "memory_tools.h"
+#include "camera_tools.h"
+#include "queue_tool.h"
+
+#include "logging.h"
+
+#include <memory>
+
+// register_tools — the single place that wires every builtin ITool into the
+// registry. Moved out of shopping_tool.cpp so each tool family lives in its own
+// translation unit. The AgentRuntime constructs one ToolRegistry and calls this
+// once; per-turn filtering against the active personality's allow-list happens
+// later in ToolRegistry::specs().
+
+namespace polymath {
+
+void registerBuiltinTools(ToolRegistry& reg) {
+    // Shopping list (SQLite).
+    reg.add(std::make_shared<ShoppingAddTool>());
+    reg.add(std::make_shared<ShoppingListTool>());
+    reg.add(std::make_shared<ShoppingRemoveTool>());
+
+    // Web (Qt Network).
+    reg.add(std::make_shared<WebSearchTool>());
+    reg.add(std::make_shared<FetchPageTool>());
+
+    // Documents (.docx via OOXML) + printing (QPrinter).
+    reg.add(std::make_shared<DraftDocumentTool>());
+    reg.add(std::make_shared<GenerateLabReportTool>());
+    reg.add(std::make_shared<PrintDocumentTool>());
+    reg.add(std::make_shared<PrintImageTool>());
+
+    // Reminders / proactive (reminders table).
+    reg.add(std::make_shared<SetReminderTool>());
+
+    // Long-term memory (memories table + vector upgrade via MemoryService).
+    reg.add(std::make_shared<RememberTool>());
+    reg.add(std::make_shared<RecallTool>());
+    reg.add(std::make_shared<SearchMemoryTool>());
+
+    // Home / cameras (events table + EventBus).
+    reg.add(std::make_shared<CameraSnapshotTool>());
+    reg.add(std::make_shared<WhoIsHomeTool>());
+
+    // Deep-task queue (tasks table).
+    reg.add(std::make_shared<QueueDeepTaskTool>());
+
+    PM_INFO("registerBuiltinTools: {} tools registered", reg.names().size());
+}
+
+} // namespace polymath

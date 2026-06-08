@@ -8,8 +8,13 @@
 #include "service.h"
 #include "types.h"
 #include <QObject>
+#include <QString>
+#include <QTimer>
+#include <memory>
 #include <string>
 #include <vector>
+
+class QFileSystemWatcher;
 
 namespace polymath {
 
@@ -45,9 +50,25 @@ signals:
     void personalitiesChanged();
 
 private:
-    Database&                db_;
-    std::vector<Personality> personas_;
-    int                      active_ = 0;
+    // Mirror personas_ into the `personalities` table (upsert + prune), keeping
+    // is_active consistent so the agent module can read the active persona.
+    void syncDatabase();
+    // Restore the previously-active persona by name (survives restarts); returns
+    // the resolved index (0 if the stored name is gone / nothing persisted).
+    int  resolveActiveIndex() const;
+    // Persist exactly one is_active=1 row for `name` (all others cleared).
+    void persistActive(const std::string& name);
+    // Watch personalities/ for added/removed/edited bundles; debounced rescan.
+    void installWatcher();
+    void rewatch();              // (re)register the dir + per-bundle paths
+    void onDirChanged();         // QFileSystemWatcher hook -> schedules a rescan
+
+    Database&                          db_;
+    std::vector<Personality>           personas_;
+    int                                active_ = 0;
+    std::unique_ptr<QFileSystemWatcher> watcher_;
+    QTimer                             rescan_timer_;   // debounce filesystem churn
+    bool                               scanning_ = false;
 };
 
 } // namespace polymath

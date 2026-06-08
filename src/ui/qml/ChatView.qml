@@ -4,7 +4,6 @@ import QtQuick.Layouts
 
 Item {
     id: root
-    property string streaming: ""
 
     ColumnLayout {
         anchors.fill: parent
@@ -18,26 +17,43 @@ Item {
             ComboBox {
                 id: personaBox
                 model: app.personalities()
+                Component.onCompleted: {
+                    var i = model.indexOf(app.activePersonality)
+                    if (i >= 0) currentIndex = i
+                }
                 onActivated: app.setPersonality(currentText)
             }
         }
 
+        // Backed by the C++ ChatModel (app.chatModel). The model coalesces
+        // streamed assistant tokens per request id into one bubble.
         ListView {
             id: log
             Layout.fillWidth: true; Layout.fillHeight: true
             clip: true; spacing: 8
-            model: ListModel { id: messages }
+            model: app.chatModel
             delegate: Rectangle {
+                id: bubble
                 required property string who
                 required property string text
+                required property bool streaming
                 width: log.width
                 height: msg.implicitHeight + 16
                 radius: 8
-                color: who === "you" ? "#1f2335" : "#24283b"
-                Label {
-                    id: msg; anchors.fill: parent; anchors.margins: 8
-                    text: (who === "you" ? "You: " : "Assistant: ") + parent.text
-                    color: "#c0caf5"; wrapMode: Text.WordWrap
+                color: bubble.who === "you" ? "#1f2335" : "#24283b"
+                RowLayout {
+                    anchors.fill: parent; anchors.margins: 8; spacing: 8
+                    Label {
+                        id: msg
+                        Layout.fillWidth: true
+                        text: (bubble.who === "you" ? "You: " : "Assistant: ") + bubble.text
+                        color: "#c0caf5"; wrapMode: Text.WordWrap
+                    }
+                    // Subtle streaming indicator while tokens are still arriving.
+                    Label {
+                        visible: bubble.streaming
+                        text: "…"; color: "#7aa2f7"; font.bold: true
+                    }
                 }
             }
             onCountChanged: positionViewAtEnd()
@@ -57,19 +73,7 @@ Item {
 
     function send() {
         if (input.text.length === 0) return
-        messages.append({ who: "you", text: input.text })
-        messages.append({ who: "assistant", text: "" })
-        root.streaming = ""
-        app.sendText(input.text)
+        app.sendChat(input.text)   // appends the user turn to the model + dispatches
         input.text = ""
-    }
-
-    Connections {
-        target: app
-        function onAssistantToken(request_id, text, done) {
-            root.streaming += text
-            if (messages.count > 0)
-                messages.setProperty(messages.count - 1, "text", root.streaming)
-        }
     }
 }

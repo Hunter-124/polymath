@@ -32,6 +32,10 @@ int main(int argc, char* argv[]) {
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("app", &controller);
 
+    // Register the Wave-3 data models (context properties) and the camera image
+    // provider ("image://cameras/<id>") before the QML is loaded.
+    controller.registerWithEngine(engine);
+
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
                      &app, [] { QCoreApplication::exit(2); }, Qt::QueuedConnection);
 

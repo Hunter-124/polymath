@@ -9,6 +9,8 @@
 #include "service.h"
 #include <QObject>
 #include <QTimer>
+#include <cstdint>
+#include <string>
 
 namespace polymath {
 
@@ -30,8 +32,14 @@ private slots:
 
 private:
     bool inQuietHours() const;
+    bool someoneHome() const;                       // recent person/face presence
+    bool conditionMet(const std::string& cond) const;
+    void fireReminder(qint64 id, const std::string& text,
+                      const std::string& rrule, int64_t due_at);
+
     Database& db_;
     QTimer    timer_;
+    int64_t   last_presence_unix_ = 0;              // refreshed by detection events
 };
 
 class IdleDetector : public QObject, public IService {

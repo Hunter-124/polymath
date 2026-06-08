@@ -9,10 +9,12 @@
 #include "database.h"
 #include <QObject>
 #include <QStringList>
+#include <QVariantList>
 #include <memory>
 #include <vector>
 
 class QThread;
+class QQmlApplicationEngine;
 
 namespace polymath {
 
@@ -26,11 +28,25 @@ class MemoryService;
 class AgentRuntime;
 class PersonalityManager;
 
+// Wave-3 UI data layer (QAbstractListModels + the live-frame image provider).
+class ChatModel;
+class ShoppingModel;
+class CameraModel;
+class TaskModel;
+class TimelineModel;
+class CameraImageProvider;
+
 class AppController : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool listening READ listening NOTIFY listeningChanged)
     Q_PROPERTY(QString activePersonality READ activePersonality NOTIFY activePersonalityChanged)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY modelStatusChanged)
+    // Wave-3 UI: data models exposed to QML (constructed in initialize()).
+    Q_PROPERTY(QObject* chatModel     READ chatModel     CONSTANT)
+    Q_PROPERTY(QObject* shoppingModel READ shoppingModel CONSTANT)
+    Q_PROPERTY(QObject* cameraModel   READ cameraModel   CONSTANT)
+    Q_PROPERTY(QObject* taskModel     READ taskModel     CONSTANT)
+    Q_PROPERTY(QObject* timelineModel READ timelineModel CONSTANT)
 public:
     explicit AppController(QObject* parent = nullptr);
     ~AppController() override;
@@ -38,9 +54,22 @@ public:
     bool initialize();    // open DB, seed config, build + start services
     void shutdown();
 
+    // Registers the data models as context properties and installs the camera
+    // image provider on `engine`.  Call from main.cpp after initialize() and
+    // before loading the QML root (it is additive — the legacy "app" context
+    // property still works for code that uses app.chatModel etc.).
+    void registerWithEngine(QQmlApplicationEngine& engine);
+
     bool    listening() const { return listening_; }
     QString activePersonality() const { return active_personality_; }
     QString modelStatus() const { return model_status_; }
+
+    // Model accessors (return QObject* so they bind cleanly as Q_PROPERTYs).
+    QObject* chatModel() const;
+    QObject* shoppingModel() const;
+    QObject* cameraModel() const;
+    QObject* taskModel() const;
+    QObject* timelineModel() const;
 
     // --- QML-callable actions ---
     Q_INVOKABLE void sendText(const QString& text);
@@ -52,6 +81,23 @@ public:
     Q_INVOKABLE void findObject(const QString& query);
     Q_INVOKABLE void addShoppingItem(const QString& item);
 
+    // --- Wave-3 UI helpers ---
+    // Reload every table-backed model from SQLite (call when a view becomes
+    // visible).  Cheap, bounded reads on the UI thread.
+    Q_INVOKABLE void refreshAll();
+    Q_INVOKABLE void refreshShopping();
+    Q_INVOKABLE void refreshCameras();
+    Q_INVOKABLE void refreshTasks();
+    Q_INVOKABLE void refreshTimeline();
+
+    // Send chat text, appending the user turn to the ChatModel and correlating
+    // the streamed reply.  Thin wrapper over sendText() the ChatView calls.
+    Q_INVOKABLE void sendChat(const QString& text);
+
+    // Registered inference models (the `models` table) for the Model Manager UI,
+    // as a list of maps {id,displayName,role,path,nCtx,nGpuLayers,active}.
+    Q_INVOKABLE QVariantList models() const;
+
 signals:
     void listeningChanged();
     void activePersonalityChanged();
@@ -62,8 +108,22 @@ signals:
 
 private:
     void wireEventBus();
+    void buildModels();      // construct the UI models + image provider
+    void wireModels();       // connect EventBus -> models (queued onto UI thread)
 
     Database db_;
+
+    // Wave-3 UI data layer. Parented to this AppController (UI thread) so Qt
+    // delivers EventBus signals to them via queued connections automatically.
+    std::unique_ptr<ChatModel>           chat_model_;
+    std::unique_ptr<ShoppingModel>       shopping_model_;
+    std::unique_ptr<CameraModel>         camera_model_;
+    std::unique_ptr<TaskModel>           task_model_;
+    std::unique_ptr<TimelineModel>       timeline_model_;
+    // The QML engine takes ownership of the image provider on registration; we
+    // keep a non-owning pointer to push frames into it. Guarded for lifetime by
+    // disconnecting the feed in shutdown().
+    CameraImageProvider*                 image_provider_ = nullptr;
 
     std::unique_ptr<InferenceManager>  inference_;
     std::unique_ptr<TaskScheduler>     scheduler_;

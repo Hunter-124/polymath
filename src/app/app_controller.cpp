@@ -14,8 +14,19 @@
 #include "agent_runtime.h"
 #include "personality_manager.h"
 
+#include "chat_model.h"
+#include "shopping_model.h"
+#include "camera_model.h"
+#include "task_model.h"
+#include "timeline_model.h"
+#include "camera_image_provider.h"
+
+#include <QByteArray>
+#include <QQmlApplicationEngine>
+#include <QQmlContext>
 #include <QThread>
 #include <QUuid>
+#include <QVariantMap>
 
 namespace polymath {
 
@@ -47,7 +58,11 @@ bool AppController::initialize() {
     audio_       = std::make_unique<AudioService>(db_);
     personality_ = std::make_unique<PersonalityManager>(db_);
 
+    // --- UI data models (own thread = UI thread; parented to this) ---
+    buildModels();
+
     wireEventBus();
+    wireModels();
 
     // --- run long-lived services each on their own thread ---
     threads_.push_back(runOnThread(inference_.get(), inference_.get()));
@@ -106,9 +121,103 @@ void AppController::wireEventBus() {
             });
 }
 
+// --- Wave-3 UI data layer ------------------------------------------------
+
+void AppController::buildModels() {
+    chat_model_     = std::make_unique<ChatModel>(this);
+    shopping_model_ = std::make_unique<ShoppingModel>(db_, this);
+    camera_model_   = std::make_unique<CameraModel>(db_, this);
+    task_model_     = std::make_unique<TaskModel>(db_, this);
+    timeline_model_ = std::make_unique<TimelineModel>(db_, this);
+    image_provider_ = new CameraImageProvider();   // engine takes ownership later
+
+    // Initial population from SQLite (tables are the source of truth).
+    shopping_model_->refresh();
+    camera_model_->refresh();
+    task_model_->refresh();
+    timeline_model_->refresh();
+}
+
+void AppController::wireModels() {
+    auto& bus = EventBus::instance();
+
+    // Assistant tokens -> ChatModel (coalesced per request_id). Queued onto the
+    // UI thread because the bus emits from the inference worker.
+    connect(&bus, &EventBus::tokenStreamed, chat_model_.get(),
+            [this](const TokenChunk& t) {
+                chat_model_->appendAssistantToken(t.request_id, t.text, t.done);
+            });
+
+    // Live frames have two consumers:
+    //  1) the image provider's byte cache — fed directly on the worker thread
+    //     (updateFrame is mutex-guarded and cheap, so no UI hop needed); and
+    //  2) the CameraModel's live/tick flags — must touch the model on the UI
+    //     thread, so that connection stays auto/queued.
+    connect(&bus, &EventBus::frameReady, this,
+            [this](const Frame& f) {
+                if (image_provider_) {
+                    QByteArray jpeg(reinterpret_cast<const char*>(f.jpeg.data()),
+                                    static_cast<int>(f.jpeg.size()));
+                    image_provider_->updateFrame(f.camera_id, jpeg);
+                }
+            }, Qt::DirectConnection);
+    connect(&bus, &EventBus::frameReady, camera_model_.get(), &CameraModel::onFrame);
+
+    // Task queue updates -> TaskModel (queued from scheduler worker).
+    connect(&bus, &EventBus::taskUpdated, task_model_.get(), &TaskModel::onTaskUpdated);
+
+    // Timeline live feed: detections + utterances (queued from vision/audio).
+    connect(&bus, &EventBus::detection, timeline_model_.get(), &TimelineModel::onDetection);
+    connect(&bus, &EventBus::utterance, timeline_model_.get(), &TimelineModel::onUtterance);
+
+    // Memory summaries / new memories land in the DB on the memory worker; the
+    // "memory" notice is our cue to refresh the timeline so they appear.
+    connect(&bus, &EventBus::notice, timeline_model_.get(), [this](const Notice& n) {
+        if (n.source == QLatin1String("memory")) timeline_model_->refresh();
+    });
+}
+
+void AppController::registerWithEngine(QQmlApplicationEngine& engine) {
+    // Image provider: "image://cameras/<id>". The engine takes ownership.
+    if (image_provider_)
+        engine.addImageProvider(QStringLiteral("cameras"), image_provider_);
+
+    // Expose models as context properties as well as via the app.* Q_PROPERTYs,
+    // so views may bind either way.
+    QQmlContext* ctx = engine.rootContext();
+    ctx->setContextProperty("chatModel",     chat_model_.get());
+    ctx->setContextProperty("shoppingModel", shopping_model_.get());
+    ctx->setContextProperty("cameraModel",   camera_model_.get());
+    ctx->setContextProperty("taskModel",     task_model_.get());
+    ctx->setContextProperty("timelineModel", timeline_model_.get());
+}
+
+QObject* AppController::chatModel() const     { return chat_model_.get(); }
+QObject* AppController::shoppingModel() const { return shopping_model_.get(); }
+QObject* AppController::cameraModel() const   { return camera_model_.get(); }
+QObject* AppController::taskModel() const     { return task_model_.get(); }
+QObject* AppController::timelineModel() const { return timeline_model_.get(); }
+
 void AppController::shutdown() {
+    // Stop feeding the (engine-owned) image provider and detach the bus from the
+    // UI models before we tear anything down, so no late frame/token from a
+    // still-draining worker thread reaches a half-destroyed receiver.
+    auto& bus = EventBus::instance();
+    if (chat_model_)     disconnect(&bus, nullptr, chat_model_.get(),     nullptr);
+    if (camera_model_)   disconnect(&bus, nullptr, camera_model_.get(),   nullptr);
+    if (task_model_)     disconnect(&bus, nullptr, task_model_.get(),     nullptr);
+    if (timeline_model_) disconnect(&bus, nullptr, timeline_model_.get(), nullptr);
+    // The frame-feed lambda is owned by `this` as the connection context.
+    disconnect(&bus, &EventBus::frameReady, this, nullptr);
+    image_provider_ = nullptr;   // ownership belongs to the QML engine
+
     for (auto* t : threads_) { if (t) { t->quit(); t->wait(2000); } }
     threads_.clear();
+
+    // Drop the UI models (parented to this, but reset explicitly for order).
+    chat_model_.reset(); shopping_model_.reset(); camera_model_.reset();
+    task_model_.reset(); timeline_model_.reset();
+
     inference_.reset(); scheduler_.reset(); proactive_.reset(); idle_.reset();
     memory_.reset(); agent_.reset(); vision_.reset(); audio_.reset(); personality_.reset();
     db_.close();
@@ -148,8 +257,56 @@ void AppController::findObject(const QString& query) {
 }
 
 void AppController::addShoppingItem(const QString& item) {
-    db_.exec("INSERT INTO shopping_items(item,created_at) VALUES(?1,?2)",
-             {item.toStdString(), to_unix(Clock::now())});
+    // Route through the model so the DB write and the UI list stay in sync (the
+    // model performs the INSERT). Falls back to a direct insert if the model is
+    // not yet built (e.g. called before initialize()).
+    if (shopping_model_) {
+        shopping_model_->addItem(item);
+    } else {
+        db_.exec("INSERT INTO shopping_items(item,created_at) VALUES(?1,?2)",
+                 {item.toStdString(), to_unix(Clock::now())});
+    }
+}
+
+// --- Wave-3 UI invokables ------------------------------------------------
+
+void AppController::refreshAll() {
+    refreshShopping();
+    refreshCameras();
+    refreshTasks();
+    refreshTimeline();
+}
+
+void AppController::refreshShopping() { if (shopping_model_) shopping_model_->refresh(); }
+void AppController::refreshCameras()  { if (camera_model_)   camera_model_->refresh(); }
+void AppController::refreshTasks()    { if (task_model_)     task_model_->refresh(); }
+void AppController::refreshTimeline() { if (timeline_model_) timeline_model_->refresh(); }
+
+void AppController::sendChat(const QString& text) {
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) return;
+    if (chat_model_) chat_model_->appendUser(trimmed);
+    sendText(trimmed);   // existing path: dispatches to the agent worker
+}
+
+QVariantList AppController::models() const {
+    QVariantList out;
+    const_cast<Database&>(db_).query(
+        "SELECT id,display_name,role,path,n_ctx,n_gpu_layers,is_active "
+        "FROM models ORDER BY role ASC, display_name ASC",
+        {},
+        [&](const Row& r) {
+            QVariantMap m;
+            m["id"]          = QString::fromStdString(r.text(0));
+            m["displayName"] = QString::fromStdString(r.text(1));
+            m["role"]        = QString::fromStdString(r.text(2));
+            m["path"]        = QString::fromStdString(r.text(3));
+            m["nCtx"]        = static_cast<int>(r.i64(4));
+            m["nGpuLayers"]  = static_cast<int>(r.i64(5));
+            m["active"]      = r.i64(6) != 0;
+            out.push_back(m);
+        });
+    return out;
 }
 
 } // namespace polymath

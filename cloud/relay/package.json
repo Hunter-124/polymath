@@ -1,0 +1,26 @@
+{
+  "name": "polymath-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal, self-hostable reverse-tunnel relay for the Polymath home gateway. Lets a NAT'd home server be reached from the internet via an outbound WebSocket tunnel (ngrok/cloudflared pattern, ~300 lines).",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  }
+}

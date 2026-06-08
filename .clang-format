@@ -1,0 +1,15 @@
+# Polymath C++ style — matches the hand-written core/ layer.
+BasedOnStyle: Google
+Language: Cpp
+Standard: c++20
+ColumnLimit: 100
+IndentWidth: 4
+AccessModifierOffset: -4
+PointerAlignment: Left
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortCaseLabelsOnASingleLine: true
+BreakBeforeBraces: Attach
+NamespaceIndentation: None
+SortIncludes: false
+SpacesBeforeTrailingComments: 3

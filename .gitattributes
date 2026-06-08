@@ -1,0 +1,14 @@
+# Keep source LF in the repo; let Windows tools handle checkout.
+* text=auto eol=lf
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.sln   text eol=crlf
+*.vcxproj text eol=crlf
+
+# Binary / model assets (never normalize)
+*.gguf  binary
+*.onnx  binary
+*.bin   binary
+*.png   binary
+*.jpg   binary
+*.ico   binary

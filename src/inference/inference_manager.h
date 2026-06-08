@@ -14,12 +14,16 @@
 #include "types.h"
 #include <QObject>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace polymath {
 
 class Database;
 class VramBudget;
+class LlamaBackend;
 
 class InferenceManager : public QObject, public IService {
     Q_OBJECT
@@ -52,9 +56,33 @@ signals:
     void vramChanged(int usedMiB, int totalMiB);
 
 private:
+    // Runs the blocking decode loop on the InferenceManager's own thread so the
+    // caller (agent worker) is never blocked. Dispatched as a queued functor by
+    // generate() — no metatype registration required.
+    void runGenerate(const ChatRequest& req);
+
+    // --- internals (all touch the backend pool; call on this thread) ---
+    LlamaBackend* backendFor(ModelRole role);     // nullptr if not loaded
+    LlamaBackend* ensureLoaded(ModelRole role);   // load-on-demand, budgeted
+    bool          loadModel(const ModelSpec& spec);
+    void          unloadRole(ModelRole role);
+    const ModelSpec* specForRole(ModelRole role) const;   // active spec, or null
+    const ModelSpec* specById(const std::string& id) const;
+    void          emitVram();
+    static const char* roleName(ModelRole role);
+
     Database& db_;
     std::unique_ptr<VramBudget> vram_;
+
+    // Pool mutation/use is serialized by pool_mtx_: generate() runs on this
+    // thread but embed()/describeImage() are called from other service workers.
+    std::mutex                                             pool_mtx_;
     std::unordered_map<int /*ModelRole*/, ModelBackendPtr> backends_;
+
+    mutable std::mutex             registry_mtx_;
+    std::vector<ModelSpec>         registry_;             // mirror of `models`
+    std::unordered_map<int, std::string> active_id_;      // role -> active model id
+    bool                           heavy_loaded_ = false;
 };
 
 } // namespace polymath

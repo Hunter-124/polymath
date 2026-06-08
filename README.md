@@ -19,11 +19,31 @@ A fully-local, always-on AI home assistant for Windows. One C++/Qt Quick applica
 See [`docs/`](docs/) for setup, the ESP32-CAM flashing guide, the architecture overview, and the
 [approved plan](docs/PLAN.md).
 
+## Quickstart
+
+```powershell
+# 1. Bootstrap toolchain (submodules, vcpkg, configure). Pass -OnnxRoot to your
+#    extracted onnxruntime-win-x64-gpu folder.
+pwsh scripts/setup-dev.ps1 -OnnxRoot C:\dev\onnxruntime-gpu
+
+# 2. Build
+cmake --build --preset cuda-release      #  -> build/cuda-release/bin/Polymath.exe
+
+# 3. Fetch the default local models into data/models/
+pwsh scripts/fetch-models.ps1            # add -Minimal to skip the big optional ones
+
+# 4. Run, then assign model roles in the Model Manager view.
+build/cuda-release/bin/Polymath.exe
+```
+
+No GPU? Use `-Preset cpu-release` in step 1 and `--preset cpu-release` in step 2 (small models, slower).
+
 ## Building (overview)
 
 Requires: Windows 10/11, an NVIDIA GPU (CUDA 12.x), CMake ≥ 3.25, a recent MSVC, and `vcpkg`.
 Native sub-engines (llama.cpp, whisper.cpp, piper) are vendored as git submodules and built with
-CUDA. ONNX Runtime (GPU) and the model files are downloaded separately into `models/`.
+CUDA. ONNX Runtime (GPU) and the model files are downloaded separately into `models/`. Full detail
+in [`docs/BUILD.md`](docs/BUILD.md); model layout in [`docs/MODELS.md`](docs/MODELS.md).
 
 ```powershell
 git submodule update --init --recursive

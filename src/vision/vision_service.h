@@ -41,6 +41,11 @@ signals:
     void cameraStateChanged(int camera_id, bool online);
 
 private:
+    // Worker lifecycle + gallery helpers (implementation detail; added in Wave-1).
+    void startWorkers();
+    void stopWorkers();
+    void loadGalleryFromDb();
+
     struct Impl;
     std::unique_ptr<Impl> d_;
     Database&         db_;

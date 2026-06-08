@@ -8,11 +8,16 @@
 #include "service.h"
 #include <nlohmann/json.hpp>
 #include <QObject>
+#include <atomic>
+#include <memory>
+#include <optional>
+#include <string>
 
 namespace polymath {
 
 class Database;
 class InferenceManager;
+class StreamCollector;
 
 class TaskScheduler : public QObject, public IService {
     Q_OBJECT
@@ -33,10 +38,28 @@ public slots:
 signals:
     void taskFinished(qint64 task_id, QString result_json);
 
+private slots:
+    // Runs on the scheduler thread (invoked via queued connection). Loads the
+    // heavy model, pops queued tasks by priority and runs them, then releases.
+    void drainQueue();
+
 private:
-    Database&         db_;
-    InferenceManager& inf_;
-    bool              idle_ = false;
+    // One queued task pulled off the DB, ready to run.
+    struct QueuedTask {
+        qint64      id = 0;
+        std::string type;
+        std::string params_json;
+        int         priority = 0;
+    };
+
+    std::optional<QueuedTask> popNextQueued();   // claim highest-priority task
+    void                      runTask(const QueuedTask& t);
+
+    Database&          db_;
+    InferenceManager&  inf_;
+    std::atomic<bool>  idle_{false};               // read from enqueue() (other threads)
+    bool               draining_ = false;          // re-entrancy guard (scheduler thread only)
+    std::unique_ptr<StreamCollector> collector_;   // async->sync token bridge
 };
 
 } // namespace polymath
