@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+
+# Local secrets / config — never commit these.
+.env
+homes.json
