@@ -47,3 +47,8 @@ CMakeUserPresets.json
 
 # Downloaded prebuilt Piper engine (fetched by scripts)
 /third_party/piper-engine/
+
+# Out-of-scope agent drift — never track (removed; not part of the C++ app)
+/app/
+/cloud/
+/src/gateway/
