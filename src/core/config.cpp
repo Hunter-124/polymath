@@ -7,7 +7,9 @@ namespace polymath {
 
 void Config::seedDefaults() {
     // {key, default}. Privacy defaults ON (product decision: configurable, default-on).
-    static const std::array<std::pair<const char*, const char*>, 14> defaults = {{
+    // Size is deduced from the initializers — do NOT hard-code a count (a
+    // mismatch leaves {nullptr,nullptr} pairs that crash on use).
+    static const std::pair<const char*, const char*> defaults[] = {
         {keys::MicEnabled,           "1"},
         {keys::AmbientTranscription, "1"},
         {keys::FaceRecognition,      "1"},
@@ -20,10 +22,12 @@ void Config::seedDefaults() {
         {keys::WakeWord,             "hey_jarvis"},
         {keys::SearchBackend,        "ddg"},
         {keys::SearchApiKey,         ""},
-    }};
+    };
+    // INSERT OR IGNORE seeds only missing keys (never clobbers user changes),
+    // since settings.key is the PRIMARY KEY.
     for (const auto& [k, v] : defaults)
-        if (db_.getSetting(k, "\0__missing__").empty() || db_.getSetting(k, "__missing__") == "__missing__")
-            db_.setSetting(k, v);
+        db_.exec("INSERT OR IGNORE INTO settings(key,value) VALUES(?1,?2)",
+                 {std::string(k), std::string(v)});
 }
 
 bool Config::getBool(const char* key) const { return db_.getBool(key, false); }
