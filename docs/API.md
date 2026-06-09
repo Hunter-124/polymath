@@ -1,4 +1,4 @@
-# Polymath Remote API (v1)
+# Hearth Remote API (v1)
 
 The REST + WebSocket surface the mobile/web client uses. The **source of truth**
 is [`app/src/api/contract.ts`](../app/src/api/contract.ts) (TypeScript types +

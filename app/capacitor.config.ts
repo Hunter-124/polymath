@@ -3,7 +3,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 // One web bundle (dist/) → iOS app, Android app, and the installable PWA.
 const config: CapacitorConfig = {
   appId: 'com.polymath.app',
-  appName: 'Polymath',
+  appName: 'Hearth',
   webDir: 'dist',
   backgroundColor: '#0f1115',
   ios: {

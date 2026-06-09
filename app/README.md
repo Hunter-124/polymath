@@ -1,6 +1,6 @@
-# Polymath app
+# Hearth app
 
-The Polymath mobile + web client — a single React + TypeScript (Vite) bundle that
+The Hearth mobile + web client — a single React + TypeScript (Vite) bundle that
 runs as an installable PWA in the browser and is wrapped by
 [Capacitor](https://capacitorjs.com) for the native iOS and Android apps.
 
@@ -12,7 +12,7 @@ desktop app's **Settings ▸ Mobile Access** screen.
 ## Prerequisites
 
 - Node.js 18+ and npm
-- A running Polymath gateway to talk to (for live data). In development the dev
+- A running Hearth gateway to talk to (for live data). In development the dev
   server proxies API/WS calls to a gateway on **`http://localhost:8765`** — see
   the `server.proxy` block in `vite.config.ts`. Point that target elsewhere if
   your gateway runs on another host/port.

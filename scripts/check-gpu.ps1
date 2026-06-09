@@ -1,11 +1,11 @@
-﻿<#
+<#
 .SYNOPSIS
-  Detect the GPU/driver situation and report whether Polymath should run the
+  Detect the GPU/driver situation and report whether Hearth should run the
   CUDA (GPU) build or fall back to CPU. Used by the first-run wizard and runnable
   standalone for a quick "will the GPU build work here?" answer.
 
 .DESCRIPTION
-  Polymath ships in two flavours: a CUDA build (llama/whisper offload to an NVIDIA
+  Hearth ships in two flavours: a CUDA build (llama/whisper offload to an NVIDIA
   GPU) and a CPU build (no GPU required, slower). This script:
     - finds nvidia-smi and reads the GPU name, driver version, total/free VRAM,
     - flags the ~8 GB VRAM budget the InferenceManager targets (Fast model

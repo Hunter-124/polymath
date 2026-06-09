@@ -63,7 +63,7 @@ HttpResponse awaitReply(QNetworkReply* reply, int timeout_ms) {
 void applyHeaders(QNetworkRequest& req, const nlohmann::json& headers) {
     // A sane default UA — many search/readability endpoints reject empty UAs.
     req.setHeader(QNetworkRequest::UserAgentHeader,
-                  QStringLiteral("Polymath/1.0 (+local assistant)"));
+                  QStringLiteral("Hearth/1.0 (+local assistant)"));
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     if (!headers.is_object()) return;

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Polymath CI entry point — clean CPU build + the full ctest integration suite.
+  Hearth CI entry point — clean CPU build + the full ctest integration suite.
 
 .DESCRIPTION
   This is what CI (and you, locally) run to prove the tree is green. It:

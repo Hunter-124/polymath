@@ -28,15 +28,15 @@ static void qtMessageToLog(QtMsgType type, const QMessageLogContext& ctx, const 
 
 static std::filesystem::path resolveAppRoot() {
     // Portable layout: a `data/` folder beside the executable.  (An installer
-    // build would point this at %LOCALAPPDATA%/Polymath instead.)
+    // build would point this at %LOCALAPPDATA%/Hearth instead.)
     QDir base(QCoreApplication::applicationDirPath());
     return std::filesystem::path(base.absoluteFilePath("data").toStdWString());
 }
 
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
-    QCoreApplication::setOrganizationName("Polymath");
-    QCoreApplication::setApplicationName("Polymath");
+    QCoreApplication::setOrganizationName("Hearth");
+    QCoreApplication::setApplicationName("Hearth");
     QQuickStyle::setStyle("Basic");   // self-contained style -> static-friendly
 
     Paths::instance().setRoot(resolveAppRoot());

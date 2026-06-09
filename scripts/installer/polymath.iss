@@ -1,14 +1,14 @@
 ; ============================================================================
-;  Polymath — Inno Setup installer script
+;  Hearth — Inno Setup installer script
 ;  Wraps the portable bundle that scripts\package.ps1 stages into a single
 ;  Windows installer (.exe). This does NOT replace the portable zip — it wraps
 ;  the very same staged folder, so the zip remains the shippable fallback when
 ;  Inno Setup is not available on the build box.
 ;
 ;  WHAT THIS PACKAGES
-;    The staged bundle directory dist\Polymath-<ver>-win64-<flavor>\ produced by:
+;    The staged bundle directory dist\Hearth-<ver>-win64-<flavor>\ produced by:
 ;        pwsh scripts\package.ps1 -Flavor cuda          (or -Flavor cpu)
-;    i.e. Polymath.exe + the Qt runtime + engine/CUDA/ONNX/OpenCV DLLs + the
+;    i.e. Hearth.exe + the Qt runtime + engine/CUDA/ONNX/OpenCV DLLs + the
 ;    VC++ redist DLLs + the first-run scripts + an EMPTY data\models\ (models are
 ;    ~28 GB and are fetched on first run, never bundled here).
 ;
@@ -20,11 +20,11 @@
 ;  HOW TO BUILD THE INSTALLER  (Inno Setup 6, ISCC.exe)
 ;    1. Stage the bundle (folder, not zip):
 ;         pwsh scripts\package.ps1 -Flavor cuda -NoZip
-;       This writes dist\Polymath-<ver>-win64-cuda\.
+;       This writes dist\Hearth-<ver>-win64-cuda\.
 ;    2. Compile (pass the version + flavor so SourceDir resolves):
 ;         "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ^
-;             /DAppVersion=0.1.0 /DFlavor=cuda scripts\installer\polymath.iss
-;       Output: dist\Polymath-0.1.0-win64-cuda-Setup.exe
+;             /DAppVersion=0.1.0 /DFlavor=cuda scripts\installer\hearth.iss
+;       Output: dist\Hearth-0.1.0-win64-cuda-Setup.exe
 ;    Defaults: AppVersion=0.1.0, Flavor=cuda. Override either with /D as above.
 ;
 ;    Inno Setup is NOT installed on the current build machine. Install it with:
@@ -36,14 +36,14 @@
 ;    Without a signature, SmartScreen shows "Windows protected your PC" on first
 ;    launch (More info -> Run anyway). To sign, obtain an Authenticode cert
 ;    (ideally OV/EV from a CA; an EV cert clears SmartScreen reputation faster)
-;    and sign BOTH Polymath.exe and the installer:
+;    and sign BOTH Hearth.exe and the installer:
 ;
 ;      signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 ^
-;          /f mycert.pfx /p <pw> "dist\Polymath-<ver>-win64-<flavor>\Polymath.exe"
+;          /f mycert.pfx /p <pw> "dist\Hearth-<ver>-win64-<flavor>\Hearth.exe"
 ;      ; re-stage so the signed exe is the one packaged, then build the installer,
 ;      ; then sign the installer the same way:
 ;      signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 ^
-;          /f mycert.pfx /p <pw> "dist\Polymath-<ver>-win64-<flavor>-Setup.exe"
+;          /f mycert.pfx /p <pw> "dist\Hearth-<ver>-win64-<flavor>-Setup.exe"
 ;
 ;    To let ISCC sign automatically during compile, register a sign tool in the
 ;    IDE (Tools -> Configure Sign Tools) named e.g. "signtool", then uncomment the
@@ -61,20 +61,20 @@
 
 ; The staged bundle folder produced by package.ps1 -NoZip. Resolved relative to
 ; this .iss (scripts\installer\ -> ..\..\dist\...).
-#define BundleName "Polymath-" + AppVersion + "-win64-" + Flavor
+#define BundleName "Hearth-" + AppVersion + "-win64-" + Flavor
 #define SourceDir  "..\..\dist\" + BundleName
 
 [Setup]
-AppId={{B1A7E0E2-9C4F-4B3A-8D6E-POLYMATH0001}
-AppName=Polymath
+AppId={{B1A7E0E2-9C4F-4B3A-8D6E-HEARTH0001}
+AppName=Hearth
 AppVersion={#AppVersion}
-AppPublisher=Polymath
-AppPublisherURL=https://example.invalid/polymath
-DefaultDirName={autopf}\Polymath
-DefaultGroupName=Polymath
+AppPublisher=Hearth
+AppPublisherURL=https://example.invalid/hearth
+DefaultDirName={autopf}\Hearth
+DefaultGroupName=Hearth
 ; Per-user data lives under the install dir's data\ folder (portable layout);
-; the app resolves data\ beside Polymath.exe (see src\app\main.cpp). For a true
-; multi-user install you'd instead point the app at {localappdata}\Polymath —
+; the app resolves data\ beside Hearth.exe (see src\app\main.cpp). For a true
+; multi-user install you'd instead point the app at {localappdata}\Hearth —
 ; documented in docs\PACKAGING.md.
 DisableProgramGroupPage=yes
 OutputDir=..\..\dist
@@ -112,12 +112,12 @@ Name: "{app}\data\models"
 Name: "{app}\data\logs"
 
 [Icons]
-Name: "{group}\Polymath"; Filename: "{app}\Polymath.exe"; WorkingDir: "{app}"
-Name: "{group}\Polymath first-run setup"; Filename: "powershell.exe"; \
+Name: "{group}\Hearth"; Filename: "{app}\Hearth.exe"; WorkingDir: "{app}"
+Name: "{group}\Hearth first-run setup"; Filename: "powershell.exe"; \
       Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\first-run.ps1"""; \
       WorkingDir: "{app}"; Comment: "GPU check + guided model download"
-Name: "{group}\{cm:UninstallProgram,Polymath}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Polymath"; Filename: "{app}\Polymath.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\{cm:UninstallProgram,Hearth}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Hearth"; Filename: "{app}\Hearth.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 ; Post-install: if the user ticked "Download models now", run the first-run
@@ -131,9 +131,9 @@ Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\first-run.ps1"""; \
     WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent; \
     Description: "Run first-run setup (GPU check + model download)"; Tasks: fetchmodels
-Filename: "{app}\Polymath.exe"; WorkingDir: "{app}"; \
+Filename: "{app}\Hearth.exe"; WorkingDir: "{app}"; \
     Flags: postinstall nowait skipifsilent unchecked; \
-    Description: "Launch Polymath now"; Tasks: not fetchmodels
+    Description: "Launch Hearth now"; Tasks: not fetchmodels
 
 [UninstallDelete]
 ; Logs and any cache the app writes under the install dir. Models live in
@@ -142,7 +142,7 @@ Filename: "{app}\Polymath.exe"; WorkingDir: "{app}"; \
 Type: filesandordirs; Name: "{app}\data\logs"
 
 [Code]
-{ Guard: refuse to build/install if the staged bundle is missing Polymath.exe.
+{ Guard: refuse to build/install if the staged bundle is missing Hearth.exe.
   ISCC fails at compile time if SourceDir doesn't exist; this is the runtime
   belt-and-suspenders if someone hand-edits the layout. }
 function InitializeSetup(): Boolean;

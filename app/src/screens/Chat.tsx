@@ -138,7 +138,7 @@ export function ChatScreen() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()}
-          placeholder="Message Polymath…"
+          placeholder="Message Hearth…"
         />
         <button
           className="btn"

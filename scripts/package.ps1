@@ -1,18 +1,18 @@
-﻿<#
+<#
 .SYNOPSIS
-  Assemble a portable Polymath bundle (Polymath.exe + every runtime DLL it needs)
+  Assemble a portable Hearth bundle (Hearth.exe + every runtime DLL it needs)
   and pack it into a single distributable .zip — the project's honest "packed binary"
   (one primary exe + runtime DLLs + a models/ folder; see docs/PACKAGING.md).
 
 .DESCRIPTION
   Takes an already-built + deployed tree (run scripts/build-gpu.ps1 or build-cpu.ps1
   first) and stages a clean, self-contained folder:
-    - Polymath.exe (drops the llama-*.exe dev tools and all .lib/.exp/.pdb)
+    - Hearth.exe (drops the llama-*.exe dev tools and all .lib/.exp/.pdb)
     - the Qt runtime windeployqt placed beside it (Qt6*.dll, platforms\, qml\, ...)
     - the engine DLLs (ggml*, llama*, mtmd, whisper), onnxruntime, OpenCV, fmt/spdlog
     - the CUDA runtime DLLs (cudart/cublas/cublasLt) for the GPU flavour
     - the VC++ 2015-2022 redistributable DLLs (so it runs on a clean machine)
-  then zips it to dist\Polymath-<ver>-win64-<flavour>.zip.
+  then zips it to dist\Hearth-<ver>-win64-<flavour>.zip.
 
   Models (~28 GB) are NOT bundled by default — the bundle ships fetch-models.ps1 and
   an empty data\models\ instead. Pass -IncludeModels for a fully self-contained (huge)
@@ -36,29 +36,29 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
-# Version from project(Polymath VERSION x.y.z)
+# Version from project(Hearth VERSION x.y.z)
 $ver = '0.0.0'
-if ((Get-Content "$repo\CMakeLists.txt" -Raw) -match 'project\(Polymath\s+VERSION\s+([0-9.]+)') { $ver = $Matches[1] }
+if ((Get-Content "$repo\CMakeLists.txt" -Raw) -match 'project\(Hearth\s+VERSION\s+([0-9.]+)') { $ver = $Matches[1] }
 
 $bin = if ($Flavor -eq 'cuda') { "$repo\build\cuda\bin" } else { "$repo\build\cpu\bin\Release" }
-if (-not (Test-Path "$bin\Polymath.exe")) {
-  throw "Polymath.exe not found in $bin — build it first (pwsh scripts/build-$Flavor.ps1)."
+if (-not (Test-Path "$bin\Hearth.exe")) {
+  throw "Hearth.exe not found in $bin — build it first (pwsh scripts/build-$Flavor.ps1)."
 }
 
-$name  = "Polymath-$ver-win64-$Flavor"
+$name  = "Hearth-$ver-win64-$Flavor"
 $stage = Join-Path $OutRoot $name
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
 Write-Host "Staging $name ..." -ForegroundColor Cyan
 
-# 1) Files: keep Polymath.exe + all DLLs; drop the llama-*.exe dev tools and build cruft.
+# 1) Files: keep Hearth.exe + all DLLs; drop the llama-*.exe dev tools and build cruft.
 #    Also drop test/headless run logs that ctest + offscreen verify runs leave in the
 #    build dir (headless.*.log, run_*.txt) — they are not runtime files and have no
 #    business in a shipped bundle/installer.
 Get-ChildItem $bin -File | Where-Object {
   $_.Name -notmatch '\.(lib|exp|pdb|ilk|manifest|log)$' -and
   $_.Name -notmatch '^(headless\.|run_).*\.(txt|log)$' -and
-  -not ($_.Extension -eq '.exe' -and $_.Name -ne 'Polymath.exe')
+  -not ($_.Extension -eq '.exe' -and $_.Name -ne 'Hearth.exe')
 } | ForEach-Object { Copy-Item $_.FullName $stage -Force }
 
 # 2) Subdirectories windeployqt created (platforms\, qml\, imageformats\, ...). Never
@@ -84,7 +84,7 @@ if ($IncludeModels) {
     Copy-Item "$repo\scripts\$s" "$stage\$s" -Force
   }
   Set-Content "$stage\data\models\PUT-MODELS-HERE.txt" @"
-This folder holds Polymath's local models (GGUF LLMs + ONNX perception/voice).
+This folder holds Hearth's local models (GGUF LLMs + ONNX perception/voice).
 They are not bundled (the default set is ~28 GB). The easy path — from the bundle
 root run the first-run wizard (GPU check + guided download):
 
@@ -103,7 +103,7 @@ header for the expected paths). The app self-disables any feature whose model is
 # Launcher: on first run (no Fast LLM under data\models\llm) drive the wizard;
 # otherwise launch the app directly. Models bundled (-IncludeModels) -> always direct.
 if ($IncludeModels) {
-  Set-Content "$stage\Run-Polymath.cmd" "@echo off`r`ncd /d `"%~dp0`"`r`nstart `"`" `"Polymath.exe`"`r`n"
+  Set-Content "$stage\Run-Hearth.cmd" "@echo off`r`ncd /d `"%~dp0`"`r`nstart `"`" `"Hearth.exe`"`r`n"
 } else {
   # Prefer PowerShell 7 (pwsh) for nicer output, but fall back to the in-box
   # Windows PowerShell 5.1 (powershell.exe): a clean Windows box has 5.1 but not
@@ -121,21 +121,21 @@ if %ERRORLEVEL%==0 (
 )
 goto end
 :run
-start "" "Polymath.exe"
+start "" "Hearth.exe"
 :end
 '@
-  Set-Content "$stage\Run-Polymath.cmd" ($launch -replace "`n","`r`n")
+  Set-Content "$stage\Run-Hearth.cmd" ($launch -replace "`n","`r`n")
 }
 $gpuNote = if ($Flavor -eq 'cuda') {
   "This is the CUDA (GPU) build: it needs an NVIDIA GPU + a recent driver. llama/whisper`r`nrun on the GPU; the ONNX perception models (YOLO/face) run on CPU."
 } else { "This is the CPU build (no GPU required)." }
 Set-Content "$stage\README.txt" @"
-Polymath $ver — portable Windows bundle ($Flavor)
+Hearth $ver — portable Windows bundle ($Flavor)
 
-FIRST RUN:  double-click Run-Polymath.cmd.
+FIRST RUN:  double-click Run-Hearth.cmd.
   If no models are present yet it launches the first-run wizard (first-run.ps1):
   a GPU/driver check, then a guided model download (Minimal ~3.5 GB or Full ~28 GB),
-  then it starts the app. Once models exist, Run-Polymath.cmd just launches directly.
+  then it starts the app. Once models exist, Run-Hearth.cmd just launches directly.
 $gpuNote
 
 Models live in data\models\ and are NOT bundled (the default set is ~28 GB). To

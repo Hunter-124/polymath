@@ -1,6 +1,6 @@
-# Polymath relay
+# Hearth relay
 
-A thin, privacy-preserving **reverse-tunnel relay** that lets a Polymath home
+A thin, privacy-preserving **reverse-tunnel relay** that lets a Hearth home
 server — sitting behind NAT/CGNAT with **no port-forwarding** — be reached from
 phones over the internet.
 
@@ -149,7 +149,7 @@ TypeScript definitions).
   The app handles this by **polling snapshots** off-LAN instead. Long-poll and
   the **events WebSocket work** via the WS bridge.
 - **Text WS frames.** The bridge forwards WebSocket **text** frames (the
-  Polymath events protocol is JSON). Binary client frames are coerced to UTF-8
+  Hearth events protocol is JSON). Binary client frames are coerced to UTF-8
   best-effort.
 - **Open mode is in-memory only.** `RELAY_OPEN=true` pins the first secret it
   sees per `home_id` until the process restarts (then it re-pins). Fine for
@@ -268,10 +268,10 @@ dashboard. Your relay URL is `wss://<service>.onrender.com`.
 ### Any Docker host / VPS
 
 ```bash
-docker build -t polymath-relay cloud/relay
+docker build -t hearth-relay cloud/relay
 docker run -d --restart unless-stopped -p 8080:8080 \
   -e RELAY_HOMES='{"home-abc123":"<long-random-secret>"}' \
-  --name polymath-relay polymath-relay
+  --name hearth-relay hearth-relay
 ```
 
 Put it behind a TLS-terminating reverse proxy (Caddy, nginx, Cloudflare) so the

@@ -1,9 +1,9 @@
-# Render.com blueprint for the Polymath relay.
+# Render.com blueprint for the Hearth relay.
 # Commit this file, then in Render: New → Blueprint → point at this repo.
 # Set RELAY_HOMES (and any overrides) as a secret env var in the dashboard.
 services:
   - type: web
-    name: polymath-relay
+    name: hearth-relay
     runtime: docker
     dockerfilePath: ./cloud/relay/Dockerfile
     dockerContext: ./cloud/relay

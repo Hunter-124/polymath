@@ -1,6 +1,6 @@
 #pragma once
 //
-// Polymath core value types.  These are plain, dependency-light structs shared
+// Hearth core value types.  These are plain, dependency-light structs shared
 // across every service.  Keep them POD-ish and trivially copyable/movable so
 // they can be passed through the EventBus (queued Qt connections) safely.
 //

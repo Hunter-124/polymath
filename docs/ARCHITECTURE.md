@@ -1,6 +1,6 @@
 # Architecture
 
-Single process (`Polymath.exe`), two halves wired by Qt signals/slots over a
+Single process (`Hearth.exe`), two halves wired by Qt signals/slots over a
 thread-safe **EventBus**:
 
 - **Frontend** — Qt Quick / QML views (Dashboard, Chat, Cameras, Tasks, Timeline,

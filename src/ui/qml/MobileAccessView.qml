@@ -41,7 +41,7 @@ Item {
             font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
         }
         Label {
-            text: "Pair the Polymath phone app to this machine. Pairing works over your " +
+            text: "Pair the Hearth phone app to this machine. Pairing works over your " +
                   "home Wi-Fi with no cloud. Turn on remote access to also reach it from anywhere."
             color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsBody
             wrapMode: Text.WordWrap; Layout.fillWidth: true
@@ -137,7 +137,7 @@ Item {
                     Layout.fillWidth: true; Layout.fillHeight: true; spacing: 8
 
                     Label {
-                        text: "Scan this in the Polymath app"
+                        text: "Scan this in the Hearth app"
                         color: Style.text; font.family: Style.fontFamily
                         font.pixelSize: Style.fsBody; font.bold: true
                     }
@@ -151,7 +151,7 @@ Item {
                     // LAN address line.
                     Label {
                         Layout.fillWidth: true
-                        text: "On this network: " + (root.parsed.lan_host || "polymath.local") +
+                        text: "On this network: " + (root.parsed.lan_host || "hearth.local") +
                               ":" + (root.parsed.lan_port || 8765)
                         color: Style.textDim; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
                     }

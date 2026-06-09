@@ -1,4 +1,4 @@
-# app — AppController facade + the Polymath executable.
+# app — AppController facade + the Hearth executable.
 qt_add_library(pm_app STATIC
     app_controller.cpp
     app_bridge.cpp        # IAssistantBridge adapter wiring AppController -> pm_gateway
@@ -16,12 +16,12 @@ target_link_libraries(pm_app PUBLIC
     Qt6::Qml Qt6::Quick
 )
 
-qt_add_executable(Polymath WIN32 main.cpp)
-target_link_libraries(Polymath PRIVATE pm_app pm_ui Qt6::Quick Qt6::QuickControls2)
+qt_add_executable(Hearth WIN32 main.cpp)
+target_link_libraries(Hearth PRIVATE pm_app pm_ui Qt6::Quick Qt6::QuickControls2)
 
 # Deploy runtime DLLs (Qt via windeployqt, ONNX Runtime, CUDA) — see docs/PACKAGING.md.
 if(WIN32 AND DEFINED ONNXRuntime_RUNTIME_DLL AND EXISTS "${ONNXRuntime_RUNTIME_DLL}")
-    add_custom_command(TARGET Polymath POST_BUILD
+    add_custom_command(TARGET Hearth POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${ONNXRuntime_RUNTIME_DLL}" "$<TARGET_FILE_DIR:Polymath>")
+                "${ONNXRuntime_RUNTIME_DLL}" "$<TARGET_FILE_DIR:Hearth>")
 endif()

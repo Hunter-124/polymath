@@ -90,7 +90,7 @@ std::string GatewayService::buildPairingPayload() {
     // transport tries LAN first, then relay (transport.ts).
     QString lanHost = QHostInfo::localHostName();
     if (!lanHost.endsWith(QLatin1String(".local")))
-        lanHost = QStringLiteral("polymath.local");
+        lanHost = QStringLiteral("hearth.local");
 
     json payload{
         {"relay_url", GatewayDb::relayUrl(db_)},     // "" => LAN-only pairing

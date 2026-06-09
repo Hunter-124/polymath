@@ -15,7 +15,7 @@ Persona defaultPersona() {
     Persona p;
     p.name = "Assistant";
     p.system_prompt =
-        "You are Polymath, a helpful, concise local home assistant. Use the available "
+        "You are Hearth, a helpful, concise local home assistant. Use the available "
         "tools when they help you answer or act on the user's behalf.";
     p.preferred_model = "fast";
     p.sampling.temperature = 0.7f;

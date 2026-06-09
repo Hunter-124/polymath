@@ -95,7 +95,7 @@ Item {
                     title: search.text.length > 0 ? "No matches" : "Your timeline is empty"
                     hint: search.text.length > 0
                         ? "Nothing in memory matches “" + search.text + "”. Try a broader term."
-                        : "As Polymath listens and watches, detected events, transcripts and daily summaries collect here — fully searchable."
+                        : "As Hearth listens and watches, detected events, transcripts and daily summaries collect here — fully searchable."
                 }
             }
         }

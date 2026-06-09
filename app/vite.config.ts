@@ -12,8 +12,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/*.png'],
       manifest: {
-        name: 'Polymath',
-        short_name: 'Polymath',
+        name: 'Hearth',
+        short_name: 'Hearth',
         description: 'Your local AI home assistant.',
         theme_color: '#0f1115',
         background_color: '#0f1115',

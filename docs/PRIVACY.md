@@ -1,6 +1,6 @@
 # Privacy model
 
-Polymath is **local-first by design**: every model runs on your machine, all data
+Hearth is **local-first by design**: every model runs on your machine, all data
 stays on disk under `data/`, and there is **no telemetry or cloud dependency**.
 The only outbound traffic is what *you* invoke — the web-search / fetch tools (to
 your chosen search backend) and any model downloads.

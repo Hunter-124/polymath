@@ -85,10 +85,10 @@ export function Pair({ onPaired }: { onPaired: () => void }) {
             fontSize: 28,
           }}
         >
-          P
+          H
         </div>
         <div className="title" style={{ marginBottom: 2 }}>
-          Polymath
+          Hearth
         </div>
         <div className="faint">Connect to your home assistant</div>
       </div>

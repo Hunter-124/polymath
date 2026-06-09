@@ -8,7 +8,7 @@ Both builds are verified: **they compile, link, run the tests, and launch.**
   `sm_86`). Reproduced by [`scripts/build-gpu.ps1`](../scripts/build-gpu.ps1).
   **GPU inference is verified end-to-end (token generation on the RTX 3080 Ti).**
 
-`Polymath.exe` is built with MSVC 2022 + Qt 6.6.3 + OpenCV 4.9 + ONNX Runtime 1.17
+`Hearth.exe` is built with MSVC 2022 + Qt 6.6.3 + OpenCV 4.9 + ONNX Runtime 1.17
 (CPU) + llama.cpp/whisper.cpp built from source, and confirmed at runtime to:
 
 - open the database (static sqlite3), start all **8 service threads**
@@ -77,7 +77,7 @@ paths** and the repo lives in `…\Home Assistant`. See `BUILD.md`.
 | VLM (mtmd / `describeImage`) | ✅ built (`LLAMA_BUILD_TOOLS/COMMON=ON`); `mtmd.dll` linked + deployed |
 | Piper TTS | ✅ drives the prebuilt `piper.exe` via QProcess (detected at runtime) |
 | ESP32-CAM firmware | ✅ complete (compile in Arduino IDE) |
-| Mobile companion | ✅ wired in — `pm_gateway` (QHttpServer+QWebSocket on `0.0.0.0:8765`, device-token auth) inside `Polymath.exe`; `app/` PWA (Capacitor/React) + `cloud/relay/` (opt-in). Desktop **Settings ▸ Mobile Access** pairing QR. Verified: `/api/v1/status`→200, protected routes→401. |
+| Mobile companion | ✅ wired in — `pm_gateway` (QHttpServer+QWebSocket on `0.0.0.0:8765`, device-token auth) inside `Hearth.exe`; `app/` PWA (Capacitor/React) + `cloud/relay/` (opt-in). Desktop **Settings ▸ Mobile Access** pairing QR. Verified: `/api/v1/status`→200, protected routes→401. |
 | tests | ✅ 11/11 ctest suites green (CPU + CUDA): core, tools, audio, agent, vision, inference, memory, privacy, integration, ui, phase2 |
 | at-rest encryption | ✅ ACTIVE — vendored SQLCipher 4.6.1 + OpenSSL; per-install DPAPI-protected key; plaintext→encrypted migration |
 | packaging | ✅ portable zips + Inno Setup installers compile for CPU & CUDA (`docs/SHIP.md`) |
@@ -98,7 +98,7 @@ Xenova/onnx-community mirrors now 401; the detector confirms `in=images out=outp
 2. **Heavy model on a 12 GB card.** Gemma 3 27B Q4 (~16 GB) still partial-offloads; the
    VramBudget manager trims `n_gpu_layers` to fit. Fast/VLM/Embedding fit comfortably.
 3. **Packaging.** DONE — `scripts/package.ps1 -Flavor {cpu,cuda}` produces portable zips and the
-   Inno Setup installers compile for both flavors (`dist/Polymath-0.1.0-win64-{cpu,cuda}-Setup.exe`).
+   Inno Setup installers compile for both flavors (`dist/Hearth-0.1.0-win64-{cpu,cuda}-Setup.exe`).
    Bundles ship without models; the first-run wizard fetches them. Remaining ship TODOs (code
    signing, a clean-VM smoke pass) are tracked in [`SHIP.md`](SHIP.md).
 
@@ -118,7 +118,7 @@ commit and the **KEY GOTCHAS** in `BUILD.md`. The CUDA-specific ones:
   Fixed by compiling third_party at its native **C++17** (no char8_t at all); our modules
   stay C++20.
 - **nvcc + spaces.** Build through the `C:\pm` junction (no admin needed).
-- **Runtime DLLs windeployqt misses.** `Polymath.exe` also needs `fmt.dll`, `spdlog.dll`
+- **Runtime DLLs windeployqt misses.** `Hearth.exe` also needs `fmt.dll`, `spdlog.dll`
   (vcpkg), `opencv_videoio_ffmpeg490_64.dll`, and the CUDA `cudart/cublas/cublasLt 64_13`
   DLLs next to the exe; without them the loader hangs before `main()`. `build-gpu.ps1`
   deploys all of these.

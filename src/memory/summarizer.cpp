@@ -31,7 +31,7 @@ constexpr int kMaxEventLines      = 200;
 // The framing for the summarizer turn. We ask for prose first, then a strict,
 // machine-parseable JSON block we can pull follow-ups out of.
 constexpr const char* kSystemPrompt =
-    "You are Polymath, a thoughtful home assistant writing a private end-of-day "
+    "You are Hearth, a thoughtful home assistant writing a private end-of-day "
     "digest for the household. You are given the day's ambient transcript lines "
     "and detected events. Write a short, friendly summary (a few short "
     "paragraphs or bullet points) of what notably happened. Be concrete, do not "

@@ -113,7 +113,7 @@ Item {
                 anchors.fill: parent
                 glyph: "+"
                 glyphColor: Style.accent
-                title: "Ask Polymath anything"
+                title: "Ask Hearth anything"
                 hint: "Open Chat or hold Push-to-talk. Try \"where did I leave my keys?\", \"add milk to the shopping list\", or \"summarise today\"."
             }
         }

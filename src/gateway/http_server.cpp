@@ -129,7 +129,7 @@ void HttpServer::installRoutes() {
     // about a server with no routes on some versions).
     http_->route("/", [](const QHttpServerRequest&) {
         return QHttpServerResponse(QByteArrayLiteral("text/plain"),
-                                   QByteArrayLiteral("Polymath gateway"),
+                                   QByteArrayLiteral("Hearth gateway"),
                                    QHttpServerResponse::StatusCode::Ok);
     });
 

@@ -31,6 +31,6 @@ if(ONNXRuntime_FOUND AND NOT TARGET onnxruntime::onnxruntime)
   set_target_properties(onnxruntime::onnxruntime PROPERTIES
     IMPORTED_LOCATION "${ONNXRuntime_LIBRARY}"
     INTERFACE_INCLUDE_DIRECTORIES "${ONNXRuntime_INCLUDE_DIR}")
-  # Expose the DLL so app packaging can copy it next to Polymath.exe.
+  # Expose the DLL so app packaging can copy it next to Hearth.exe.
   set(ONNXRuntime_RUNTIME_DLL "${ONNXRuntime_DLL}" CACHE FILEPATH "onnxruntime.dll to deploy")
 endif()

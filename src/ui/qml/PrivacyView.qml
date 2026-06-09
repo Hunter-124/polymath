@@ -32,7 +32,7 @@ Item {
                 id: optinCol
                 anchors.fill: parent; anchors.margins: 12; spacing: 6
                 Label {
-                    text: "First-run · choose what Polymath may sense"
+                    text: "First-run · choose what Hearth may sense"
                     color: Style.accent; font.family: Style.fontFamily
                     font.pixelSize: Style.fsBody; font.bold: true
                 }

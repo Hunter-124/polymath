@@ -1,4 +1,4 @@
-# ── Polymath relay — multi-stage build ──────────────────────────────────────
+# ── Hearth relay — multi-stage build ────────────────────────────────────────
 # Stage 1 compiles the TypeScript; stage 2 is a slim runtime with only the
 # production deps and the emitted JS. No source, no devDeps in the final image.
 

@@ -1,6 +1,6 @@
-# ESP32-CAM firmware (Polymath)
+# ESP32-CAM firmware (Hearth)
 
-Turns an **AI-Thinker ESP32-CAM** into an MJPEG camera that Polymath consumes.
+Turns an **AI-Thinker ESP32-CAM** into an MJPEG camera that Hearth consumes.
 
 ## What you need
 - AI-Thinker ESP32-CAM module (the common one with an OV2640 + PSRAM).
@@ -22,7 +22,7 @@ Edit [`config.h`](config.h): set `WIFI_SSID`, `WIFI_PASS`, and a unique
 6. Open Serial Monitor @ `115200` — it prints the stream URL, e.g.
    `http://192.168.1.42/stream` (and `http://polymath-cam1.local/stream`).
 
-## Use in Polymath
+## Use in Hearth
 In the app's **Cameras** settings, add a camera with the stream URL
 (`http://<ip-or-mdns>/stream`). The VisionService auto-reconnects if the camera
 reboots.
@@ -30,7 +30,7 @@ reboots.
 ## End-to-end verification (real board, step by step)
 1. Flash the firmware (above) and confirm the Serial Monitor prints the stream URL.
 2. Open `http://<ip>/stream` in a browser — you should see a live MJPEG image.
-3. In Polymath → Cameras, add the camera with `http://<ip>/stream`.
+3. In Hearth → Cameras, add the camera with `http://<ip>/stream`.
 4. Walk in front of the camera. Expect, in order:
    - a **live tile** for the camera in the dashboard (decoded frames),
    - a **motion** event in the activity log (MOG2 motion gate), and
@@ -44,7 +44,7 @@ You don't need hardware to exercise the full ingest path. A software MJPEG serve
 that streams a recorded clip in the **exact** framing this firmware emits
 (`multipart/x-mixed-replace; boundary=frame`, each part
 `Content-Type: image/jpeg` + `Content-Length` + JPEG bytes) is indistinguishable
-to Polymath's camera ingest from a real board.
+to Hearth's camera ingest from a real board.
 
 - The automated test `tests/test_j_phase2_e2e.cpp` stands up exactly such a server
   in-process (a `QTcpServer` replaying frames from `tests/fixtures/vision/people_walking.avi`)

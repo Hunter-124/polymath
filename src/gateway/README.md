@@ -1,6 +1,6 @@
 # pm_gateway — mobile/web gateway (HTTP + WebSocket + relay tunnel + auth)
 
-Embeds a small server **inside `Polymath.exe`** that exposes the existing
+Embeds a small server **inside `Hearth.exe`** that exposes the existing
 assistant to the mobile/web client (`app/`):
 
 - **REST** over `QHttpServer` on `0.0.0.0:8765` — every endpoint in

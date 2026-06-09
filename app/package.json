@@ -1,9 +1,9 @@
 {
-  "name": "polymath-app",
+  "name": "hearth-app",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Polymath mobile + web client (iOS / Android / PWA).",
+  "description": "Hearth mobile + web client (iOS / Android / PWA).",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

@@ -1,8 +1,8 @@
 {
-  "name": "polymath-relay",
+  "name": "hearth-relay",
   "version": "1.0.0",
   "private": true,
-  "description": "Minimal, self-hostable reverse-tunnel relay for the Polymath home gateway. Lets a NAT'd home server be reached from the internet via an outbound WebSocket tunnel (ngrok/cloudflared pattern, ~300 lines).",
+  "description": "Minimal, self-hostable reverse-tunnel relay for the Hearth home gateway. Lets a NAT'd home server be reached from the internet via an outbound WebSocket tunnel (ngrok/cloudflared pattern, ~300 lines).",
   "type": "module",
   "engines": {
     "node": ">=18"

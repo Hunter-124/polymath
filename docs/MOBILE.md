@@ -1,4 +1,4 @@
-# Polymath Mobile & Web App
+# Hearth Mobile & Web App
 
 One codebase in [`app/`](../app) ships as the **iOS app**, the **Android app**,
 and an installable **mobile web view (PWA)** — built with React + TypeScript +
@@ -81,5 +81,5 @@ The mobile **web view** needs no app store: open the dev/prod URL on a phone and
 ## Status
 
 Built and verified (typecheck + production build pass). Connecting it to a live
-backend needs the gateway wired into `Polymath.exe` — see
+backend needs the gateway wired into `Hearth.exe` — see
 [../WIRING.md](../WIRING.md).

@@ -35,7 +35,7 @@ export function Layout() {
   const remote = useApp((s) => s.remote);
 
   const isPrimary = TABS.some((t) => t.to === pathname);
-  const title = TITLES[pathname] ?? 'Polymath';
+  const title = TITLES[pathname] ?? 'Hearth';
 
   return (
     <div className="app-shell">
