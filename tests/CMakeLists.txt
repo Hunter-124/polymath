@@ -54,3 +54,11 @@ add_test(NAME inference COMMAND test_inference_e2e)
 add_executable(test_memory_e2e test_memory_e2e.cpp)
 target_link_libraries(test_memory_e2e PRIVATE pm_core pm_inference pm_memory Qt6::Core)
 add_test(NAME memory COMMAND test_memory_e2e)
+
+# Wave 2 · Card G — privacy / persistence / at-rest security end-to-end:
+# master kill-switch gating, per-category retention sweep, keyed (SQLCipher-aware)
+# DB open round-trip, and the durable web/tool activity log. Pure core data layer,
+# so it links only pm_core (Qt Core for the metatype machinery pm_core pulls in).
+add_executable(test_privacy_e2e test_privacy_e2e.cpp)
+target_link_libraries(test_privacy_e2e PRIVATE pm_core Qt6::Core)
+add_test(NAME privacy COMMAND test_privacy_e2e)
