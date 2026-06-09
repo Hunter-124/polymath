@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Assemble a portable Polymath bundle (Polymath.exe + every runtime DLL it needs)
   and pack it into a single distributable .zip — the project's honest "packed binary"
@@ -74,12 +74,21 @@ if ($IncludeModels) {
   Write-Host "Copying models (this is large)..." -ForegroundColor Yellow
   if (Test-Path "$bin\data\models") { Copy-Item "$bin\data\models\*" "$stage\data\models\" -Recurse -Force }
 } else {
-  Copy-Item "$repo\scripts\fetch-models.ps1" "$stage\fetch-models.ps1" -Force
+  # Ship the model fetcher + the first-run wizard + GPU check so a cold-started
+  # user is guided rather than dropped into a model-less app.
+  foreach ($s in 'fetch-models.ps1','first-run.ps1','check-gpu.ps1') {
+    Copy-Item "$repo\scripts\$s" "$stage\$s" -Force
+  }
   Set-Content "$stage\data\models\PUT-MODELS-HERE.txt" @"
 This folder holds Polymath's local models (GGUF LLMs + ONNX perception/voice).
-They are not bundled (the default set is ~28 GB). To populate it, from this folder run:
+They are not bundled (the default set is ~28 GB). The easy path — from the bundle
+root run the first-run wizard (GPU check + guided download):
 
-    pwsh ..\fetch-models.ps1 -Root .\data
+    pwsh .\first-run.ps1
+
+or fetch directly (use -Minimal for the ~3.5 GB starter set):
+
+    pwsh .\fetch-models.ps1 -Root .\data -Minimal
 
 or copy your own models into the layout under data\models\ (see fetch-models.ps1
 header for the expected paths). The app self-disables any feature whose model is absent.
@@ -87,20 +96,52 @@ header for the expected paths). The app self-disables any feature whose model is
 }
 
 # 5) Convenience launcher + top-level README.
-Set-Content "$stage\Run-Polymath.cmd" "@echo off`r`ncd /d `"%~dp0`"`r`nstart `"`" `"Polymath.exe`"`r`n"
+# Launcher: on first run (no Fast LLM under data\models\llm) drive the wizard;
+# otherwise launch the app directly. Models bundled (-IncludeModels) -> always direct.
+if ($IncludeModels) {
+  Set-Content "$stage\Run-Polymath.cmd" "@echo off`r`ncd /d `"%~dp0`"`r`nstart `"`" `"Polymath.exe`"`r`n"
+} else {
+  # Prefer PowerShell 7 (pwsh) for nicer output, but fall back to the in-box
+  # Windows PowerShell 5.1 (powershell.exe): a clean Windows box has 5.1 but not
+  # pwsh. The first-run scripts are saved UTF-8-with-BOM so 5.1 parses them too.
+  $launch = @'
+@echo off
+cd /d "%~dp0"
+if exist "data\models\llm\*.gguf" goto run
+echo No models found - launching first-run setup...
+where pwsh >nul 2>&1
+if %ERRORLEVEL%==0 (
+  pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0first-run.ps1"
+) else (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0first-run.ps1"
+)
+goto end
+:run
+start "" "Polymath.exe"
+:end
+'@
+  Set-Content "$stage\Run-Polymath.cmd" ($launch -replace "`n","`r`n")
+}
 $gpuNote = if ($Flavor -eq 'cuda') {
   "This is the CUDA (GPU) build: it needs an NVIDIA GPU + a recent driver. llama/whisper`r`nrun on the GPU; the ONNX perception models (YOLO/face) run on CPU."
 } else { "This is the CPU build (no GPU required)." }
 Set-Content "$stage\README.txt" @"
 Polymath $ver — portable Windows bundle ($Flavor)
 
-Run:  double-click Run-Polymath.cmd  (or Polymath.exe directly).
+FIRST RUN:  double-click Run-Polymath.cmd.
+  If no models are present yet it launches the first-run wizard (first-run.ps1):
+  a GPU/driver check, then a guided model download (Minimal ~3.5 GB or Full ~28 GB),
+  then it starts the app. Once models exist, Run-Polymath.cmd just launches directly.
 $gpuNote
 
-Models: see data\models\ — run fetch-models.ps1 to download the default local set,
-or drop your own GGUF/ONNX models in. Logs are written to data\logs\polymath.log.
+Models live in data\models\ and are NOT bundled (the default set is ~28 GB). To
+populate them yourself instead of via the wizard:
+    pwsh .\first-run.ps1                      (guided)
+    pwsh .\fetch-models.ps1 -Root .\data -Minimal   (just the starter set)
+    or drop your own GGUF/ONNX into data\models\ (see fetch-models.ps1 header).
+The app self-disables any feature whose model is absent — it never silently dies.
 
-Everything here is self-contained except the models — no install required.
+Logs: data\logs\polymath.log.  Everything here is self-contained except the models.
 "@
 
 $sizeMB = [math]::Round((Get-ChildItem $stage -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1)

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Downloads Polymath's default LOCAL model set (Gemma-based) into data/models/,
   in the exact layout the app loads from.
@@ -10,12 +10,22 @@
 
 .PARAMETER Root      App data root (default: .\data next to the repo).
 .PARAMETER NoHeavy   Skip the big 27B heavy model (~16 GB).
+.PARAMETER NoVlm     Skip the vision VLM (Gemma 3 4B + mmproj, ~3.5 GB).
 .PARAMETER NoLLM     Skip all GGUF LLMs (just perception/voice models).
+.PARAMETER Minimal   The "get running fast" subset (~3.5 GB): Fast LLM +
+                     EmbeddingGemma + whisper + VAD/wake + Piper + vision ONNX.
+                     Equivalent to -NoHeavy -NoVlm. The app self-disables the
+                     Heavy (deep-work) and Vision (image) roles until you add them.
 
-.EXAMPLE  pwsh scripts/fetch-models.ps1
+.EXAMPLE  pwsh scripts/fetch-models.ps1            # full default set (~28 GB)
+.EXAMPLE  pwsh scripts/fetch-models.ps1 -Minimal   # minimal subset (~3.5 GB)
 #>
 [CmdletBinding()]
-param([string]$Root = (Join-Path $PSScriptRoot '..\data'), [switch]$NoHeavy, [switch]$NoLLM)
+param([string]$Root = (Join-Path $PSScriptRoot '..\data'),
+      [switch]$NoHeavy, [switch]$NoVlm, [switch]$NoLLM, [switch]$Minimal)
+
+# -Minimal is the friendly alias for "skip the two big optional roles".
+if ($Minimal) { $NoHeavy = $true; $NoVlm = $true }
 
 $ErrorActionPreference = 'Stop'
 $models = Join-Path $Root 'models'
@@ -46,8 +56,10 @@ if (-not $NoLLM) {
   Fetch "$HF/unsloth/gemma-3n-E4B-it-GGUF/resolve/main/gemma-3n-E4B-it-Q4_K_M.gguf" "$models/llm/gemma-3n-E4B-it-Q4_K_M.gguf"
   # Vision VLM: Gemma 3 4B Q4 + projector (multimodal). Ungated unsloth mirror
   # (the official google/* QAT repos are gated and 401 without an HF token).
-  Fetch "$HF/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf" "$models/vlm/gemma-3-4b-it-Q4_K_M.gguf"
-  Fetch "$HF/unsloth/gemma-3-4b-it-GGUF/resolve/main/mmproj-F16.gguf"            "$models/vlm/mmproj-gemma-3-4b-f16.gguf"
+  if (-not $NoVlm) {
+    Fetch "$HF/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf" "$models/vlm/gemma-3-4b-it-Q4_K_M.gguf"
+    Fetch "$HF/unsloth/gemma-3-4b-it-GGUF/resolve/main/mmproj-F16.gguf"            "$models/vlm/mmproj-gemma-3-4b-f16.gguf"
+  }
   # Embeddings: EmbeddingGemma 300M Q8 (~300 MB).
   Fetch "$HF/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf" "$models/embeddings/embeddinggemma-300M-Q8_0.gguf"
   # Heavy (on-demand deep-work): Gemma 3 27B Q4_K_M (~16 GB) — partial offload.
