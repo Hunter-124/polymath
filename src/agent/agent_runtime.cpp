@@ -4,6 +4,7 @@
 #include "inference_manager.h"
 #include "task_scheduler.h"
 #include "database.h"
+#include "activity_log.h"
 #include "event_bus.h"
 #include "paths.h"
 #include "logging.h"
@@ -331,9 +332,13 @@ void AgentRuntime::runTurn(const std::string& user_text, const QString& request_
         messages.push_back({Role::Tool, resultJson, tool});
         bus.publishToolResult({request_id, QString::fromStdString(tool),
                                QString::fromStdString(resultJson), result.ok});
-        if (!result.summary.empty())
+        if (!result.summary.empty()) {
             bus.publishNotice({result.ok ? "info" : "warn", "agent",
                                QString::fromStdString(result.summary)});
+            // Durably record the action so the privacy/activity view can audit
+            // "what did the assistant do on my behalf" after the fact.
+            ActivityLog(db_).record(tool, result.summary, result.ok);
+        }
     }
 
     // 5) Final answer. Prefer one unconstrained pass (streams to the UI under the

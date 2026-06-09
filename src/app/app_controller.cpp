@@ -245,7 +245,21 @@ QStringList AppController::personalities() const {
 
 void AppController::setPrivacy(const QString& key, bool enabled) {
     db_.setSetting(key.toStdString(), enabled ? "1" : "0");
-    EventBus::instance().publishPrivacy({key, enabled});
+    auto& bus = EventBus::instance();
+    bus.publishPrivacy({key, enabled});
+
+    // When the master kill-switch flips, every per-feature sense's *effective*
+    // state changes too (Config gates each sense behind the master). Re-emit each
+    // sense key's effective value (newMaster AND its own raw toggle) so already-
+    // running services tear down / restore live capture immediately, instead of
+    // only on their next independent toggle change.
+    if (key == QString::fromUtf8(keys::MasterEnabled)) {
+        for (const char* sense : { keys::MicEnabled, keys::AmbientTranscription,
+                                   keys::FaceRecognition, keys::CamerasEnabled }) {
+            const bool effective = enabled && db_.getBool(std::string(sense), false);
+            bus.publishPrivacy({ QString::fromUtf8(sense), effective });
+        }
+    }
 }
 
 bool AppController::privacy(const QString& key) const {

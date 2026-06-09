@@ -1,5 +1,20 @@
 # Contract change requests
 
+> **Coordinator reconciliation — end of wave 2 (applied on master):**
+> - ✅ *G — master kill-switch live propagation*: implemented in
+>   `AppController::setPrivacy` (re-emits each sense key's effective value when
+>   `privacy.master_enabled` flips).
+> - ✅ *G — durable activity-log call-site*: `AgentRuntime` now calls
+>   `ActivityLog::record(tool, summary, ok)` at the per-tool Notice site.
+> - ✅ *H→E — `test_memory` model gate*: the hard `assert` on EmbeddingGemma is
+>   now a clean SKIP when the model is absent (force with `POLYMATH_E2E_FULL=1`),
+>   so CI is green on a model-less runner without the `ci.ps1` exclusion stopgap.
+> - ⏳ *G — SQLCipher codec* and *F — extra AppController invokables
+>   (`openModelsFolder`, `addModel`)*: DEFERRED (toolchain weight / non-blocking,
+>   both coded around). Carry into wave 3 / a follow-up. `hasModels`/`firstRun`
+>   properties also deferred; UI binds defensively today.
+
+
 The frozen contracts — `src/core/event_bus.h` and `src/core/schema.h` — must not be edited
 mid-wave (every service depends on their current shape). If a card needs a change, **append an
 entry here instead** and code around it. A coordinator reconciles all requests in one pass at
