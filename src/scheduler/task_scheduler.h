@@ -23,6 +23,10 @@ class TaskScheduler : public QObject, public IService {
     Q_OBJECT
 public:
     TaskScheduler(Database& db, InferenceManager& inf, QObject* parent = nullptr);
+    // Out-of-line so the unique_ptr<StreamCollector> (forward-declared above) is
+    // destroyed in the .cpp where StreamCollector is complete — lets external
+    // callers (tests, AppController) hold a TaskScheduler by value/own it.
+    ~TaskScheduler() override;
 
     void start() override;
     void stop() override;

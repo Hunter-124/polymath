@@ -16,6 +16,9 @@ target_link_libraries(pm_inference PUBLIC pm_core)
 if(TARGET llama)
     target_link_libraries(pm_inference PRIVATE llama)
     target_compile_definitions(pm_inference PRIVATE POLYMATH_HAVE_LLAMA=1)
+    # PUBLIC marker so downstream consumers (e.g. the inference e2e test) can tell
+    # the real engine is compiled in WITHOUT inheriting llama's headers/flags.
+    target_compile_definitions(pm_inference PUBLIC POLYMATH_INFERENCE_HAS_LLAMA=1)
     # Multimodal (VLM) projector helper. Newer llama.cpp exposes the `mtmd`
     # target under tools/mtmd; link + flag it when available so describeImage()
     # compiles the real CLIP/mmproj path.

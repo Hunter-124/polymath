@@ -49,6 +49,13 @@ public:
     // boundary. Safe to call from another thread.
     void requestStop() { stop_requested_.store(true); }
 
+    // Cheaply read the transformer block (layer) count from a .gguf's metadata
+    // header WITHOUT loading the weights, by scanning for the `*.block_count`
+    // key. Returns 0 if it can't be determined (caller should fall back). Used by
+    // the VRAM budget so partial offload is planned against the real layer count
+    // (not a placeholder), which is what makes "Heavy fits the budget" correct.
+    static int probeLayerCount(const std::string& path);
+
 private:
     struct Impl;                       // hides all llama.h types from this header
     std::unique_ptr<Impl> d_;

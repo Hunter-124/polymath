@@ -13,6 +13,7 @@
 // compiled in when POLYMATH_HAVE_LLAMA is defined by the module CMakeLists.
 #ifdef POLYMATH_HAVE_LLAMA
 #  include <llama.h>
+#  include <gguf.h>            // cheap metadata read for probeLayerCount()
 // Multimodal (VLM) projector helper shipped with recent llama.cpp under tools/
 // mtmd. Header availability varies by release/packaging, so it is independently
 // guarded; define POLYMATH_HAVE_MTMD to enable describeImage().
@@ -21,6 +22,8 @@
 #    include <mtmd-helper.h>   // mtmd_helper_bitmap_init_from_buf / eval_chunks
 #  endif
 #endif
+
+#include <string_view>
 
 namespace polymath {
 
@@ -48,6 +51,40 @@ LlamaBackend::LlamaBackend() : d_(std::make_unique<Impl>()) {}
 LlamaBackend::~LlamaBackend() { unload(); }
 
 bool LlamaBackend::isLoaded() const { return loaded_; }
+
+// ---------------------------------------------------------------------------
+//  probeLayerCount — read "<arch>.block_count" from the gguf header (no weights)
+// ---------------------------------------------------------------------------
+int LlamaBackend::probeLayerCount(const std::string& path) {
+#ifndef POLYMATH_HAVE_LLAMA
+    (void)path;
+    return 0;
+#else
+    gguf_init_params gp{};
+    gp.no_alloc = true;          // metadata only — do NOT map the tensor data
+    gp.ctx      = nullptr;
+    gguf_context* gc = gguf_init_from_file(path.c_str(), gp);
+    if (!gc) return 0;
+
+    int layers = 0;
+    const int64_t n_kv = gguf_get_n_kv(gc);
+    for (int64_t i = 0; i < n_kv; ++i) {
+        std::string_view key = gguf_get_key(gc, i);
+        // Keys look like "gemma3.block_count", "llama.block_count", etc.
+        if (key.size() >= 12 && key.substr(key.size() - 12) == ".block_count") {
+            // block_count is stored as an unsigned 32-bit int in practice.
+            const gguf_type t = gguf_get_kv_type(gc, i);
+            if (t == GGUF_TYPE_UINT32)      layers = static_cast<int>(gguf_get_val_u32(gc, i));
+            else if (t == GGUF_TYPE_INT32)  layers = gguf_get_val_i32(gc, i);
+            else if (t == GGUF_TYPE_UINT64) layers = static_cast<int>(gguf_get_val_u64(gc, i));
+            else if (t == GGUF_TYPE_INT64)  layers = static_cast<int>(gguf_get_val_i64(gc, i));
+            break;
+        }
+    }
+    gguf_free(gc);
+    return layers;
+#endif
+}
 
 // ---------------------------------------------------------------------------
 //  load / unload
@@ -210,18 +247,10 @@ std::string tokenToPiece(const llama_vocab* vocab, llama_token tok) {
     return std::string(buf, buf + n);
 }
 
-// Build the sampler chain from SamplingParams (+ optional GBNF grammar).
-llama_sampler* buildSampler(const llama_vocab* vocab, const SamplingParams& sp) {
+// Build the main sampler chain (penalties/top-k/top-p/temp/dist). The grammar is
+// deliberately NOT part of this chain — see Sampler below for why.
+llama_sampler* buildMainChain(const SamplingParams& sp) {
     auto* chain = llama_sampler_chain_init(llama_sampler_chain_default_params());
-
-    if (!sp.grammar.empty()) {
-        // Grammar-constrained sampling for tool-call JSON. API: signature is
-        // (vocab, grammar_str, grammar_root) in recent releases.
-        llama_sampler* g = llama_sampler_init_grammar(vocab, sp.grammar.c_str(), "root");
-        if (g) llama_sampler_chain_add(chain, g);
-        else   PM_WARN("LlamaBackend: grammar init failed; sampling unconstrained");
-    }
-
     llama_sampler_chain_add(chain,
         llama_sampler_init_penalties(/*last_n*/ 64, sp.repeat_penalty,
                                      /*freq*/ 0.0f, /*present*/ 0.0f));
@@ -232,6 +261,98 @@ llama_sampler* buildSampler(const llama_vocab* vocab, const SamplingParams& sp) 
     llama_sampler_chain_add(chain, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
     return chain;
 }
+
+// Sampler — owns an optional GBNF grammar sampler alongside the main chain and
+// implements the "grammar-checked resample" loop used by llama.cpp's own
+// common_sampler. We do NOT splice the grammar into the main chain because that
+// path is what crashes on some models (notably gemma-3n): applying the grammar
+// over the *full* vocab first, then letting dist pick, can hand back a token the
+// grammar does not actually accept (e.g. an EOG token while the grammar is not
+// in an accepting state, or — after top-k/top-p reshape — a token whose only
+// surviving mass came from a candidate the grammar would reject). Accepting such
+// a token empties the grammar stacks, and the *next* llama_grammar apply hits
+// `GGML_ASSERT(!stacks.empty())` / `GGML_ABORT("fatal error")`, which on Windows
+// surfaces as the 0xC0000409 fast-fail that card B observed.
+//
+// The safe pattern: sample from the main chain, then *verify* the candidate
+// against the grammar on a single-element array. If it survives, accept it into
+// both samplers. If the grammar rejects it, re-run the grammar over the full
+// distribution and resample with a fresh greedy pick — guaranteeing the accepted
+// token is always grammar-legal, so the stacks can never empty unexpectedly.
+class Sampler {
+public:
+    Sampler(const llama_vocab* vocab, const SamplingParams& sp) : vocab_(vocab) {
+        main_ = buildMainChain(sp);
+        if (!sp.grammar.empty()) {
+            grammar_ = llama_sampler_init_grammar(vocab, sp.grammar.c_str(), "root");
+            if (!grammar_)
+                PM_WARN("LlamaBackend: grammar init failed; sampling unconstrained");
+        }
+    }
+    ~Sampler() {
+        if (grammar_) llama_sampler_free(grammar_);
+        if (main_)    llama_sampler_free(main_);
+    }
+    Sampler(const Sampler&) = delete;
+    Sampler& operator=(const Sampler&) = delete;
+
+    // Pick the next token for context `ctx`, honoring the grammar when present.
+    llama_token sample(llama_context* ctx) {
+        if (!grammar_)
+            return llama_sampler_sample(main_, ctx, /*idx*/ -1);
+
+        // Snapshot the logits for this position so we can rebuild the candidate
+        // array if the grammar rejects the main chain's first pick.
+        const int   n_vocab = llama_vocab_n_tokens(vocab_);
+        const float* logits = llama_get_logits_ith(ctx, -1);
+        if (!logits) return llama_sampler_sample(main_, ctx, -1);
+
+        // 1) Sample from the main chain (penalties/top-k/top-p/temp/dist).
+        llama_token tok = llama_sampler_sample(main_, ctx, -1);
+
+        // 2) Verify it against the grammar in isolation. If the grammar keeps it
+        //    (logit not forced to -inf), it is legal — accept and return.
+        {
+            llama_token_data one{tok, logits[tok], 0.0f};
+            llama_token_data_array arr{&one, 1, -1, false};
+            llama_sampler_apply(grammar_, &arr);
+            if (one.logit > -INFINITY) return tok;
+        }
+
+        // 3) The main pick was grammar-illegal (the crash trigger if blindly
+        //    accepted). Re-run the grammar over the FULL distribution, then pick
+        //    the most-probable surviving token. This always yields a legal token
+        //    when the grammar still has any continuation.
+        cur_.resize(n_vocab);
+        for (int i = 0; i < n_vocab; ++i)
+            cur_[i] = llama_token_data{i, logits[i], 0.0f};
+        llama_token_data_array arr{cur_.data(), cur_.size(), -1, false};
+        llama_sampler_apply(grammar_, &arr);
+
+        llama_token best = tok;
+        float best_logit = -INFINITY;
+        for (size_t i = 0; i < arr.size; ++i)
+            if (arr.data[i].logit > best_logit) {
+                best_logit = arr.data[i].logit;
+                best = arr.data[i].id;
+            }
+        return best;
+    }
+
+    // Advance both samplers with the chosen token. Never call with an EOG token
+    // (the caller breaks on EOG first) — feeding EOG to an unaccepting grammar is
+    // exactly the GGML_ABORT path.
+    void accept(llama_token tok) {
+        if (grammar_) llama_sampler_accept(grammar_, tok);
+        llama_sampler_accept(main_, tok);
+    }
+
+private:
+    const llama_vocab*           vocab_   = nullptr;
+    llama_sampler*               main_    = nullptr;
+    llama_sampler*               grammar_ = nullptr;
+    std::vector<llama_token_data> cur_;
+};
 
 } // namespace
 #endif // POLYMATH_HAVE_LLAMA
@@ -271,19 +392,21 @@ void LlamaBackend::generate(const ChatRequest& request, const TokenCallback& on_
         return;
     }
 
-    llama_sampler* sampler = buildSampler(d_->vocab, request.sampling);
+    Sampler sampler(d_->vocab, request.sampling);
     const int max_tokens = request.sampling.max_tokens > 0
                                ? request.sampling.max_tokens : 1024;
     int n_decoded = 0;
 
     while (n_decoded < max_tokens && !stop_requested_.load()) {
-        llama_token tok = llama_sampler_sample(sampler, d_->ctx, /*idx*/ -1);
+        llama_token tok = sampler.sample(d_->ctx);
+        // Break BEFORE accepting an EOG token: accepting end-of-generation while a
+        // grammar is not in an accepting state is the GGML_ABORT crash path.
         if (llama_vocab_is_eog(d_->vocab, tok)) break;   // end-of-generation
 
         std::string piece = tokenToPiece(d_->vocab, tok);
         if (!piece.empty()) on_token(piece, /*done*/ false);
 
-        llama_sampler_accept(sampler, tok);
+        sampler.accept(tok);
 
         // Feed the sampled token back in for the next step.
         llama_batch next = llama_batch_get_one(&tok, 1);
@@ -294,7 +417,6 @@ void LlamaBackend::generate(const ChatRequest& request, const TokenCallback& on_
         ++n_decoded;
     }
 
-    llama_sampler_free(sampler);
     on_token("", /*done*/ true);
     PM_DEBUG("LlamaBackend: generated {} tokens for req {}", n_decoded,
              request.request_id);
@@ -423,18 +545,17 @@ std::string LlamaBackend::describeImage(const Frame& frame, std::string_view pro
     SamplingParams sp;
     sp.temperature = 0.2f;
     sp.max_tokens  = 256;
-    llama_sampler* sampler = buildSampler(d_->vocab, sp);
+    Sampler sampler(d_->vocab, sp);
 
     std::string answer;
     for (int i = 0; i < sp.max_tokens && !stop_requested_.load(); ++i) {
-        llama_token tok = llama_sampler_sample(sampler, d_->ctx, -1);
+        llama_token tok = sampler.sample(d_->ctx);
         if (llama_vocab_is_eog(d_->vocab, tok)) break;
         answer += tokenToPiece(d_->vocab, tok);
-        llama_sampler_accept(sampler, tok);
+        sampler.accept(tok);
         llama_batch nb = llama_batch_get_one(&tok, 1);
         if (llama_decode(d_->ctx, nb) != 0) break;
     }
-    llama_sampler_free(sampler);
     return answer;
 #endif
 }
