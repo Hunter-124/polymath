@@ -1,70 +1,85 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import Polymath
 
 Item {
-    // Reload from SQLite whenever the page is shown (cheap, bounded query).
     Component.onCompleted: app.refreshShopping()
 
     ColumnLayout {
-        anchors.fill: parent; anchors.margins: 24; spacing: 12
+        anchors.fill: parent; anchors.margins: Style.pad; spacing: Style.gap
 
         RowLayout {
             Layout.fillWidth: true
-            Label { text: "Shopping List"; color: "#c0caf5"; font.pixelSize: 24; font.bold: true }
+            Label {
+                text: "Shopping List"; color: Style.text
+                font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
+            }
             Item { Layout.fillWidth: true }
-            Button { text: "Clear bought"; onClicked: shoppingModel.clearDone() }
+            PmButton { text: "Clear bought"; onClicked: shoppingModel.clearDone() }
         }
 
         RowLayout {
-            Layout.fillWidth: true
-            TextField {
+            Layout.fillWidth: true; spacing: Style.gap
+            PmTextField {
                 id: item; Layout.fillWidth: true; placeholderText: "Add item…"
                 onAccepted: add()
             }
-            TextField {
-                id: qty; Layout.preferredWidth: 120; placeholderText: "Qty (opt.)"
+            PmTextField {
+                id: qty; Layout.preferredWidth: 130; placeholderText: "Qty (optional)"
                 onAccepted: add()
             }
-            Button { text: "Add"; onClicked: add() }
+            PmButton { text: "Add"; accent: true; onClicked: add() }
         }
 
-        // Backed by the C++ ShoppingModel over the shopping_items table.
-        ListView {
-            id: list
-            Layout.fillWidth: true; Layout.fillHeight: true; clip: true; spacing: 4
-            model: shoppingModel
-            delegate: RowLayout {
-                id: row
-                required property int index
-                required property string item
-                required property string quantity
-                required property bool done
-                width: ListView.view ? ListView.view.width : 0
-                spacing: 8
+        Rectangle {
+            Layout.fillWidth: true; Layout.fillHeight: true
+            radius: Style.radius; color: Style.surface; border.color: Style.borderSoft
 
-                CheckBox {
-                    checked: row.done
-                    onToggled: shoppingModel.setDone(row.index, checked)
-                }
-                Label {
-                    Layout.fillWidth: true
-                    text: row.quantity.length > 0 ? (row.item + "  ·  " + row.quantity) : row.item
-                    color: row.done ? "#565f89" : "#c0caf5"
-                    font.strikeout: row.done
-                    wrapMode: Text.WordWrap
-                }
-                ToolButton {
-                    text: "✕"
-                    onClicked: shoppingModel.removeItem(row.index)
-                }
-            }
+            ListView {
+                id: list
+                anchors.fill: parent; anchors.margins: 8; clip: true; spacing: 2
+                model: shoppingModel
+                delegate: Rectangle {
+                    id: row
+                    required property int index
+                    required property string item
+                    required property string quantity
+                    required property bool done
+                    width: ListView.view ? ListView.view.width : 0
+                    height: 44
+                    radius: Style.radiusSm
+                    color: rowHover.hovered ? Style.surface2 : "transparent"
+                    HoverHandler { id: rowHover }
 
-            Label {
-                anchors.centerIn: parent
-                visible: list.count === 0
-                text: "Your shopping list is empty."
-                color: "#565f89"
+                    RowLayout {
+                        anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; spacing: 10
+                        PmCheckBox {
+                            checked: row.done
+                            onToggled: shoppingModel.setDone(row.index, checked)
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: row.quantity.length > 0 ? (row.item + "   ·   " + row.quantity) : row.item
+                            color: row.done ? Style.textFaint : Style.text
+                            font.family: Style.fontFamily; font.pixelSize: Style.fsBody
+                            font.strikeout: row.done
+                            wrapMode: Text.WordWrap
+                        }
+                        PmToolButton {
+                            text: "×"   // Latin-1 multiplication sign (Inter has it; ✕ is tofu)
+                            onClicked: shoppingModel.removeItem(row.index)
+                        }
+                    }
+                }
+
+                EmptyState {
+                    anchors.fill: parent
+                    visible: list.count === 0
+                    glyph: "+"
+                    title: "Your shopping list is empty"
+                    hint: "Add an item above, or just say \"add milk to the shopping list\" — it lands here."
+                }
             }
         }
     }

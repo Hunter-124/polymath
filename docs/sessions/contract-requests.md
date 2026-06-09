@@ -62,3 +62,31 @@ Format:
   result.summary, result.ok)` where it already publishes the per-tool Notice
   (agent_runtime.cpp, ~line 334) so live tool calls are logged — a 2-line add in
   src/agent (out of card G's scope).
+
+## F-gui — AppController surface gaps the views want (NOT a frozen-contract edit)
+- Contract: none of the two FROZEN contracts. These are requests to the
+  **AppController** facade (`src/app/app_controller.{h,cpp}`), which Card F may
+  not edit (it owns only `src/ui/`). Listed here so the app-owner can add them.
+- Proposed additions to `AppController` (all small, additive):
+  1. `Q_PROPERTY(bool hasModels ...)` / `Q_PROPERTY(bool firstRun ...)` —
+     a real cold-start signal. The Dashboard cold-start banner and the Privacy
+     first-run opt-in banner currently *infer* first-run from
+     `modelStatus === "no model loaded"`; an explicit property is cleaner and
+     lets the Privacy banner actually appear (it's bound defensively to
+     `app.firstRun` which is `undefined` today → banner stays hidden in-app).
+  2. `Q_INVOKABLE void openModelsFolder()` — open `data/models/` in the file
+     manager. The Model Manager "Add GGUF…" / empty-state "Open models folder"
+     buttons call this; with it absent QML logs a benign TypeError on click and
+     nothing opens.
+  3. `Q_INVOKABLE void addModel(path, role)` + role reassignment — the Model
+     Manager "Add GGUF…" button and the role ComboBox are presentational until a
+     register/assign invokable exists (InferenceManager already auto-registers
+     from disk; a UI path would let users do it without dropping files manually).
+- Why: these turn three first-run affordances from "wired to a stub / no-op" into
+  live actions. None are blocking — the views render and bind correctly without
+  them.
+- Workaround used meanwhile: bound to what exists (`modelStatus`, `models()`,
+  `personalities()`, `privacy()`); guarded the missing property
+  (`app.firstRun !== undefined ? ... : false`) so no QML error; left the two
+  action buttons calling the proposed invokable names (harmless warning if
+  unimplemented) so wiring them later is a one-line backend change, no QML edit.

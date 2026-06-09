@@ -82,3 +82,16 @@ add_test(NAME integration COMMAND test_integration_e2e)
 set_tests_properties(integration PROPERTIES
     TIMEOUT 300
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Wave 2 · Card F — UI render end-to-end: loads the Main shell + all 9 views
+# offscreen against a stub `app`/list-models and asserts each instantiates with
+# ZERO QML errors (catches role-name drift, bad imports, missing bindings before
+# they ship as blank panels). Links pm_ui for the embedded Polymath QML module
+# (built NO_PLUGIN, so types resolve from resources). Offscreen, no backend.
+add_executable(test_ui_e2e test_ui_e2e.cpp)
+set_target_properties(test_ui_e2e PROPERTIES AUTOMOC ON)
+target_link_libraries(test_ui_e2e PRIVATE pm_ui Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Gui)
+add_test(NAME ui COMMAND test_ui_e2e)
+set_tests_properties(ui PROPERTIES
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
