@@ -30,6 +30,9 @@ namespace keys {
     inline constexpr const char* WakeWord              = "audio.wake_word";      // "hey_jarvis"
     inline constexpr const char* SearchBackend         = "web.search_backend";   // searxng|brave|ddg
     inline constexpr const char* SearchApiKey          = "web.search_api_key";
+    // First-run flow acknowledged ("1" once the user has been through setup).
+    // Absent/"0" => still first run (drives the cold-start + opt-in banners).
+    inline constexpr const char* FirstRunDone          = "app.first_run_done";
 }
 
 class Config {

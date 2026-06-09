@@ -41,6 +41,12 @@ class AppController : public QObject {
     Q_PROPERTY(bool listening READ listening NOTIFY listeningChanged)
     Q_PROPERTY(QString activePersonality READ activePersonality NOTIFY activePersonalityChanged)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY modelStatusChanged)
+    // First-run / cold-start affordances. hasModels = at least one usable model
+    // is registered on disk; firstRun = no usable model AND the first-run flow has
+    // not been acknowledged. Both notify when model state changes (wired to
+    // InferenceManager::modelStateChanged) or when first-run is completed.
+    Q_PROPERTY(bool hasModels READ hasModels NOTIFY modelsChanged)
+    Q_PROPERTY(bool firstRun  READ firstRun  NOTIFY firstRunChanged)
     // Wave-3 UI: data models exposed to QML (constructed in initialize()).
     Q_PROPERTY(QObject* chatModel     READ chatModel     CONSTANT)
     Q_PROPERTY(QObject* shoppingModel READ shoppingModel CONSTANT)
@@ -63,6 +69,8 @@ public:
     bool    listening() const { return listening_; }
     QString activePersonality() const { return active_personality_; }
     QString modelStatus() const { return model_status_; }
+    bool    hasModels() const;
+    bool    firstRun() const;
 
     // Model accessors (return QObject* so they bind cleanly as Q_PROPERTYs).
     QObject* chatModel() const;
@@ -98,10 +106,26 @@ public:
     // as a list of maps {id,displayName,role,path,nCtx,nGpuLayers,active}.
     Q_INVOKABLE QVariantList models() const;
 
+    // --- Model Manager actions (live) ---
+    // Open data/models/ in the OS file manager so the user can drop in GGUFs.
+    Q_INVOKABLE void openModelsFolder();
+    // Register a user-provided model file into the `models` table under `role`
+    // (fast|heavy|vision|embedding). Validates the path exists; returns false and
+    // posts a notice on bad input. Triggers a registry reload + models refresh.
+    Q_INVOKABLE bool addModel(const QString& path, const QString& role);
+    // Reassign an existing model's role (backs the role ComboBox). Reloads the
+    // registry and refreshes the Model Manager list.
+    Q_INVOKABLE void setModelRole(const QString& id, const QString& role);
+    // Persist that the first-run flow has been acknowledged (hides the first-run
+    // opt-in banner from then on, even before any model is added).
+    Q_INVOKABLE void completeFirstRun();
+
 signals:
     void listeningChanged();
     void activePersonalityChanged();
     void modelStatusChanged();
+    void modelsChanged();      // model registry changed (add/role/load-state)
+    void firstRunChanged();    // first-run state changed (model added / acknowledged)
     void assistantToken(QString request_id, QString text, bool done);  // -> chat view
     void noticePosted(QString level, QString source, QString message); // -> toasts/log
     void findObjectAnswered(QString query, QString answer);

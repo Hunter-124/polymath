@@ -10,6 +10,15 @@ Item {
     function reload() { modelRows = app.models() }
     Component.onCompleted: reload()
 
+    // Auto-refresh whenever the registry changes (add / role reassignment / a
+    // model load that altered the active row). Guarded so the stub `app` used by
+    // the UI render test — which has no such signal — still loads cleanly.
+    Connections {
+        target: app
+        ignoreUnknownSignals: true
+        function onModelsChanged() { root.reload() }
+    }
+
     ColumnLayout {
         anchors.fill: parent; anchors.margins: Style.pad; spacing: Style.gap
         Label {
@@ -88,14 +97,19 @@ Item {
                                     }
                                 }
                                 Item { Layout.fillWidth: true }
-                                Rectangle {
-                                    radius: Style.radiusXs; color: Style.surface3
-                                    implicitWidth: roleLbl.implicitWidth + 14
-                                    implicitHeight: roleLbl.implicitHeight + 5
-                                    Label {
-                                        id: roleLbl; anchors.centerIn: parent
-                                        text: mrow.modelData.role; color: Style.accent
-                                        font.family: Style.fontFamily; font.pixelSize: Style.fsTiny; font.bold: true
+                                // Live role assignment: changing this reassigns the
+                                // model's role in the `models` table and refreshes.
+                                PmComboBox {
+                                    id: roleCombo
+                                    Layout.preferredWidth: 130
+                                    model: ["fast", "heavy", "vision", "embedding"]
+                                    currentIndex: Math.max(0, model.indexOf(mrow.modelData.role))
+                                    onActivated: {
+                                        const r = model[currentIndex]
+                                        if (r !== mrow.modelData.role) {
+                                            app.setModelRole(mrow.modelData.id, r)
+                                            root.reload()
+                                        }
                                     }
                                 }
                             }

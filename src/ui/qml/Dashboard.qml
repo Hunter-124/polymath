@@ -5,11 +5,9 @@ import Polymath
 
 Item {
     id: root
-    // The real AppController has no hasModels yet; treat "no model loaded" as the
-    // cold-start signal so the first-run banner still works there.
-    readonly property bool hasModels:
-        (app.hasModels !== undefined) ? app.hasModels
-        : app.modelStatus !== "no model loaded"
+    // app.hasModels is a live property on AppController (true once a usable model
+    // is registered on disk); the cold-start banner shows while it is false.
+    readonly property bool hasModels: app.hasModels
 
     ColumnLayout {
         anchors.fill: parent

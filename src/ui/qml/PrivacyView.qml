@@ -18,9 +18,11 @@ Item {
             wrapMode: Text.WordWrap; Layout.fillWidth: true
         }
 
-        // First-run opt-in banner — senses are OFF until you allow them.
+        // First-run opt-in banner — senses are OFF until you allow them. Bound to
+        // the live app.firstRun property; "Got it" acknowledges the flow so the
+        // banner stays hidden on future launches.
         Rectangle {
-            visible: app.firstRun !== undefined ? app.firstRun : false
+            visible: app.firstRun
             Layout.fillWidth: true
             radius: Style.radiusSm
             color: Style.surface2
@@ -38,6 +40,11 @@ Item {
                     text: "The microphone, cameras and face recognition stay OFF until you switch them on below. Nothing leaves this machine either way."
                     color: Style.textDim; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
                     wrapMode: Text.WordWrap; Layout.fillWidth: true
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+                    PmButton { text: "Got it, continue"; onClicked: app.completeFirstRun() }
                 }
             }
         }

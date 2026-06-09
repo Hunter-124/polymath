@@ -22,11 +22,16 @@
 #include "camera_image_provider.h"
 
 #include <QByteArray>
+#include <QDesktopServices>
+#include <QFileInfo>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QThread>
+#include <QUrl>
 #include <QUuid>
 #include <QVariantMap>
+
+#include <filesystem>
 
 namespace polymath {
 
@@ -125,11 +130,15 @@ void AppController::wireEventBus() {
                 active_personality_ = name; emit activePersonalityChanged();
             });
 
-    // Model status -> UI property
+    // Model status -> UI property. A load/unload also means the registry-derived
+    // hasModels/firstRun state may have changed (e.g. the Fast model became
+    // resident at startup, or a freshly added model loaded), so re-publish those.
     connect(inference_.get(), &InferenceManager::modelStateChanged, this,
             [this](const QString& role, const QString& id, bool loaded) {
                 model_status_ = loaded ? (role + ": " + id) : QStringLiteral("no model loaded");
                 emit modelStatusChanged();
+                emit modelsChanged();
+                emit firstRunChanged();
             });
 }
 
@@ -333,6 +342,117 @@ QVariantList AppController::models() const {
             out.push_back(m);
         });
     return out;
+}
+
+// --- First-run / Model Manager actions -----------------------------------
+
+bool AppController::hasModels() const {
+    // "Usable" = a registered model whose file still exists on disk. We check the
+    // path so a stale row (model file deleted) does not keep the cold-start banner
+    // hidden. Cheap bounded read on the UI thread.
+    namespace fs = std::filesystem;
+    bool usable = false;
+    const_cast<Database&>(db_).query(
+        "SELECT path FROM models", {},
+        [&](const Row& r) {
+            if (usable) return;
+            std::error_code ec;
+            const std::string p = r.text(0);
+            if (!p.empty() && fs::exists(fs::u8path(p), ec)) usable = true;
+        });
+    return usable;
+}
+
+bool AppController::firstRun() const {
+    // First run until the user has a usable model OR has explicitly acknowledged
+    // the first-run flow. Once acknowledged it stays acknowledged across restarts.
+    if (const_cast<Database&>(db_).getBool(keys::FirstRunDone, false)) return false;
+    return !hasModels();
+}
+
+void AppController::openModelsFolder() {
+    namespace fs = std::filesystem;
+    const fs::path dir = Paths::instance().models();
+    std::error_code ec;
+    fs::create_directories(dir, ec);   // make sure it exists so the open succeeds
+    const QString local = QString::fromStdString(dir.string());
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(local))) {
+        emit noticePosted(QStringLiteral("warn"), QStringLiteral("models"),
+                          QStringLiteral("Could not open the models folder: %1").arg(local));
+    }
+}
+
+bool AppController::addModel(const QString& path, const QString& role) {
+    const QFileInfo fi(path);
+    if (path.isEmpty() || !fi.exists() || !fi.isFile()) {
+        emit noticePosted(QStringLiteral("warn"), QStringLiteral("models"),
+                          QStringLiteral("Cannot add model — file not found: %1").arg(path));
+        return false;
+    }
+
+    // Normalize role to the schema's allowed set; default to "fast".
+    QString r = role.toLower();
+    if (r != "fast" && r != "heavy" && r != "vision" && r != "embedding")
+        r = QStringLiteral("fast");
+
+    const std::string p  = fi.absoluteFilePath().toStdString();
+    const std::string id = fi.completeBaseName().toStdString();   // stem, e.g. "gemma-3n"
+    const std::string rs = r.toStdString();
+
+    // Skip if this exact path is already registered (mirrors auto-discover).
+    bool exists = false;
+    db_.query("SELECT 1 FROM models WHERE path=?1", {p}, [&](const Row&) { exists = true; });
+    if (exists) {
+        emit noticePosted(QStringLiteral("info"), QStringLiteral("models"),
+                          QStringLiteral("Model already registered: %1").arg(path));
+    } else {
+        // Insert the row the same way auto-register does (id == display_name, all
+        // GPU layers requested; is_active=1 only if no other model holds this role
+        // yet). n_ctx mirrors auto-discover's per-role default.
+        const int n_ctx = (rs == "embedding") ? 2048 : 8192;
+        db_.exec(
+            "INSERT INTO models(id,display_name,path,role,n_ctx,n_gpu_layers,"
+            "chat_template,mmproj_path,is_active) VALUES(?1,?1,?2,?3,?4,999,'','',"
+            "(SELECT CASE WHEN EXISTS(SELECT 1 FROM models WHERE role=?3) THEN 0 ELSE 1 END))",
+            {id, p, rs, n_ctx});
+        emit noticePosted(QStringLiteral("info"), QStringLiteral("models"),
+                          QStringLiteral("Registered %1 as %2").arg(fi.fileName(), r));
+    }
+
+    // Pick up the new row in the running InferenceManager and refresh the UI.
+    // reloadRegistry() is a plain method (not a slot), so dispatch it as a queued
+    // functor onto the inference thread rather than by method name.
+    if (auto* inf = inference_.get())
+        QMetaObject::invokeMethod(inf, [inf]() { inf->reloadRegistry(); }, Qt::QueuedConnection);
+    emit modelsChanged();
+    emit firstRunChanged();
+    return true;
+}
+
+void AppController::setModelRole(const QString& id, const QString& role) {
+    QString r = role.toLower();
+    if (r != "fast" && r != "heavy" && r != "vision" && r != "embedding") {
+        emit noticePosted(QStringLiteral("warn"), QStringLiteral("models"),
+                          QStringLiteral("Unknown model role: %1").arg(role));
+        return;
+    }
+    bool exists = false;
+    db_.query("SELECT 1 FROM models WHERE id=?1", {id.toStdString()}, [&](const Row&) { exists = true; });
+    if (!exists) {
+        emit noticePosted(QStringLiteral("warn"), QStringLiteral("models"),
+                          QStringLiteral("No such model: %1").arg(id));
+        return;
+    }
+    db_.exec("UPDATE models SET role=?2 WHERE id=?1", {id.toStdString(), r.toStdString()});
+
+    if (auto* inf = inference_.get())
+        QMetaObject::invokeMethod(inf, [inf]() { inf->reloadRegistry(); }, Qt::QueuedConnection);
+    emit modelsChanged();
+}
+
+void AppController::completeFirstRun() {
+    db_.setSetting(std::string(keys::FirstRunDone), "1");
+    emit firstRunChanged();
 }
 
 } // namespace polymath

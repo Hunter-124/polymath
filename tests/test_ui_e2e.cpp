@@ -65,16 +65,20 @@ class StubApp : public QObject {
     Q_PROPERTY(bool listening READ listening NOTIFY changed)
     Q_PROPERTY(QString activePersonality READ activePersonality NOTIFY changed)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY changed)
+    Q_PROPERTY(bool hasModels READ hasModels NOTIFY changed)
+    Q_PROPERTY(bool firstRun  READ firstRun  NOTIFY changed)
     Q_PROPERTY(QObject* chatModel READ chatModel CONSTANT)
 public:
     bool listening() const { return true; }
     QString activePersonality() const { return "Assistant"; }
     QString modelStatus() const { return "fast: gemma-3n"; }
+    bool hasModels() const { return true; }
+    bool firstRun() const { return false; }
     QObject* chatModel() const { return chat_; }
     void setChat(QObject* c) { chat_ = c; }
     Q_INVOKABLE QStringList personalities() const { return {"Assistant", "Ada Lovelace"}; }
     Q_INVOKABLE QVariantList models() const {
-        QVariantMap m; m["displayName"] = "m"; m["role"] = "fast"; m["nCtx"] = 8192;
+        QVariantMap m; m["id"] = "m"; m["displayName"] = "m"; m["role"] = "fast"; m["nCtx"] = 8192;
         m["nGpuLayers"] = 999; m["active"] = true; m["path"] = "data/models/m.gguf";
         return QVariantList{ m };
     }
@@ -92,8 +96,13 @@ public:
     Q_INVOKABLE void refreshTasks() {}
     Q_INVOKABLE void refreshTimeline() {}
     Q_INVOKABLE void openModelsFolder() {}
+    Q_INVOKABLE bool addModel(const QString&, const QString&) { return true; }
+    Q_INVOKABLE void setModelRole(const QString&, const QString&) {}
+    Q_INVOKABLE void completeFirstRun() {}
 signals:
     void changed();
+    void modelsChanged();
+    void firstRunChanged();
     void assistantToken(QString, QString, bool);
     void noticePosted(QString, QString, QString);
     void findObjectAnswered(QString, QString);

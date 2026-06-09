@@ -90,33 +90,41 @@ Format:
   (agent_runtime.cpp, ~line 334) so live tool calls are logged — a 2-line add in
   src/agent (out of card G's scope).
 
-## F-gui — AppController surface gaps the views want (NOT a frozen-contract edit)
-- Contract: none of the two FROZEN contracts. These are requests to the
+## F-gui — AppController surface gaps the views want — ✅ DONE
+- Contract: none of the two FROZEN contracts. These were requests to the
   **AppController** facade (`src/app/app_controller.{h,cpp}`), which Card F may
-  not edit (it owns only `src/ui/`). Listed here so the app-owner can add them.
-- Proposed additions to `AppController` (all small, additive):
-  1. `Q_PROPERTY(bool hasModels ...)` / `Q_PROPERTY(bool firstRun ...)` —
-     a real cold-start signal. The Dashboard cold-start banner and the Privacy
-     first-run opt-in banner currently *infer* first-run from
-     `modelStatus === "no model loaded"`; an explicit property is cleaner and
-     lets the Privacy banner actually appear (it's bound defensively to
-     `app.firstRun` which is `undefined` today → banner stays hidden in-app).
-  2. `Q_INVOKABLE void openModelsFolder()` — open `data/models/` in the file
-     manager. The Model Manager "Add GGUF…" / empty-state "Open models folder"
-     buttons call this; with it absent QML logs a benign TypeError on click and
-     nothing opens.
-  3. `Q_INVOKABLE void addModel(path, role)` + role reassignment — the Model
-     Manager "Add GGUF…" button and the role ComboBox are presentational until a
-     register/assign invokable exists (InferenceManager already auto-registers
-     from disk; a UI path would let users do it without dropping files manually).
-- Why: these turn three first-run affordances from "wired to a stub / no-op" into
-  live actions. None are blocking — the views render and bind correctly without
-  them.
-- Workaround used meanwhile: bound to what exists (`modelStatus`, `models()`,
-  `personalities()`, `privacy()`); guarded the missing property
-  (`app.firstRun !== undefined ? ... : false`) so no QML error; left the two
-  action buttons calling the proposed invokable names (harmless warning if
-  unimplemented) so wiring them later is a one-line backend change, no QML edit.
+  not edit (it owns only `src/ui/`).
+- **RESOLVED (production hardening pass):** the three first-run affordances are
+  now LIVE. All additions are small + additive; no frozen contract touched.
+  - `Q_PROPERTY(bool hasModels READ hasModels NOTIFY modelsChanged)` —
+    true when at least one registered `models`-table row's file still exists on
+    disk (checked per-path so a deleted-file stale row doesn't mask cold start).
+  - `Q_PROPERTY(bool firstRun READ firstRun NOTIFY firstRunChanged)` — true until
+    the user has a usable model **OR** has acknowledged the first-run flow
+    (persisted as the `app.first_run_done` setting; once acked it stays acked
+    across restarts). Both NOTIFY signals are emitted from the existing
+    `InferenceManager::modelStateChanged` hook in `wireEventBus()`, and from the
+    actions below. The Dashboard cold-start banner now binds `app.hasModels`
+    directly; the Privacy opt-in banner binds `app.firstRun` and gained a
+    "Got it, continue" button → `app.completeFirstRun()`.
+  - `Q_INVOKABLE void openModelsFolder()` — `QDesktopServices::openUrl` on
+    `Paths::models()` (creates the dir first). Backs "Add GGUF…" + the empty-state
+    "Open models folder" button.
+  - `Q_INVOKABLE bool addModel(const QString& path, const QString& role)` —
+    validates the file exists, inserts the `models` row exactly as auto-discover
+    does (id == stem, all GPU layers, is_active only if the role is otherwise
+    empty), queues `InferenceManager::reloadRegistry()`, emits `modelsChanged`.
+    Returns false + posts a Notice on a bad path.
+  - `Q_INVOKABLE void setModelRole(const QString& id, const QString& role)` —
+    backs a per-row role ComboBox in ModelManagerView; UPDATEs the row's role,
+    reloads the registry, emits `modelsChanged`. The view auto-refreshes via a
+    `Connections { onModelsChanged }` block.
+  - `Q_INVOKABLE void completeFirstRun()` — persists `app.first_run_done=1`.
+- The UI render test (`tests/test_ui_e2e.cpp`) + screenshot harness
+  (`src/ui/tools/capture_views.cpp`) stubs were extended to mirror the new
+  surface so the full `ctest` stays green and every view still loads with zero
+  QML errors. Defensive `!== undefined` guards on `hasModels`/`firstRun` removed
+  now that the properties are real.
 
 ## J-phase2 — Qt6::WebSockets not in the kit (optional build/toolchain add)
 - Contract: build/toolchain (NOT a schema or event_bus edit)

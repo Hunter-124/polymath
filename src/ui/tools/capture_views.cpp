@@ -109,7 +109,7 @@ public:
         if (!populated) return out;
         auto mk = [](QString name, QString role, int ctx, int ngl, bool act) {
             QVariantMap m;
-            m["displayName"] = name; m["role"] = role; m["nCtx"] = ctx;
+            m["id"] = name; m["displayName"] = name; m["role"] = role; m["nCtx"] = ctx;
             m["nGpuLayers"] = ngl; m["active"] = act;
             m["path"] = "data/models/" + name + ".gguf";
             return QVariant(m);
@@ -140,8 +140,12 @@ public:
     Q_INVOKABLE void refreshTimeline() {}
     Q_INVOKABLE void openModelsFolder() {}
     Q_INVOKABLE void completeFirstRun() {}
+    Q_INVOKABLE bool addModel(const QString&, const QString&) { return true; }
+    Q_INVOKABLE void setModelRole(const QString&, const QString&) {}
 signals:
     void changed();
+    void modelsChanged();
+    void firstRunChanged();
     void assistantToken(QString, QString, bool);
     void noticePosted(QString, QString, QString);
     void findObjectAnswered(QString, QString);
