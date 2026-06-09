@@ -1,74 +1,91 @@
-# Polymath — Local AI Home Assistant
+# Hearth — a fully-local AI home assistant
 
-A fully-local, always-on AI home assistant for Windows. One C++/Qt Quick application that:
+Hearth is an always-on, **100% local** AI home assistant for Windows: one C++/Qt Quick
+application — no cloud, no telemetry, no account. It listens, sees, remembers, and acts, entirely
+on your own machine and GPU.
 
-- Listens for a **wake word**, transcribes speech (whisper.cpp), thinks with a **local llama.cpp**
-  model, and speaks back (Piper TTS).
-- Can **think as modular historical personalities** (drop-in `persona.json` bundles).
-- Perceives the home through **ESP32-CAM** video: motion, person & face detection, "find my keys"
-  object search.
-- Keeps **long-term memory**, proactively reminds (vitamins, dinner) and suggests next-day tasks.
-- Wields an **agent toolset**: web search, image analysis, document/lab-report drafting, printing,
-  shopping lists, and (phase 2) browser automation.
-- Uses **tiered inference**: a resident *fast* model for live voice + an on-demand *heavy* model
-  that drains a queue of deep-work tasks while the machine is idle.
+> The application binary and internal engine are named **`Polymath`** (the project's codename); the
+> product is **Hearth**. You'll see both names — `Polymath.exe`, the `polymath` C++ namespace — in
+> the code and docs.
 
-> **Privacy:** everything runs locally. No telemetry. Ambient listening and face recognition are
-> ON by default but fully toggleable, with retention controls and optional at-rest encryption.
+- **Voice loop** — wake word → speech-to-text (whisper.cpp) → a local LLM (llama.cpp) → text-to-speech
+  (Piper). Push-to-talk or hands-free.
+- **Personalities** — the assistant can think as drop-in historical personas (`persona.json` bundles);
+  ships with Marcus Aurelius and Ada Lovelace.
+- **Vision** — per-camera pipeline over ESP32-CAM / MJPEG streams: motion gating, person detection
+  (YOLOv8n), face recognition (SCRFD + ArcFace), and "where did I last see …" object search via a VLM.
+- **Memory** — long-term semantic memory (vector recall over EmbeddingGemma), a daily summarizer, and
+  per-category retention.
+- **Agent toolset** — 17 tools: web search, page fetch, image analysis, document & lab-report drafting,
+  printing, shopping lists, reminders/tasks, camera/who's-home, and Chrome browser automation.
+- **Tiered inference** — a resident *Fast* model for live voice, plus an on-demand *Heavy* model that
+  drains a deep-work queue while the machine is idle, with a VRAM budgeter that fits the card.
 
-See [`docs/`](docs/) for setup, the ESP32-CAM flashing guide, the architecture overview, and the
-[approved plan](docs/PLAN.md).
+> **Privacy & security.** Everything runs locally. Ambient listening / face recognition default ON but
+> are fully toggleable behind a master kill-switch, with per-category retention. The SQLite database is
+> **encrypted at rest** (SQLCipher/AES) with a per-install, OS-protected key. See [`docs/PRIVACY.md`](docs/PRIVACY.md).
 
-## Quickstart
+## Install (end users)
+
+Grab the latest installer from the repo's **Releases** and run it (artifacts carry the `Polymath`
+binary codename):
+
+- `Polymath-<version>-win64-cuda-Setup.exe` — NVIDIA GPU build (CUDA, much faster).
+- `Polymath-<version>-win64-cpu-Setup.exe` — CPU-only build (works anywhere, slower).
+
+On first launch with no models, Hearth guides you through a model fetch + a GPU/driver check rather
+than dropping you into a dead app. Models are **not** bundled (they're ~GBs); the first-run wizard
+downloads them. See [`docs/PACKAGING.md`](docs/PACKAGING.md) for the minimal (~few GB) vs full (~28 GB)
+model sets and how to bring your own GGUF/ONNX.
+
+## Build from source (developers)
+
+Windows 10/11, MSVC 2022, CMake ≥ 3.25. Native engines (llama.cpp, whisper.cpp, SQLCipher, …) are
+vendored and built from source; Qt 6.6, OpenCV, ONNX Runtime and the small vcpkg libs come from
+`build/deps` + vcpkg. Full detail in [`docs/BUILD.md`](docs/BUILD.md).
 
 ```powershell
-# 1. Bootstrap toolchain (submodules, vcpkg, configure). Pass -OnnxRoot to your
-#    extracted onnxruntime-win-x64-gpu folder.
-pwsh scripts/setup-dev.ps1 -OnnxRoot C:\dev\onnxruntime-gpu
+# CPU build (no GPU needed) — configures, builds, runs ctest, deploys runtime DLLs
+pwsh scripts/build-cpu.ps1
 
-# 2. Build
-cmake --build --preset cuda-release      #  -> build/cuda-release/bin/Polymath.exe
-
-# 3. Fetch the default local models into data/models/
+# Fetch the default local models into build/cpu/bin/Release/data/models
 pwsh scripts/fetch-models.ps1            # add -Minimal to skip the big optional ones
 
-# 4. Run, then assign model roles in the Model Manager view.
-build/cuda-release/bin/Polymath.exe
+# GPU / CUDA build (NVIDIA, sm_86+). Assumes the CPU prereqs above exist.
+pwsh scripts/build-gpu.ps1               # -> build/cuda/bin/Polymath.exe
+
+# Run
+build/cuda/bin/Polymath.exe              # or build/cpu/bin/Release/Polymath.exe
 ```
 
-No GPU? Use `-Preset cpu-release` in step 1 and `--preset cpu-release` in step 2 (small models, slower).
+Run the test suite: `ctest --test-dir build/cpu -C Release` (11 suites: core, tools, audio, agent,
+vision, inference, memory, privacy, integration, ui, phase2). CI entry point: `scripts/ci.ps1`.
 
-## Building (overview)
-
-Requires: Windows 10/11, an NVIDIA GPU (CUDA 12.x), CMake ≥ 3.25, a recent MSVC, and `vcpkg`.
-Native sub-engines (llama.cpp, whisper.cpp, piper) are vendored as git submodules and built with
-CUDA. ONNX Runtime (GPU) and the model files are downloaded separately into `models/`. Full detail
-in [`docs/BUILD.md`](docs/BUILD.md); model layout in [`docs/MODELS.md`](docs/MODELS.md).
+Package a distributable + build the installer:
 
 ```powershell
-git submodule update --init --recursive
-cmake --preset cuda-release
-cmake --build --preset cuda-release
+pwsh scripts/package.ps1 -Flavor cuda    # stages dist/ + a portable zip
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.0 /DFlavor=cuda scripts/installer/polymath.iss
 ```
 
-The build produces `Polymath.exe`. Because this is a CUDA + Qt Quick app, a *literal* single `.exe`
-is not possible — the deliverable is `Polymath.exe` + a small set of runtime DLLs (CUDA, ONNX
-Runtime, Qt) + a `models/` data folder, shipped as a portable bundle. See
-[`docs/BUILD.md`](docs/BUILD.md) and [`docs/PACKAGING.md`](docs/PACKAGING.md).
+See [`docs/SHIP.md`](docs/SHIP.md) for the full release checklist.
 
 ## Repository layout
 
 ```
-src/core/        shared contracts: EventBus, DB/schema, config, IModelBackend, ITool
+src/core/        shared contracts: EventBus, DB/schema (+ SQLCipher), config, privacy, retention
 src/inference/   llama.cpp backend, tiered model manager, VRAM budget, GBNF grammar
 src/scheduler/   deep-work task queue, idle detector, proactive engine
 src/audio/       capture, wake word, VAD, whisper ASR, Piper TTS
 src/vision/      camera workers, motion, YOLO, face recognition, visual memory / finder
 src/memory/      SQLite store, vector index, daily summarizer
-src/agent/       tool registry + tools (web, docs, print, shopping, home, memory)
+src/agent/       tool registry + 17 tools (web, docs, print, shopping, home, memory, browser_drive)
 src/personality/ hot-loadable persona bundle manager
 src/app/         AppController facade + main.cpp
 src/ui/          Qt Quick (QML) views + C++ view-model glue
 firmware/esp32cam/  ESP32-CAM MJPEG streaming firmware + flashing guide
-assets/personalities/  starter historical personas
+docs/            architecture, build, models, privacy, packaging, ship checklist, status
 ```
+
+Project history and the parallel build plan live under [`docs/`](docs/) and
+[`docs/sessions/`](docs/sessions/).

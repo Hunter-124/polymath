@@ -20,7 +20,9 @@ Both builds are verified: **they compile, link, run the tests, and launch.**
 - load the Qt Quick GUI scene and run the event loop,
 - degrade gracefully when models/CUDA are absent — **no crashes**.
 
-`ctest` green: `test_core` and `test_tools` pass with real assertions.
+`ctest` green: **11/11 suites** on both the CPU and CUDA builds — core, tools, audio, agent, vision,
+inference, memory, privacy, integration, ui, phase2. The DB is **encrypted at rest** (SQLCipher/AES,
+per-install OS-protected key) — confirmed active at runtime. See [`SHIP.md`](SHIP.md).
 
 ## GPU build — what was verified (headless, `QT_QPA_PLATFORM=offscreen`)
 
@@ -75,7 +77,9 @@ paths** and the repo lives in `…\Home Assistant`. See `BUILD.md`.
 | VLM (mtmd / `describeImage`) | ✅ built (`LLAMA_BUILD_TOOLS/COMMON=ON`); `mtmd.dll` linked + deployed |
 | Piper TTS | ✅ drives the prebuilt `piper.exe` via QProcess (detected at runtime) |
 | ESP32-CAM firmware | ✅ complete (compile in Arduino IDE) |
-| tests | ✅ pass (`test_core`, `test_tools`) |
+| tests | ✅ 11/11 ctest suites green (CPU + CUDA): core, tools, audio, agent, vision, inference, memory, privacy, integration, ui, phase2 |
+| at-rest encryption | ✅ ACTIVE — vendored SQLCipher 4.6.1 + OpenSSL; per-install DPAPI-protected key; plaintext→encrypted migration |
+| packaging | ✅ portable zips + Inno Setup installers compile for CPU & CUDA (`docs/SHIP.md`) |
 
 ## Models
 
@@ -92,8 +96,10 @@ Xenova/onnx-community mirrors now 401; the detector confirms `in=images out=outp
    requests the CUDA EP and falls back cleanly.
 2. **Heavy model on a 12 GB card.** Gemma 3 27B Q4 (~16 GB) still partial-offloads; the
    VramBudget manager trims `n_gpu_layers` to fit. Fast/VLM/Embedding fit comfortably.
-3. **Packaging.** `windeployqt` + the runtime-DLL copy in `build-gpu.ps1` produce a runnable
-   tree; bundling it as the portable zip is the remaining packaging step (see `PACKAGING.md`).
+3. **Packaging.** DONE — `scripts/package.ps1 -Flavor {cpu,cuda}` produces portable zips and the
+   Inno Setup installers compile for both flavors (`dist/Polymath-0.1.0-win64-{cpu,cuda}-Setup.exe`).
+   Bundles ship without models; the first-run wizard fetches them. Remaining ship TODOs (code
+   signing, a clean-VM smoke pass) are tracked in [`SHIP.md`](SHIP.md).
 
 ## Notes from the bring-up
 
