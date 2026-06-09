@@ -240,10 +240,17 @@ bool InferenceManager::loadModel(const ModelSpec& spec_in) {
     // Decide offload depth under the live budget. n_gpu_layers in the registry
     // is the *desired* cap (999 = all); the VRAM budget may lower it.
     const size_t modelMiB = VramBudget::estimateModelMiB(spec.path, spec.n_ctx);
-    // Probe the model's layer count lazily: we don't have it until load, so use
-    // the registry cap as the ceiling and let the planner scale it.
-    const int desired = spec.n_gpu_layers > 0 ? spec.n_gpu_layers : 999;
-    const int planned = vram_->planGpuLayers(modelMiB, desired);
+    // Read the REAL transformer block count from the gguf header so the planner
+    // scales against the true layer total. Without this the budget scaled against
+    // a placeholder (999), so e.g. "409/999" on a 62-layer model actually meant
+    // *all* layers on GPU — over-committing the 12 GB card (slow host spill, and
+    // historically a cross-thread fault). +1 covers llama's output/embedding tier.
+    int realLayers = LlamaBackend::probeLayerCount(spec.path);
+    if (realLayers <= 0) realLayers = 999;            // fall back to the old cap
+    const int fullOffload = realLayers + 1;           // llama: > n_layer == all
+    const int registryCap = spec.n_gpu_layers > 0 ? spec.n_gpu_layers : fullOffload;
+    const int desired      = std::min(registryCap, fullOffload);
+    const int planned      = vram_->planGpuLayers(modelMiB, desired);
     spec.n_gpu_layers = std::min(desired, planned);
 
     auto backend = std::make_unique<LlamaBackend>();
@@ -345,6 +352,14 @@ void InferenceManager::runGenerate(const ChatRequest& req) {
             }
             if (!spec.id.empty() && loadModel(spec)) backend = backendFor(role);
         }
+    } else if (heavy_loaded_) {
+        // Deep-work path: the scheduler loaded Heavy and is draining the queue,
+        // so route this (model_id-less) request to the resident Heavy model. The
+        // old code unconditionally loaded Fast here, which — with Heavy already
+        // occupying VRAM — forced a second model onto the GPU (no headroom ->
+        // ngl=0) and could fault the CUDA context. Heavy is what deep tasks want.
+        backend = backendFor(ModelRole::Heavy);
+        if (!backend) backend = ensureLoaded(ModelRole::Fast);   // safety net
     } else {
         // Default: active Fast model (load on demand).
         backend = ensureLoaded(ModelRole::Fast);
@@ -397,6 +412,19 @@ std::string InferenceManager::describeImage(const Frame& frame, const std::strin
 //  tiered Heavy control
 // ---------------------------------------------------------------------------
 void InferenceManager::requestHeavy(bool on) {
+    // CRITICAL: all backend (de)allocation must happen on the InferenceManager's
+    // OWN thread. A llama/CUDA context is thread-affine — if Heavy is loaded here
+    // on the caller's thread (the scheduler) but later decoded by runGenerate() on
+    // the inference thread, the cross-thread CUDA context use faults (0xC0000005).
+    // So when called from another thread, marshal a BLOCKING call onto our thread
+    // and let it run there; the scheduler then issues generate() to the same
+    // thread, keeping every touch of the Heavy context on one thread.
+    if (QThread::currentThread() != this->thread()) {
+        QMetaObject::invokeMethod(this, [this, on]() { requestHeavy(on); },
+                                  Qt::BlockingQueuedConnection);
+        return;
+    }
+
     if (on == heavy_loaded_) return;
 
     std::lock_guard lk(pool_mtx_);

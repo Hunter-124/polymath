@@ -75,6 +75,10 @@ std::string userPromptFor(const std::string& type, const json& params) {
 TaskScheduler::TaskScheduler(Database& db, InferenceManager& inf, QObject* parent)
     : QObject(parent), db_(db), inf_(inf) {}
 
+// Defined here (not =default in the header) so ~unique_ptr<StreamCollector> sees
+// the complete type — StreamCollector is only forward-declared in the header.
+TaskScheduler::~TaskScheduler() = default;
+
 void TaskScheduler::start() {
     PM_INFO("TaskScheduler started");
     // Recover any tasks that were left 'running' by a previous crash/shutdown.
