@@ -60,6 +60,7 @@ The staged folder contains:
 | `Polymath.exe` | the app (dev `llama-*.exe` tools and `.lib/.exp/.pdb` are dropped) |
 | Qt runtime | `Qt6*.dll`, `platforms\`, `qml\`, `imageformats\`, `lib\fonts\Inter.ttf` |
 | Engine DLLs | `ggml*`, `llama*`, `mtmd`, `whisper`, `onnxruntime`, OpenCV world, `fmt`/`spdlog` |
+| OpenSSL | `libcrypto-3-x64.dll` (+ `libssl-3-x64.dll`) — **required**: the crypto backend for the vendored SQLCipher codec that encrypts the DB at rest. Without it the loader fails before `main()` on a clean box. |
 | CUDA DLLs | `cudart64_*`, `cublas64_*`, `cublasLt64_*` (CUDA flavour only) |
 | VC++ redist | `msvcp140*.dll`, `vcruntime140*.dll`, `concrt140.dll` (runs on a clean box) |
 | First-run scripts | `first-run.ps1`, `check-gpu.ps1`, `fetch-models.ps1` |
@@ -81,20 +82,35 @@ and first-class code-signing hooks.
 
 ```powershell
 # 1. Stage the bundle as a folder (not a zip):
-pwsh scripts\package.ps1 -Flavor cuda -NoZip          # -> dist\Polymath-<ver>-win64-cuda\
+pwsh scripts\package.ps1 -Flavor cpu -NoZip           # -> dist\Polymath-<ver>-win64-cpu\
 
-# 2. Compile the installer (Inno Setup 6 / ISCC.exe):
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-    /DAppVersion=0.1.0 /DFlavor=cuda scripts\installer\polymath.iss
-# -> dist\Polymath-0.1.0-win64-cuda-Setup.exe
+# 2. Compile the installer (Inno Setup 6 / ISCC.exe). Use the call operator (&) and
+#    quote the .iss path — the repo lives under "...\Home Assistant" (a space), and
+#    the /D defines must each be their own token:
+& "C:\Users\nigga\AppData\Local\Programs\Inno Setup 6\ISCC.exe" `
+    /DAppVersion=0.1.0 /DFlavor=cpu `
+    "C:\Users\nigga\Desktop\Home Assistant\scripts\installer\polymath.iss"
+# -> dist\Polymath-0.1.0-win64-cpu-Setup.exe   (~67.7 MB, lzma2/max)
 ```
 
-Defaults are `AppVersion=0.1.0`, `Flavor=cuda`; override either with `/D`.
+Defaults are `AppVersion=0.1.0`, `Flavor=cuda`; override either with `/D` (use
+`/DFlavor=cpu` for the CPU bundle).
 
-**Inno Setup is not installed on the current build box.** Install it with
-`winget install JRSoftware.InnoSetup` (or <https://jrsoftware.org/isdl.php>).
-Until it's installed, the **portable zip from `package.ps1` is the shippable
-fallback** — it requires no install and is what was validated this session.
+**Status (2026-06-09): the CPU installer COMPILES and was verified.** Inno Setup 6
+is installed at `C:\Users\nigga\AppData\Local\Programs\Inno Setup 6\ISCC.exe` (the
+per-user winget install location — note it is **not** the `Program Files (x86)` path
+the upstream docs assume). ISCC produced
+`dist\Polymath-0.1.0-win64-cpu-Setup.exe` and a silent per-user install
+(`/VERYSILENT /CURRENTUSER /DIR=…`) was confirmed to land `Polymath.exe`,
+`libcrypto-3-x64.dll`, the Qt runtime + offscreen plugin, and an empty
+`data\models\`, launch offscreen, then uninstall cleanly (leaving user models). The
+portable zip from `package.ps1` remains the install-free fallback. On a box without
+Inno Setup, install it with `winget install JRSoftware.InnoSetup` (or
+<https://jrsoftware.org/isdl.php>).
+
+> A clean Win10/11 VM pass is still recommended before shipping to verify SmartScreen
+> behaviour on the unsigned download and a truly bare image with no VC++ redist. The
+> CUDA-flavour installer is authored (`/DFlavor=cuda`) but awaits a GPU build to stage.
 
 The installer:
 - installs to `{autopf}\Polymath` (Program Files) or, with `PrivilegesRequired=lowest`,

@@ -4,6 +4,49 @@
 clean-box install was *simulated* by extracting the zip to a fresh location and
 running it, not by provisioning a new Windows image).
 
+> **Update 2026-06-09 — installer now COMPILES + OpenSSL DLL bundled.**
+> Inno Setup 6 is now installed (`C:\Users\nigga\AppData\Local\Programs\Inno Setup 6\ISCC.exe`),
+> so the `.iss` was actually compiled this session — the residual gaps below that
+> said "installer not compiled" / "ISCC absent" are now CLOSED for the CPU flavour.
+> Also: at-rest encryption (vendored SQLCipher + OpenSSL `libcrypto`) now makes
+> **`libcrypto-3-x64.dll`** a hard runtime dependency; it is verified present in the
+> build deploy, the staged bundle, and the installed tree. See
+> "Installer compile + OpenSSL dependency (2026-06-09)" below.
+>
+> ### Installer compile + OpenSSL dependency (2026-06-09)
+> - **Exact ISCC command** (run via PowerShell call operator so the space in the
+>   repo path and the `/D` defines pass cleanly):
+>   ```powershell
+>   & "C:\Users\nigga\AppData\Local\Programs\Inno Setup 6\ISCC.exe" `
+>       /DAppVersion=0.1.0 /DFlavor=cpu `
+>       "C:\Users\nigga\Desktop\Home Assistant\scripts\installer\polymath.iss"
+>   ```
+>   (NB: the .iss header cites the default Program-Files ISCC path; on this box ISCC
+>   lives under `%LOCALAPPDATA%\Programs\Inno Setup 6\`.)
+> - **Result:** `Successful compile`. Artifact:
+>   `dist\Polymath-0.1.0-win64-cpu-Setup.exe` — **70,989,863 bytes (67.7 MB)**,
+>   lzma2/max solid compression of the ~319 MB staged bundle.
+> - **`libcrypto-3-x64.dll` bundled** — verified at every stage:
+>   `build\cpu\bin\Release\` (deployed by `build-cpu.ps1`) → staged bundle
+>   `dist\Polymath-0.1.0-win64-cpu\` (5,332,992 bytes) → ISCC `Compressing:` list →
+>   installed tree (5,332,992 bytes, byte-for-byte match).
+> - **End-to-end install verified** (per-user, no admin/UAC, into a temp dir — NOT a
+>   system location): `Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER /DIR=%TEMP%\…`
+>   exit 0 → `Polymath.exe`, `libcrypto-3-x64.dll`, `platforms\qoffscreen.dll`,
+>   `Qt6Core.dll`, `data\models\PUT-MODELS-HERE.txt` all present → launched offscreen
+>   from the install dir, `AppController initialized` + all services up, stayed alive
+>   (loader found libcrypto + Qt; SQLCipher opened the encrypted DB) → silent
+>   uninstall exit 0 (removed program files + logs, left user data per design).
+> - **package.ps1 fix:** the staging file-copy was sweeping in stray test/headless
+>   run logs left in the build dir (`headless.*.log`, `run_*.txt`); tightened the
+>   filter to drop `*.log` and `^(headless\.|run_).*\.(txt|log)$` so they no longer
+>   ship in the bundle/installer (183 → 179 files).
+> - **build-cpu.ps1:** already deploys `libcrypto-3-x64.dll` next to the exe
+>   (the deploy section was correct); confirmed, no change needed.
+> - **Still needs a clean VM:** (a) SmartScreen on the unsigned download, (b) a truly
+>   bare image with no VC++ redist at all, (c) the CUDA flavour installer (no GPU
+>   build in this worktree). Items below updated accordingly.
+
 Owned `scripts/` + `docs/` only. No edits to `src/`, the GUI, or the FROZEN
 contracts (`src/core/event_bus.h/.cpp`, `src/core/schema.h`). Built on the
 previous agent's uncommitted progress (`first-run.ps1`, `check-gpu.ps1`, the
@@ -98,13 +141,17 @@ correctly under **Windows PowerShell 5.1.19041** *and* pwsh 7.6.
 ## Residual gaps (what still needs a real clean VM / follow-up)
 
 1. **Actual pristine-VM install not performed** — no VM provisioning on this box.
-   The zip-extract-and-run simulation covers the app + first-run logic but **not**:
+   The zip-extract-and-run simulation + the real silent install/uninstall (2026-06-09)
+   cover the app + first-run logic + the installer mechanics, but **not**:
    (a) SmartScreen behaviour on an unsigned download, (b) a box with *no* VC++
    redist at all (we ship the redist DLLs beside the exe, which should cover it,
-   but it's unverified on a truly bare image), (c) ISCC actually compiling the
-   `.iss`. **Recommend a one-time clean Win10/11 VM pass** before shipping.
-2. **Installer not compiled** — Inno Setup absent here. `install JRSoftware.InnoSetup`
-   then run the documented `ISCC.exe /DAppVersion=… /DFlavor=… polymath.iss`.
+   but it's unverified on a truly bare image). ~~(c) ISCC actually compiling the
+   `.iss`~~ — **DONE 2026-06-09** (see the update at the top). **Recommend a one-time
+   clean Win10/11 VM pass** before shipping for (a) and (b).
+2. ~~**Installer not compiled**~~ — **DONE 2026-06-09.** Inno Setup 6 is installed;
+   the CPU installer compiles and was install/launch/uninstall-verified. The exact
+   command is at the top of this report. (CUDA flavour still pending a GPU build —
+   see gap 3.)
 3. **CUDA bundle not packaged this session** — only the CPU flavour was built in
    this worktree. `package.ps1 -Flavor cuda` is authored and the `.iss` takes
    `/DFlavor=cuda`; produce + validate the CUDA bundle on a box with the GPU build.

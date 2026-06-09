@@ -52,8 +52,12 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 Write-Host "Staging $name ..." -ForegroundColor Cyan
 
 # 1) Files: keep Polymath.exe + all DLLs; drop the llama-*.exe dev tools and build cruft.
+#    Also drop test/headless run logs that ctest + offscreen verify runs leave in the
+#    build dir (headless.*.log, run_*.txt) — they are not runtime files and have no
+#    business in a shipped bundle/installer.
 Get-ChildItem $bin -File | Where-Object {
-  $_.Name -notmatch '\.(lib|exp|pdb|ilk|manifest)$' -and
+  $_.Name -notmatch '\.(lib|exp|pdb|ilk|manifest|log)$' -and
+  $_.Name -notmatch '^(headless\.|run_).*\.(txt|log)$' -and
   -not ($_.Extension -eq '.exe' -and $_.Name -ne 'Polymath.exe')
 } | ForEach-Object { Copy-Item $_.FullName $stage -Force }
 
