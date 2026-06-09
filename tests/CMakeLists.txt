@@ -47,3 +47,10 @@ add_test(NAME vision COMMAND test_vision_e2e)
 add_executable(test_inference_e2e test_inference_e2e.cpp)
 target_link_libraries(test_inference_e2e PRIVATE pm_core pm_inference pm_scheduler Qt6::Core)
 add_test(NAME inference COMMAND test_inference_e2e)
+
+# Wave 1 · Card E — memory end-to-end: recall / persistence / summarizer /
+# retention. Links pm_memory (store + vector index + summarizer) and pm_inference
+# (real EmbeddingGemma embeddings); needs Qt Core for the EventBus/metatype machinery.
+add_executable(test_memory_e2e test_memory_e2e.cpp)
+target_link_libraries(test_memory_e2e PRIVATE pm_core pm_inference pm_memory Qt6::Core)
+add_test(NAME memory COMMAND test_memory_e2e)
