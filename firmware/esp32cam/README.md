@@ -27,6 +27,35 @@ In the app's **Cameras** settings, add a camera with the stream URL
 (`http://<ip-or-mdns>/stream`). The VisionService auto-reconnects if the camera
 reboots.
 
+## End-to-end verification (real board, step by step)
+1. Flash the firmware (above) and confirm the Serial Monitor prints the stream URL.
+2. Open `http://<ip>/stream` in a browser — you should see a live MJPEG image.
+3. In Polymath → Cameras, add the camera with `http://<ip>/stream`.
+4. Walk in front of the camera. Expect, in order:
+   - a **live tile** for the camera in the dashboard (decoded frames),
+   - a **motion** event in the activity log (MOG2 motion gate), and
+   - once the YOLO model is loaded, a **person** event (and a **face** event if
+     face recognition is on and the person is enrolled).
+5. Power-cycle the board: the tile should drop to "offline", then return to
+   "online" within a few seconds (auto-reconnect with backoff).
+
+## Simulated path (no board) — what CI / a dev box uses instead
+You don't need hardware to exercise the full ingest path. A software MJPEG server
+that streams a recorded clip in the **exact** framing this firmware emits
+(`multipart/x-mixed-replace; boundary=frame`, each part
+`Content-Type: image/jpeg` + `Content-Length` + JPEG bytes) is indistinguishable
+to Polymath's camera ingest from a real board.
+
+- The automated test `tests/test_j_phase2_e2e.cpp` stands up exactly such a server
+  in-process (a `QTcpServer` replaying frames from `tests/fixtures/vision/people_walking.avi`)
+  and drives a real `CameraWorker` against `http://127.0.0.1:<port>/stream`,
+  asserting the online → tile-frame → motion-event → DB-row path **and**
+  auto-reconnect (kill the stream → offline → restart → online). Run it with
+  `ctest --test-dir build/cpu -C Release -R j_phase2`.
+- To drive the actual app by hand, point a Cameras entry at any local MJPEG server
+  (e.g. a small PowerShell/Python script, or VLC's "stream to HTTP" of a clip)
+  serving the framing above, then follow steps 4–5 of the real-board flow.
+
 ## Endpoints
 | Path | Purpose |
 |------|---------|
@@ -39,3 +68,5 @@ reboots.
   (the camera draws spikes Wi-Fi can't tolerate on weak USB power).
 - Lower resolution / raise JPEG quality number in `esp32cam.ino` (`frame_size`,
   `jpeg_quality`) if your Wi-Fi is congested.
+- The stream is plain HTTP MJPEG (no auth). Keep these cameras on a trusted LAN
+  or VLAN; do not port-forward `/stream` to the internet.
