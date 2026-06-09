@@ -160,7 +160,12 @@ public:
         const bool ok = controller_->initialize();
         // Second handle on the same file (WAL => concurrent readers fine). Used to
         // assert what the services persisted through AppController's private db_.
-        db_.open(Paths::instance().db().string());
+        // AppController opens the DB with at-rest encryption when a SQLCipher codec
+        // is linked, so our read-back handle must supply the SAME per-install key
+        // (derived deterministically from the DPAPI keyfile initialize() created).
+        const std::string key =
+            Database::loadOrCreateKey((Paths::instance().root() / "db.key").string());
+        db_.open(Paths::instance().db().string(), key);
         // Let each service's start() run on its thread (model warnings, etc.).
         pump(150);
         return ok;

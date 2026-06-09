@@ -38,12 +38,24 @@ bool AppController::initialize() {
     Paths::instance().ensureLayout();
     logging::init(Paths::instance().logs().string());
 
-    std::string key;
-    // (Encryption key would be derived from the OS credential store when enabled.)
+    // At-rest encryption key: a per-install random secret kept in a DPAPI-
+    // protected keyfile next to the DB (local-only, never hardcoded). If the
+    // linked SQLite has no SQLCipher codec, open() reports encryptionActive()
+    // == false and the DB stays plaintext; we still pass the key so a future
+    // codec-enabled build (and the first-run plaintext->encrypted migration)
+    // engages automatically. If a key cannot be created we degrade to an
+    // unencrypted open rather than refusing to start.
+    const std::string keyfile = (Paths::instance().root() / "db.key").string();
+    std::string key = Database::loadOrCreateKey(keyfile);
+    if (key.empty())
+        PM_WARN("AppController: no install key available — opening DB unencrypted.");
     if (!db_.open(Paths::instance().db().string(), key)) {
         PM_ERROR("failed to open database");
         return false;
     }
+    if (!key.empty() && !db_.encryptionActive())
+        PM_WARN("AppController: DB key supplied but at-rest encryption is INACTIVE "
+                "(no SQLCipher codec in this build).");
     Config cfg(db_);
     cfg.seedDefaults();
 

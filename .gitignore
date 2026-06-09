@@ -16,7 +16,8 @@
 /third_party/vcpkg/
 
 # Externally-fetched submodule checkouts (run: git submodule update --init).
-# (third_party/sqlite3 is a vendored amalgamation and IS committed.)
+# (third_party/sqlite3 and third_party/sqlcipher are vendored amalgamations and
+#  ARE committed — the latter provides the at-rest-encryption codec.)
 /third_party/llama.cpp/
 /third_party/whisper.cpp/
 /third_party/piper/

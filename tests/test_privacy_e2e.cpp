@@ -197,36 +197,100 @@ static void test_encryption() {
         const bool encrypted = db.encryptionActive();
         db.close();
 
-        if (encrypted) {
-            // SQLCipher present: opening WITHOUT the key must fail (NOTADB), and
-            // the raw bytes must not contain our plaintext.
-            Database d2;
-            assert(!d2.open(tmp.string(), ""));        // wrong/no key rejected
-            std::FILE* f = std::fopen(tmp.string().c_str(), "rb");
-            assert(f);
-            std::string blob; char buf[4096]; size_t n;
-            while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) blob.append(buf, n);
-            std::fclose(f);
-            assert(blob.find("top-secret-value") == std::string::npos);
-            assert(blob.find("SQLite format 3") == std::string::npos);
-            std::puts("  [3] encryption: SQLCipher ACTIVE — file ciphered, key enforced");
-        } else {
-            // Plain SQLite in this toolchain: PRAGMA key is a no-op, so the file
-            // is NOT encrypted. We assert that documented fallback honestly: the
-            // wiring runs and the DB still opens, but the plaintext is on disk.
-            std::FILE* f = std::fopen(tmp.string().c_str(), "rb");
-            assert(f);
-            std::string blob; char buf[4096]; size_t m;
-            while ((m = std::fread(buf, 1, sizeof buf, f)) > 0) blob.append(buf, m);
-            std::fclose(f);
-            assert(blob.rfind("SQLite format 3", 0) == 0);   // plain sqlite header
-            // RESIDUAL GAP: SQLCipher not in the build toolchain — see report.
-            std::puts("  [3] encryption: wiring OK; plain sqlite3 -> NOT ciphered "
-                      "(residual gap: link SQLCipher to enforce). PASS (toolchain-limited)");
-        }
+        // The production build links a real SQLCipher codec, so encryption MUST
+        // be active. We require it: a wrong-key open is rejected and the bytes on
+        // disk are ciphertext (no plaintext, no SQLite header). If the codec is
+        // somehow absent (a fallback build without OpenSSL), we do NOT silently
+        // pass — we assert the documented plaintext fallback AND fail the test so
+        // the toolchain gap is loud, since at-rest encryption is now a contract.
+        const bool codec = Database::hasCodec();
+        assert(codec && "SQLCipher codec missing — at-rest encryption is REQUIRED. "
+                        "Build with OpenSSL so the vendored SQLCipher amalgamation "
+                        "links (see third_party/CMakeLists.txt).");
+        assert(encrypted && "encryptionActive() must be true with the SQLCipher build");
+
+        // SQLCipher present: opening WITHOUT the key must fail (NOTADB), and
+        // the raw bytes must not contain our plaintext or the SQLite header.
+        Database d2;
+        assert(!d2.open(tmp.string(), ""));            // no key rejected
+        Database d3;
+        assert(!d3.open(tmp.string(), Database::deriveKey("WRONG-secret")));  // wrong key rejected
+        std::FILE* f = std::fopen(tmp.string().c_str(), "rb");
+        assert(f);
+        std::string blob; char buf[4096]; size_t n;
+        while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) blob.append(buf, n);
+        std::fclose(f);
+        assert(blob.find("top-secret-value") == std::string::npos);
+        assert(blob.find("SQLite format 3") == std::string::npos);
+        std::puts("  [3] encryption: SQLCipher ACTIVE — file ciphered, wrong key rejected");
     }
 
     std::filesystem::remove(tmp);
+}
+
+// --- 3b. Plaintext -> encrypted migration on first run ----------------------
+static void test_migration() {
+    if (!Database::hasCodec()) {
+        std::puts("  [3b] migration: SKIP (no SQLCipher codec in this build)");
+        return;
+    }
+    auto tmp = std::filesystem::temp_directory_path() / "pm_privacy_migrate.db";
+    auto rm_all = [&] {
+        for (const char* suf : {"", "-wal", "-shm", ".plaintext.bak"})
+            std::filesystem::remove(std::filesystem::path(tmp.string() + suf));
+    };
+    rm_all();   // start clean (a stale encrypted -wal beside a fresh DB would confuse step 1)
+
+    const std::string key = Database::deriveKey("migration-install-secret");
+
+    // 1) Create a PLAINTEXT db (no key) with a recognizable secret row.
+    {
+        Database db;
+        assert(db.open(tmp.string()));                 // no key => plaintext on disk
+        Config cfg(db);
+        cfg.seedDefaults();
+        db.setSetting("legacy", "plaintext-payload");
+        assert(!db.encryptionActive());
+        db.close();
+    }
+    // Sanity: the file really is a plaintext SQLite header on disk.
+    {
+        std::FILE* f = std::fopen(tmp.string().c_str(), "rb");
+        assert(f);
+        char hdr[16] = {0};
+        assert(std::fread(hdr, 1, sizeof hdr, f) == sizeof hdr);
+        std::fclose(f);
+        assert(std::string(hdr, 15) == "SQLite format 3");
+    }
+
+    // 2) Re-open WITH the key: open() should detect the plaintext file and
+    //    migrate it to encrypted in place, preserving the row.
+    {
+        Database db;
+        assert(db.open(tmp.string(), key));
+        assert(db.encryptionActive());                 // now ciphered
+        assert(db.getSetting("legacy") == "plaintext-payload");  // data survived
+        db.close();
+    }
+    // 3) On disk: ciphertext (no header), and a plaintext backup was kept.
+    {
+        std::FILE* f = std::fopen(tmp.string().c_str(), "rb");
+        assert(f);
+        std::string blob; char buf[4096]; size_t n;
+        while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) blob.append(buf, n);
+        std::fclose(f);
+        assert(blob.find("SQLite format 3") == std::string::npos);
+        assert(blob.find("plaintext-payload") == std::string::npos);
+        assert(std::filesystem::exists(std::filesystem::path(tmp.string() + ".plaintext.bak")));
+    }
+    // 4) Wrong key no longer opens the now-encrypted db.
+    {
+        Database db;
+        assert(!db.open(tmp.string(), Database::deriveKey("not-the-key")));
+    }
+
+    rm_all();
+    std::puts("  [3b] migration: plaintext DB upgraded to encrypted, data preserved OK");
 }
 
 // --- 4. Activity log records + surfaces web/tool actions --------------------
@@ -274,6 +338,7 @@ int main() {
     test_gating();
     test_retention();
     test_encryption();
+    test_migration();
     test_activity_log();
     std::puts("test_privacy_e2e: OK");
     return 0;

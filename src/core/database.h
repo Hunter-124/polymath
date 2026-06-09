@@ -58,6 +58,18 @@ public:
     // command line. Suitable as the `key` argument to open().
     static std::string deriveKey(const std::string& material);
 
+    // Loads (or, on first run, creates) the per-install at-rest encryption key.
+    // The key is a random 256-bit secret stored at `keyfile`, protected at rest
+    // by the OS user keystore (Windows DPAPI / CryptProtectData, scoped to the
+    // current user) so it is local-only and never hardcoded. Returns a 64-char
+    // hex key suitable for open(); returns "" only if a keyfile cannot be
+    // created (caller may then fall back to an unencrypted open).
+    static std::string loadOrCreateKey(const std::string& keyfile);
+
+    // True if the linked SQLite library has a working SQLCipher codec (probed at
+    // runtime). When false, open(path,key) cannot cipher the file.
+    static bool hasCodec();
+
     // Runs the canonical schema (idempotent) and records kSchemaVersion.
     bool migrate();
 
@@ -80,6 +92,11 @@ public:
 private:
     // Returns the single-column text value of a one-row PRAGMA/SELECT, or def.
     std::string scalar(const std::string& sql, const std::string& def = "");
+
+    // One-time in-place conversion of an existing plaintext DB at `path` into a
+    // SQLCipher-encrypted DB keyed with `key` (preserves a .plaintext.bak).
+    static bool migratePlaintextToEncrypted(const std::string& path,
+                                            const std::string& key);
 
     sqlite3*    db_ = nullptr;
     std::mutex  mtx_;

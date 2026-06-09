@@ -32,21 +32,33 @@ Format:
 
 ---
 
-## G-privacy — at-rest encryption needs a real SQLCipher codec
+## G-privacy — at-rest encryption needs a real SQLCipher codec — ✅ DONE
 - Contract: build/toolchain (NOT a schema or event_bus edit)
-- Proposed change: link a SQLCipher-enabled sqlite build instead of the plain
-  vendored amalgamation (`third_party/sqlite3/sqlite3.c`). Either (a) compile the
-  amalgamation with `SQLITE_HAS_CODEC` + the SQLCipher codec + OpenSSL, or
-  (b) consume the existing `third_party/vcpkg/ports/sqlcipher` port (pulls
-  openssl + tcl) and re-alias `unofficial::sqlite3::sqlite3` to it.
-- Why: the encryption *wiring* is done (PRAGMA key + key check + codec detection
-  in `database.cpp`), but plain SQLite silently ignores `PRAGMA key`, so the file
-  on disk stays unencrypted. `Database::encryptionActive()` reports this honestly
-  (it returns false here). Only a codec-enabled build can actually cipher the DB.
-- Workaround used meanwhile: key path fully wired + verified; `open()` probes
-  `PRAGMA cipher_version` and logs a clear warning when no codec is present; the
-  e2e test branches on `encryptionActive()` and asserts the documented plaintext
-  fallback so the gap is provable, not silent.
+- **RESOLVED (production hardening pass):** chose approach (a) — vendored the
+  **SQLCipher 4.6.1 amalgamation** (SQLite 3.46.1 base) under
+  `third_party/sqlcipher/sqlite3.c`, compiled **statically into `pm_core`** with
+  `SQLITE_HAS_CODEC=1`, `SQLITE_TEMP_STORE=2`, `SQLCIPHER_CRYPTO_OPENSSL=1`, and
+  linked against OpenSSL `libcrypto` (`openssl:x64-windows`, dynamic /MD to match
+  the app CRT). `third_party/CMakeLists.txt` swaps the sqlite3 source to the
+  SQLCipher amalgamation when it is present + OpenSSL is found, keeping the SAME
+  aliased target `unofficial::sqlite3::sqlite3` so every module links it
+  unchanged — ONE static code path for both the VS (build/cpu) and Ninja/CUDA
+  (build/cuda) builds. Falls back to the plain amalgamation if OpenSSL is absent.
+  Chose static-vendored over `vcpkg install sqlcipher` to preserve the project's
+  deliberate "no sqlite3.dll, one CRT" design (the vcpkg sqlite3 DLL had caused
+  spurious SQLITE_NOMEM) and to avoid pulling tcl as a build-time dep.
+- Result: `Database::encryptionActive()` returns **true** in a real run; the DB on
+  disk is ciphertext (no `SQLite format 3` header); a wrong/missing key open is
+  rejected (NOTADB). Key management: a per-install random 256-bit secret kept in a
+  **DPAPI-protected keyfile** (`<data>/db.key`, `CryptProtectData`, current-user
+  scoped), fed through `Database::deriveKey()` — local-only, never hardcoded.
+  `AppController::initialize()` now calls `Database::loadOrCreateKey()` and opens
+  with the key. MIGRATION: `Database::open()` detects a pre-existing plaintext DB
+  and transparently re-encrypts it in place via `sqlcipher_export()` (keeping a
+  `polymath.db.plaintext.bak`) so existing users are upgraded without lock-out.
+  Verified by `ctest -R privacy` (encryption + migration sub-tests now REQUIRE the
+  active ciphered path). Only runtime DLL added: `libcrypto-3-x64.dll` (deployed
+  by both build scripts).
 
 ## G-privacy — master kill-switch live propagation (app-layer wiring)
 - Contract: none frozen — integration note for src/app (out of card G's scope)

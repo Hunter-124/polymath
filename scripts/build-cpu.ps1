@@ -72,7 +72,15 @@ if (-not (Test-Path "$vcpkg\vcpkg.exe")) {
 if (-not (Test-Path "$vcpkg\installed\x64-windows\share\spdlog\spdlogConfig.cmake")) {
   Step "vcpkg install small libs (classic mode)"
   Push-Location $env:TEMP   # run outside the repo so vcpkg.json doesn't force manifest mode
-  & "$vcpkg\vcpkg.exe" install sqlite3 nlohmann-json fmt spdlog libsamplerate --triplet x64-windows --vcpkg-root $vcpkg
+  & "$vcpkg\vcpkg.exe" install sqlite3 nlohmann-json fmt spdlog libsamplerate openssl --triplet x64-windows --vcpkg-root $vcpkg
+  Pop-Location
+}
+# OpenSSL (libcrypto) is the crypto backend for the vendored SQLCipher
+# amalgamation (third_party/sqlcipher) that enables real at-rest DB encryption.
+if (-not (Test-Path "$vcpkg\installed\x64-windows\lib\libcrypto.lib")) {
+  Step "vcpkg install openssl (SQLCipher crypto backend)"
+  Push-Location $env:TEMP
+  & "$vcpkg\vcpkg.exe" install openssl --triplet x64-windows --vcpkg-root $vcpkg
   Pop-Location
 }
 
@@ -104,6 +112,8 @@ $bin = "$repo\build\cpu\bin\Release"
 Copy-Item "$qtDir\plugins\platforms\qoffscreen.dll" "$bin\platforms\" -Force -ErrorAction SilentlyContinue
 Copy-Item "$deps\opencv\build\x64\vc16\bin\opencv_world*.dll" $bin -Force
 Copy-Item "$deps\opencv\build\x64\vc16\bin\opencv_videoio_ffmpeg*.dll" $bin -Force -ErrorAction SilentlyContinue
+# OpenSSL libcrypto DLL — the SQLCipher codec links it for at-rest encryption.
+Copy-Item "$vcpkg\installed\x64-windows\bin\libcrypto-3-x64.dll" $bin -Force -ErrorAction SilentlyContinue
 
 Write-Host "`nDone -> $bin\Polymath.exe" -ForegroundColor Green
 Write-Host "Next: pwsh scripts/fetch-models.ps1  (download local models), then run Polymath.exe" -ForegroundColor Green

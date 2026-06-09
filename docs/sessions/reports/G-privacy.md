@@ -1,12 +1,28 @@
 # Card G — Privacy, persistence & at-rest security — Report
 
-**Status: PASS** (build green; `ctest -R privacy` green; full suite 8/8 green).
-At-rest-encryption verdict: **WIRED, not active — toolchain gap.** The key path
-(`PRAGMA key` + key verification + codec detection) is fully wired in
-`database.cpp`, but the project links the **plain vendored SQLite amalgamation**
-(`third_party/sqlite3/sqlite3.c`), which silently ignores `PRAGMA key`, so the
-file on disk is **not** ciphered. `Database::encryptionActive()` reports this
-honestly. Linking SQLCipher is the remaining dependency (see residual gaps).
+**Status: PASS** (build green; `ctest -R privacy` green; full suite green).
+
+> **Production-hardening update (at-rest encryption is now ACTIVE).** The
+> toolchain gap below is **CLOSED**. The project now links a vendored
+> **SQLCipher 4.6.1 amalgamation** (`third_party/sqlcipher/sqlite3.c`) compiled
+> statically into `pm_core` with `SQLITE_HAS_CODEC=1`, `SQLITE_TEMP_STORE=2`,
+> `SQLCIPHER_CRYPTO_OPENSSL=1`, linked against OpenSSL `libcrypto`. In a real run
+> `Database::encryptionActive()` returns **true**, the on-disk `polymath.db` is
+> **ciphertext** (no `SQLite format 3` header), and a wrong/missing key open is
+> **rejected**. Key: a per-install random 256-bit secret in a **DPAPI-protected
+> keyfile** (`<data>/db.key`); `AppController` loads it via
+> `Database::loadOrCreateKey()` and opens with it. A pre-existing **plaintext**
+> DB is **transparently migrated** to encrypted on first run via
+> `sqlcipher_export()` (a `polymath.db.plaintext.bak` is kept). See the
+> "At-rest encryption — ACTIVE" section and `contract-requests.md` (DONE).
+
+At-rest-encryption verdict (original wave-2 state, now superseded): **WIRED, not
+active — toolchain gap.** The key path (`PRAGMA key` + key verification + codec
+detection) was fully wired in `database.cpp`, but the project linked the **plain
+vendored SQLite amalgamation** (`third_party/sqlite3/sqlite3.c`), which silently
+ignored `PRAGMA key`, so the file on disk was **not** ciphered.
+`Database::encryptionActive()` reported this honestly. Linking SQLCipher was the
+remaining dependency — now done.
 
 ## How verified
 - New integration test `tests/test_privacy_e2e.cpp`, registered as ctest
@@ -111,15 +127,42 @@ honestly. Linking SQLCipher is the remaining dependency (see residual gaps).
 No frozen contracts touched: `src/core/event_bus.h/.cpp` and `src/core/schema.h`
 are unchanged. No edits outside `src/core/`, `tests/`, and `docs/`.
 
+## At-rest encryption — ACTIVE (production-hardening pass)
+- **Approach:** vendored the **SQLCipher 4.6.1 amalgamation** (SQLite 3.46.1 base)
+  at `third_party/sqlcipher/sqlite3.c`, generated from the official sqlcipher repo
+  via `Makefile.msc`'s `sqlite3.c` target (`-DSQLITE_HAS_CODEC`). It is compiled
+  **statically into `pm_core`** in `third_party/CMakeLists.txt` with
+  `SQLITE_HAS_CODEC=1`, `SQLITE_TEMP_STORE=2`, `SQLCIPHER_CRYPTO_OPENSSL=1`, FTS5,
+  threadsafe, linked to OpenSSL `libcrypto` (`openssl:x64-windows`, dynamic /MD to
+  match the app CRT). Same aliased target `unofficial::sqlite3::sqlite3` → every
+  module links it unchanged; ONE static code path for both the VS (build/cpu) and
+  Ninja/CUDA (build/cuda) builds. Chosen over `vcpkg install sqlcipher` to keep the
+  project's deliberate "no sqlite3.dll, single CRT" design (the vcpkg sqlite3 DLL
+  had caused spurious SQLITE_NOMEM) and to avoid a tcl build-time dependency.
+  Only one new runtime DLL: `libcrypto-3-x64.dll` (deployed by both build scripts).
+  If OpenSSL is absent the CMake falls back to the plain amalgamation (encryption
+  reported INACTIVE) so the build never breaks.
+- **Key management:** a per-install random 256-bit secret generated with
+  `BCryptGenRandom`, stored in `<data>/db.key` as a **DPAPI-protected blob**
+  (`CryptProtectData`, current-user scoped), then run through
+  `Database::deriveKey()` to produce the 64-hex SQLCipher key. Local-only, never
+  hardcoded, off the command line, and only the current Windows user on this
+  machine can unwrap it. `AppController::initialize()` calls
+  `Database::loadOrCreateKey()` and opens with the key; if no key can be created it
+  degrades to an unencrypted open (logged) rather than refusing to start.
+- **Migration:** `Database::open()` detects a pre-existing **plaintext**
+  `polymath.db` (standard `SQLite format 3\0` header) when a codec is linked and a
+  key is supplied, and transparently re-encrypts it in place via
+  `ATTACH … KEY` + `SELECT sqlcipher_export(...)`, preserving the original as
+  `polymath.db.plaintext.bak` (the user deletes it once satisfied). No silent
+  corruption / lock-out of an existing plaintext DB.
+- **Verified:** `test_privacy_e2e.cpp` now REQUIRES the active path — sub-test [3]
+  asserts `encryptionActive()`, ciphertext on disk (no plaintext, no SQLite
+  header), and wrong-key + no-key rejection; new sub-test [3b] creates a plaintext
+  DB, re-opens with a key, and asserts it was migrated to ciphertext with the row
+  preserved and a `.plaintext.bak` kept.
+
 ## Residual gaps
-1. **SQLCipher not in the build toolchain** (the at-rest-encryption gap). The
-   wiring is complete and self-detecting, but the linked SQLite is the plain
-   vendored amalgamation, so `PRAGMA key` is a no-op and the DB on disk is
-   plaintext. A `sqlcipher` vcpkg port exists under `third_party/vcpkg/ports` but
-   pulls openssl + tcl and would require re-aliasing
-   `unofficial::sqlite3::sqlite3`. Once linked, `encryptionActive()` flips to true
-   and the e2e test auto-exercises the ciphered-file + wrong-key-rejected path
-   (no test change needed). Details in `contract-requests.md`.
 2. **Master kill-switch live teardown** of an already-running stream needs the
    3-line `AppController::setPrivacy` re-emit (src/app). Read-time gating works
    today.

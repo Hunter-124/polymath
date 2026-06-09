@@ -137,7 +137,9 @@ Get-ChildItem "$deps\opencv\build\x64\vc16\bin\opencv_world*.dll",
 # vcpkg runtime DLLs that Polymath links directly (windeployqt does NOT cover these;
 # without them the loader fails before main(): the app hangs on a missing-DLL dialog).
 $vcpkgBin = "$work\third_party\vcpkg\installed\x64-windows\bin"
-foreach ($d in 'fmt.dll','spdlog.dll') {
+# libcrypto-3-x64.dll: OpenSSL crypto backend for the SQLCipher codec (at-rest
+# encryption). Required at runtime; without it the loader fails before main().
+foreach ($d in 'fmt.dll','spdlog.dll','libcrypto-3-x64.dll') {
   if (Test-Path "$vcpkgBin\$d") { Copy-Item "$vcpkgBin\$d" $bin -Force }
 }
 
