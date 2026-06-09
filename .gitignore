@@ -2,6 +2,8 @@
 /build/
 /out/
 /install/
+# packaged distributable bundles (output of scripts/package.ps1)
+/dist/
 *.obj
 *.o
 *.lib
