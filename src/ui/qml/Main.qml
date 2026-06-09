@@ -30,7 +30,8 @@ ApplicationWindow {
         { name: "Shopping",      src: "ShoppingView.qml" },
         { name: "Personalities", src: "PersonalitiesView.qml" },
         { name: "Models",        src: "ModelManagerView.qml" },
-        { name: "Privacy",       src: "PrivacyView.qml" }
+        { name: "Privacy",       src: "PrivacyView.qml" },
+        { name: "Mobile Access", src: "MobileAccessView.qml" }
     ]
 
     RowLayout {

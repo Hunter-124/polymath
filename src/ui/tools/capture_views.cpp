@@ -153,6 +153,31 @@ private:
     QObject* chat_ = nullptr;
 };
 
+// ---------------------------------------------------------------------------
+// Stub `gateway` — the GatewayService surface MobileAccessView binds to, seeded
+// with a realistic single-use pairing payload so the QR encoder + payload box
+// render populated (and scannable) in the capture.
+// ---------------------------------------------------------------------------
+class StubGateway : public QObject {
+    Q_OBJECT
+public:
+    Q_INVOKABLE QString pairingPayloadJson() const {
+        return QStringLiteral(
+            "{\"relay_url\":\"\",\"home_id\":\"5b80f020-571e-4293-a5ae-0e19c9b814c9\","
+            "\"pair_code\":\"482915\",\"lan_host\":\"polymath.local\",\"lan_port\":8765}");
+    }
+    Q_INVOKABLE QString pairingDeepLink() const {
+        return QStringLiteral("polymath://pair?home_id=5b80f020-571e-4293-a5ae-0e19c9b814c9"
+                              "&code=482915&host=polymath.local&port=8765");
+    }
+    Q_INVOKABLE bool remoteEnabled() const { return false; }
+    Q_INVOKABLE void setRemoteEnabled(bool) {}
+    Q_INVOKABLE int  connectedClients() const { return 1; }
+signals:
+    void connectedClientsChanged(int);
+    void remoteEnabledChanged(bool);
+};
+
 // Spin the event loop briefly so async Image/Loader/Canvas work settles.
 static void settle(int ms) {
     QEventLoop loop;
@@ -193,6 +218,7 @@ int main(int argc, char* argv[]) {
     // --- shared stub context ------------------------------------------------
     StubApp stub;
     stub.populated = !empty;
+    StubGateway stubGw;   // seeds MobileAccessView's pairing QR + payload
 
     auto chat = empty ? new StubListModel({"who","text","streaming","requestId"}, {}, &stub)
         : new StubListModel({"who","text","streaming","requestId"}, QVariantList{
@@ -245,6 +271,10 @@ int main(int argc, char* argv[]) {
         ctx->setContextProperty("cameraModel", cameras);
         ctx->setContextProperty("taskModel", tasks);
         ctx->setContextProperty("timelineModel", timeline);
+        // MobileAccessView reads a `gateway` context property at runtime; in the
+        // headless harness we feed a stub seeded with a sample pairing payload so
+        // the QR encoder + payload box render populated (and scannable).
+        ctx->setContextProperty("gateway", &stubGw);
 
         if (isWindow) {
             // Main.qml is an ApplicationWindow — load it and grab the window.
@@ -299,6 +329,7 @@ int main(int argc, char* argv[]) {
         {"PersonalitiesView.qml", "08-personalities",false},
         {"ModelManagerView.qml",  "09-models",       false},
         {"PrivacyView.qml",       "10-privacy",      false},
+        {"MobileAccessView.qml",  "11-mobile-access",false},
     };
 
     int failures = 0;

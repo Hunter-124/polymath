@@ -21,6 +21,9 @@
 #include "timeline_model.h"
 #include "camera_image_provider.h"
 
+#include "app_bridge.h"
+#include "gateway_service.h"
+
 #include <QByteArray>
 #include <QDesktopServices>
 #include <QFileInfo>
@@ -61,8 +64,8 @@ bool AppController::initialize() {
     if (!key.empty() && !db_.encryptionActive())
         PM_WARN("AppController: DB key supplied but at-rest encryption is INACTIVE "
                 "(no SQLCipher codec in this build).");
-    Config cfg(db_);
-    cfg.seedDefaults();
+    config_ = std::make_unique<Config>(db_);
+    config_->seedDefaults();
 
     // --- construct services (dependency order) ---
     inference_   = std::make_unique<InferenceManager>(db_);
@@ -92,9 +95,24 @@ bool AppController::initialize() {
     threads_.push_back(runOnThread(audio_.get(), audio_.get()));
     personality_->start();   // lightweight: stays on the UI thread
 
+    // --- mobile/web gateway (LAN HTTP+WS, optional relay tunnel) ---
+    // The bridge forwards the narrow IAssistantBridge surface to this controller.
+    // The service lives on the UI thread (like personality_): its QHttpServer /
+    // QWebSocketServer only need *an* event loop, and keeping it here lets QML
+    // bind the gateway's signals + Q_INVOKABLEs for the Mobile Access pairing UI
+    // (QML refuses to connect to a QObject owned by another thread). Request
+    // handling is light (DB reads + bridge calls that marshal to workers). It
+    // self-creates its `devices` table + gateway.* settings and only dials the
+    // relay once remote access is explicitly enabled.
+    bridge_  = std::make_unique<AppBridge>(*this);
+    gateway_ = std::make_unique<GatewayService>(*bridge_, db_, *config_);
+    gateway_->start();
+
     PM_INFO("AppController initialized");
     return true;
 }
+
+QObject* AppController::gateway() const { return gateway_.get(); }
 
 void AppController::wireEventBus() {
     auto& bus = EventBus::instance();
@@ -211,6 +229,11 @@ void AppController::registerWithEngine(QQmlApplicationEngine& engine) {
     ctx->setContextProperty("cameraModel",   camera_model_.get());
     ctx->setContextProperty("taskModel",     task_model_.get());
     ctx->setContextProperty("timelineModel", timeline_model_.get());
+    // Mobile gateway pairing helpers for Settings ▸ Mobile Access (remote toggle,
+    // pairing payload/QR, connected-device count). Its Q_INVOKABLEs are
+    // thread-safe (auth pair-code store is mutex-guarded; the relay toggle
+    // marshals onto the gateway thread).
+    ctx->setContextProperty("gateway",       gateway_.get());
 }
 
 QObject* AppController::chatModel() const     { return chat_model_.get(); }
@@ -232,6 +255,11 @@ void AppController::shutdown() {
     disconnect(&bus, &EventBus::frameReady, this, nullptr);
     image_provider_ = nullptr;   // ownership belongs to the QML engine
 
+    // Stop the gateway first (it lives on this UI thread): close its listener and
+    // relay so no mobile request is handled while the workers it bridges to are
+    // being torn down below.
+    if (gateway_) gateway_->stop();
+
     for (auto* t : threads_) { if (t) { t->quit(); t->wait(2000); } }
     threads_.clear();
 
@@ -239,8 +267,13 @@ void AppController::shutdown() {
     chat_model_.reset(); shopping_model_.reset(); camera_model_.reset();
     task_model_.reset(); timeline_model_.reset();
 
+    // Gateway first (its thread is already joined above): it holds refs to the
+    // bridge, db_ and config_, so it must die before them.
+    gateway_.reset(); bridge_.reset();
+
     inference_.reset(); scheduler_.reset(); proactive_.reset(); idle_.reset();
     memory_.reset(); agent_.reset(); vision_.reset(); audio_.reset(); personality_.reset();
+    config_.reset();   // outlived the gateway; safe to drop before the DB closes
     db_.close();
 }
 
@@ -318,10 +351,21 @@ void AppController::refreshTasks()    { if (task_model_)     task_model_->refres
 void AppController::refreshTimeline() { if (timeline_model_) timeline_model_->refresh(); }
 
 void AppController::sendChat(const QString& text) {
-    const QString trimmed = text.trimmed();
-    if (trimmed.isEmpty()) return;
-    if (chat_model_) chat_model_->appendUser(trimmed);
-    sendText(trimmed);   // existing path: dispatches to the agent worker
+    submitChatTurn(text);
+}
+
+QString AppController::submitChatTurn(const QString& text) {
+    const QString t = text.trimmed();
+    if (t.isEmpty()) return {};
+    // Append the user turn to the chat model on the UI thread. AutoConnection:
+    // direct when called from the UI/QML path, queued when the gateway worker
+    // thread calls us (so the QAbstractListModel is only ever touched on its own
+    // thread).
+    QMetaObject::invokeMethod(this, [this, t] { if (chat_model_) chat_model_->appendUser(t); });
+    const QString rid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QMetaObject::invokeMethod(agent_.get(), "handleTextInput", Qt::QueuedConnection,
+                              Q_ARG(QString, t), Q_ARG(QString, rid));
+    return rid;
 }
 
 QVariantList AppController::models() const {

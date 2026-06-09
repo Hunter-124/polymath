@@ -36,7 +36,7 @@ endif()
 # ---------------------------------------------------------------------------
 # Third-party dependencies
 # ---------------------------------------------------------------------------
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Multimedia Concurrent Network)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Multimedia Concurrent Network HttpServer WebSockets)
 qt_standard_project_setup(REQUIRES 6.5)
 
 find_package(OpenCV CONFIG REQUIRED)
@@ -75,6 +75,9 @@ add_subdirectory(src/agent)
 add_subdirectory(src/personality)
 add_subdirectory(src/app)
 add_subdirectory(src/ui)
+# Mobile/web gateway (HTTP + WebSocket + relay tunnel). Depends only on pm_core +
+# Qt; linked into pm_app, which implements its IAssistantBridge seam.
+add_subdirectory(src/gateway)
 
 if(POLYMATH_BUILD_TESTS)
   enable_testing()

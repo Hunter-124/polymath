@@ -27,6 +27,9 @@ class VisionService;
 class MemoryService;
 class AgentRuntime;
 class PersonalityManager;
+class Config;
+class AppBridge;
+class GatewayService;
 
 // Wave-3 UI data layer (QAbstractListModels + the live-frame image provider).
 class ChatModel;
@@ -66,6 +69,12 @@ public:
     // property still works for code that uses app.chatModel etc.).
     void registerWithEngine(QQmlApplicationEngine& engine);
 
+    // The mobile/web gateway service (LAN HTTP+WS + optional relay tunnel), so
+    // main.cpp / QML can reach it (exposed to QML as the "gateway" context
+    // property for the Settings ▸ Mobile Access pairing UI).  Null until
+    // initialize() has run; lives on its own QThread.
+    QObject* gateway() const;
+
     bool    listening() const { return listening_; }
     QString activePersonality() const { return active_personality_; }
     QString modelStatus() const { return model_status_; }
@@ -101,6 +110,14 @@ public:
     // Send chat text, appending the user turn to the ChatModel and correlating
     // the streamed reply.  Thin wrapper over sendText() the ChatView calls.
     Q_INVOKABLE void sendChat(const QString& text);
+
+    // Submit a chat turn and return the request_id that correlates the streamed
+    // `token` events.  Appends the user turn to the ChatModel (marshaled onto the
+    // UI thread) and dispatches to the agent worker.  Backs both the QML sendChat
+    // path and the mobile gateway's IAssistantBridge::sendChat, which needs the
+    // rid to hand back to the phone/PWA client.  Thread-safe to call from any
+    // thread.
+    QString submitChatTurn(const QString& text);
 
     // Registered inference models (the `models` table) for the Model Manager UI,
     // as a list of maps {id,displayName,role,path,nCtx,nGpuLayers,active}.
@@ -149,6 +166,11 @@ private:
     // disconnecting the feed in shutdown().
     CameraImageProvider*                 image_provider_ = nullptr;
 
+    // Process-wide settings facade. Promoted to a member (was a local in
+    // initialize()) because GatewayService holds a Config& for its lifetime, so
+    // it must outlive the gateway.
+    std::unique_ptr<Config>            config_;
+
     std::unique_ptr<InferenceManager>  inference_;
     std::unique_ptr<TaskScheduler>     scheduler_;
     std::unique_ptr<ProactiveEngine>   proactive_;
@@ -158,6 +180,12 @@ private:
     std::unique_ptr<MemoryService>     memory_;
     std::unique_ptr<AgentRuntime>      agent_;
     std::unique_ptr<PersonalityManager> personality_;
+
+    // Mobile/web gateway: the IAssistantBridge adapter + the service it drives.
+    // gateway_ runs on its own QThread (registered in threads_); bridge_ and
+    // config_ must outlive it (torn down explicitly in shutdown(), gateway-first).
+    std::unique_ptr<AppBridge>         bridge_;
+    std::unique_ptr<GatewayService>    gateway_;
 
     std::vector<QThread*> threads_;
 

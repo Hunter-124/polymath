@@ -41,7 +41,14 @@ $qtDir = "C:\Qt\$QtVersion\msvc2019_64"
 if (-not (Test-Path "$qtDir\lib\cmake\Qt6\Qt6Config.cmake")) {
   Step "installing Qt $QtVersion via aqtinstall"
   python -m pip install -q aqtinstall
-  python -m aqt install-qt windows desktop $QtVersion win64_msvc2019_64 -O C:\Qt -m qtmultimedia qtimageformats qtshadertools
+  python -m aqt install-qt windows desktop $QtVersion win64_msvc2019_64 -O C:\Qt -m qtmultimedia qtimageformats qtshadertools qthttpserver qtwebsockets
+}
+# QtHttpServer + QtWebSockets back the mobile gateway (src/gateway). They are
+# add-on modules not in the base kit; install them if a prior run predates them.
+if (-not (Test-Path "$qtDir\lib\cmake\Qt6HttpServer\Qt6HttpServerConfig.cmake")) {
+  Step "installing Qt HttpServer + WebSockets modules (mobile gateway)"
+  python -m pip install -q aqtinstall
+  python -m aqt install-qt windows desktop $QtVersion win64_msvc2019_64 -O C:\Qt -m qthttpserver qtwebsockets
 }
 
 # --- OpenCV (prebuilt) -------------------------------------------------------

@@ -1,6 +1,7 @@
 # app — AppController facade + the Polymath executable.
 qt_add_library(pm_app STATIC
     app_controller.cpp
+    app_bridge.cpp        # IAssistantBridge adapter wiring AppController -> pm_gateway
 )
 target_include_directories(pm_app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(pm_app PUBLIC
@@ -9,6 +10,9 @@ target_link_libraries(pm_app PUBLIC
     # pm_ui supplies the Wave-3 data models + camera image provider that
     # AppController owns and registers with the QML engine.
     pm_ui
+    # pm_gateway: the mobile/web bridge. AppController owns a GatewayService and
+    # implements its IAssistantBridge seam (via AppBridge).
+    pm_gateway
     Qt6::Qml Qt6::Quick
 )
 

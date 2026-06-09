@@ -32,6 +32,10 @@ qt_add_qml_module(pm_ui
         qml/PersonalitiesView.qml
         qml/ModelManagerView.qml
         qml/PrivacyView.qml
+        qml/MobileAccessView.qml
+        # Self-contained QR encoder (MIT) for the Mobile Access pairing QR; pure
+        # ECMAScript usable from the Canvas, no extra Qt module / C++ dependency.
+        qml/qrcode.js
         # Shared style singleton + themed controls (cohesive dark theme over the
         # otherwise-unstyled QtQuick.Controls.Basic).
         qml/Style.qml

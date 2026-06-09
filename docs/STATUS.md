@@ -77,6 +77,7 @@ paths** and the repo lives in `…\Home Assistant`. See `BUILD.md`.
 | VLM (mtmd / `describeImage`) | ✅ built (`LLAMA_BUILD_TOOLS/COMMON=ON`); `mtmd.dll` linked + deployed |
 | Piper TTS | ✅ drives the prebuilt `piper.exe` via QProcess (detected at runtime) |
 | ESP32-CAM firmware | ✅ complete (compile in Arduino IDE) |
+| Mobile companion | ✅ wired in — `pm_gateway` (QHttpServer+QWebSocket on `0.0.0.0:8765`, device-token auth) inside `Polymath.exe`; `app/` PWA (Capacitor/React) + `cloud/relay/` (opt-in). Desktop **Settings ▸ Mobile Access** pairing QR. Verified: `/api/v1/status`→200, protected routes→401. |
 | tests | ✅ 11/11 ctest suites green (CPU + CUDA): core, tools, audio, agent, vision, inference, memory, privacy, integration, ui, phase2 |
 | at-rest encryption | ✅ ACTIVE — vendored SQLCipher 4.6.1 + OpenSSL; per-install DPAPI-protected key; plaintext→encrypted migration |
 | packaging | ✅ portable zips + Inno Setup installers compile for CPU & CUDA (`docs/SHIP.md`) |

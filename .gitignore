@@ -55,3 +55,6 @@ CMakeUserPresets.json
 /app/
 /cloud/
 /src/gateway/
+
+# Stray local Qt install (build uses C:\Qt, not a repo copy)
+/Qt/
