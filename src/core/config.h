@@ -11,6 +11,10 @@ namespace polymath {
 class Database;
 
 namespace keys {
+    // Master privacy kill-switch. When OFF, every per-feature sense toggle below
+    // reads as OFF regardless of its own value (enforced centrally in
+    // Config::getBool), so flipping this one key stops all capture at once.
+    inline constexpr const char* MasterEnabled         = "privacy.master_enabled";
     // Privacy (all default ON, individually toggleable).
     inline constexpr const char* MicEnabled            = "privacy.mic_enabled";
     inline constexpr const char* AmbientTranscription  = "privacy.ambient_transcription";
@@ -33,10 +37,20 @@ public:
     explicit Config(Database& db) : db_(db) {}
     void seedDefaults();   // inserts any missing keys with product defaults
 
-    bool        getBool(const char* key) const;
+    // Reads a boolean setting. For the per-feature privacy sense toggles
+    // (mic / ambient / face / cameras) the result is AND-ed with the master
+    // kill-switch: if privacy.master_enabled is OFF this returns false even when
+    // the feature's own value is "1". Pass respectMaster=false to read the raw
+    // stored value (e.g. so the UI can show the toggle's own state).
+    bool        getBool(const char* key, bool respectMaster = true) const;
     int         getInt(const char* key, int def = 0) const;
     std::string getStr(const char* key, const std::string& def = "") const;
     void        set(const char* key, const std::string& value);
+
+    // True when the master privacy kill-switch is on (defaults ON).
+    bool        masterEnabled() const;
+    // True if `key` is a per-feature sense toggle gated by the master switch.
+    static bool isMasterGated(const char* key);
 
 private:
     Database& db_;

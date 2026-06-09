@@ -5,6 +5,8 @@ qt_add_library(pm_core STATIC
     logging.cpp
     paths.cpp
     config.cpp
+    retention.cpp
+    activity_log.cpp
 )
 
 target_include_directories(pm_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

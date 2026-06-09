@@ -1,6 +1,7 @@
 #include "config.h"
 #include "database.h"
 #include <array>
+#include <cstring>
 #include <utility>
 
 namespace polymath {
@@ -10,6 +11,7 @@ void Config::seedDefaults() {
     // Size is deduced from the initializers — do NOT hard-code a count (a
     // mismatch leaves {nullptr,nullptr} pairs that crash on use).
     static const std::pair<const char*, const char*> defaults[] = {
+        {keys::MasterEnabled,        "1"},
         {keys::MicEnabled,           "1"},
         {keys::AmbientTranscription, "1"},
         {keys::FaceRecognition,      "1"},
@@ -30,7 +32,29 @@ void Config::seedDefaults() {
                  {std::string(k), std::string(v)});
 }
 
-bool Config::getBool(const char* key) const { return db_.getBool(key, false); }
+bool Config::isMasterGated(const char* key) {
+    // The per-feature sense toggles that actually drive capture. The master
+    // switch, the encryption flag, retention windows and behaviour keys are NOT
+    // gated (turning the master off must not, e.g., disable encryption).
+    if (!key) return false;
+    return std::strcmp(key, keys::MicEnabled) == 0
+        || std::strcmp(key, keys::AmbientTranscription) == 0
+        || std::strcmp(key, keys::FaceRecognition) == 0
+        || std::strcmp(key, keys::CamerasEnabled) == 0;
+}
+
+bool Config::masterEnabled() const {
+    // Default ON so a DB predating this key (or a fresh one before seedDefaults)
+    // does not silently disable every sense.
+    return db_.getBool(keys::MasterEnabled, true);
+}
+
+bool Config::getBool(const char* key, bool respectMaster) const {
+    const bool raw = db_.getBool(key, false);
+    if (respectMaster && raw && isMasterGated(key) && !masterEnabled())
+        return false;   // master kill-switch overrides an individually-on sense
+    return raw;
+}
 
 int Config::getInt(const char* key, int def) const {
     std::string v = db_.getSetting(key, std::to_string(def));
