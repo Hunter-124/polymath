@@ -1,34 +1,86 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import Polymath
 
 Item {
+    id: root
     ColumnLayout {
-        anchors.fill: parent; anchors.margins: 24; spacing: 12
+        anchors.fill: parent; anchors.margins: Style.pad; spacing: Style.gap
 
-        Label { text: "Privacy & Settings"; color: "#c0caf5"; font.pixelSize: 24; font.bold: true }
+        Label {
+            text: "Privacy & Settings"; color: Style.text
+            font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
+        }
         Label {
             text: "Everything runs locally. No telemetry. Toggle any sense off at any time."
-            color: "#565f89"; wrapMode: Text.WordWrap; Layout.fillWidth: true
+            color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsBody
+            wrapMode: Text.WordWrap; Layout.fillWidth: true
         }
 
-        component Toggle: RowLayout {
-            property string keyName
-            property string caption
+        // First-run opt-in banner — senses are OFF until you allow them.
+        Rectangle {
+            visible: app.firstRun !== undefined ? app.firstRun : false
             Layout.fillWidth: true
-            Label { text: caption; color: "#c0caf5"; Layout.fillWidth: true }
-            Switch {
-                checked: app.privacy(keyName)
-                onToggled: app.setPrivacy(keyName, checked)
+            radius: Style.radiusSm
+            color: Style.surface2
+            border.width: 1; border.color: Style.accent
+            implicitHeight: optinCol.implicitHeight + 24
+            ColumnLayout {
+                id: optinCol
+                anchors.fill: parent; anchors.margins: 12; spacing: 6
+                Label {
+                    text: "First-run · choose what Polymath may sense"
+                    color: Style.accent; font.family: Style.fontFamily
+                    font.pixelSize: Style.fsBody; font.bold: true
+                }
+                Label {
+                    text: "The microphone, cameras and face recognition stay OFF until you switch them on below. Nothing leaves this machine either way."
+                    color: Style.textDim; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true
+                }
             }
         }
 
-        Toggle { keyName: "privacy.mic_enabled";           caption: "Microphone" }
-        Toggle { keyName: "privacy.ambient_transcription"; caption: "Ambient transcription (daily summaries)" }
-        Toggle { keyName: "privacy.face_recognition";      caption: "Face recognition (identify users)" }
-        Toggle { keyName: "privacy.cameras_enabled";       caption: "Cameras" }
-        Toggle { keyName: "privacy.encrypt_at_rest";       caption: "Encrypt database at rest" }
+        Rectangle {
+            Layout.fillWidth: true; Layout.fillHeight: true
+            radius: Style.radius; color: Style.surface; border.color: Style.borderSoft
+            ColumnLayout {
+                anchors.fill: parent; anchors.margins: 8; spacing: 0
 
-        Item { Layout.fillHeight: true }
+                component Toggle: Rectangle {
+                    property string keyName
+                    property string caption
+                    property string sub: ""
+                    Layout.fillWidth: true
+                    implicitHeight: 56
+                    color: "transparent"
+                    radius: Style.radiusSm
+                    RowLayout {
+                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 12
+                        ColumnLayout {
+                            Layout.fillWidth: true; spacing: 1
+                            Label { text: caption; color: Style.text; font.family: Style.fontFamily; font.pixelSize: Style.fsBody }
+                            Label {
+                                visible: sub.length > 0; text: sub; color: Style.textFaint
+                                font.family: Style.fontFamily; font.pixelSize: Style.fsTiny
+                            }
+                        }
+                        PmSwitch {
+                            checked: app.privacy(keyName)
+                            onToggled: app.setPrivacy(keyName, checked)
+                        }
+                    }
+                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Style.border }
+                }
+
+                Toggle { keyName: "privacy.mic_enabled";           caption: "Microphone";          sub: "Wake word + voice commands" }
+                Toggle { keyName: "privacy.ambient_transcription"; caption: "Ambient transcription"; sub: "Feeds daily summaries" }
+                Toggle { keyName: "privacy.face_recognition";      caption: "Face recognition";     sub: "Identify known people on camera" }
+                Toggle { keyName: "privacy.cameras_enabled";       caption: "Cameras";              sub: "ESP32-CAM live tiles + object find" }
+                Toggle { keyName: "privacy.encrypt_at_rest";       caption: "Encrypt database at rest"; sub: "SQLCipher-keyed local store" }
+                Item { Layout.fillHeight: true }
+            }
+        }
     }
 }

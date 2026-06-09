@@ -1,24 +1,27 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import Polymath
 
 Item {
     Component.onCompleted: app.refreshTasks()
 
     ColumnLayout {
-        anchors.fill: parent; anchors.margins: 24; spacing: 12
-        Label { text: "Deep-Work Task Queue"; color: "#c0caf5"; font.pixelSize: 24; font.bold: true }
+        anchors.fill: parent; anchors.margins: Style.pad; spacing: Style.gap
         Label {
-            text: "Long/important jobs (lab reports, research, daily summaries) run here when the\nmachine is idle and the heavy model can be loaded."
-            color: "#565f89"; wrapMode: Text.WordWrap; Layout.fillWidth: true
+            text: "Deep-Work Task Queue"; color: Style.text
+            font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
+        }
+        Label {
+            text: "Long/important jobs (lab reports, research, daily summaries) run here when the machine is idle and the heavy model can be loaded."
+            color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsBody
+            wrapMode: Text.WordWrap; Layout.fillWidth: true
         }
 
         Rectangle {
             Layout.fillWidth: true; Layout.fillHeight: true
-            radius: 10; color: "#171a21"; border.color: "#24283b"
+            radius: Style.radius; color: Style.surface; border.color: Style.borderSoft
 
-            // Backed by the C++ TaskModel over the `tasks` table; live updates
-            // arrive via EventBus::taskUpdated.
             ListView {
                 id: list
                 anchors.fill: parent; anchors.margins: 8
@@ -32,52 +35,73 @@ Item {
                     required property string detail
                     required property int priority
                     width: ListView.view ? ListView.view.width : 0
-                    height: col.implicitHeight + 16
-                    radius: 8; color: "#1f2335"
+                    height: col.implicitHeight + 18
+                    radius: Style.radiusSm; color: Style.surface2
 
                     function statusColor(s) {
                         switch (s) {
-                            case "running":  return "#7aa2f7"
-                            case "done":     return "#9ece6a"
-                            case "error":    return "#f7768e"
-                            case "canceled": return "#565f89"
-                            default:         return "#e0af68"   // queued
+                            case "running":  return Style.accent
+                            case "done":     return Style.good
+                            case "error":    return Style.bad
+                            case "canceled": return Style.textFaint
+                            default:         return Style.warn   // queued
                         }
                     }
 
                     RowLayout {
-                        anchors.fill: parent; anchors.margins: 8; spacing: 10
+                        anchors.fill: parent; anchors.margins: 10; spacing: 12
                         Rectangle {
-                            width: 8; height: 8; radius: 4
+                            width: 10; height: 10; radius: 5
                             color: trow.statusColor(trow.status)
                             Layout.alignment: Qt.AlignTop
                             Layout.topMargin: 4
+                            // pulse while running
+                            SequentialAnimation on opacity {
+                                running: trow.status === "running"; loops: Animation.Infinite
+                                NumberAnimation { to: 0.3; duration: 650 }
+                                NumberAnimation { to: 1.0; duration: 650 }
+                            }
                         }
                         ColumnLayout {
                             id: col
-                            Layout.fillWidth: true; spacing: 2
+                            Layout.fillWidth: true; spacing: 3
                             RowLayout {
-                                Layout.fillWidth: true
-                                Label { text: trow.type; color: "#c0caf5"; font.bold: true }
-                                Item { Layout.fillWidth: true }
+                                Layout.fillWidth: true; spacing: 8
                                 Label {
-                                    text: trow.status
-                                    color: trow.statusColor(trow.status); font.pixelSize: 12
+                                    text: trow.type; color: Style.text; font.family: Style.fontFamily
+                                    font.pixelSize: Style.fsBody; font.bold: true
+                                }
+                                Item { Layout.fillWidth: true }
+                                Rectangle {
+                                    radius: Style.radiusXs
+                                    color: Qt.rgba(trow.statusColor(trow.status).r,
+                                                   trow.statusColor(trow.status).g,
+                                                   trow.statusColor(trow.status).b, 0.16)
+                                    implicitWidth: stLbl.implicitWidth + 14
+                                    implicitHeight: stLbl.implicitHeight + 5
+                                    Label {
+                                        id: stLbl; anchors.centerIn: parent
+                                        text: trow.status; color: trow.statusColor(trow.status)
+                                        font.family: Style.fontFamily; font.pixelSize: Style.fsTiny; font.bold: true
+                                    }
                                 }
                             }
                             Label {
                                 visible: trow.detail.length > 0
-                                text: trow.detail
-                                color: "#565f89"; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                                text: trow.detail; color: Style.textDim
+                                font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
+                                wrapMode: Text.WordWrap; Layout.fillWidth: true
                             }
                         }
                     }
                 }
 
-                Label {
-                    anchors.centerIn: parent
+                EmptyState {
+                    anchors.fill: parent
                     visible: list.count === 0
-                    text: "no tasks queued"; color: "#565f89"
+                    glyph: "●"
+                    title: "No deep-work tasks queued"
+                    hint: "Ask the assistant for something heavy — \"write a lab report\", \"research X\" — and it queues here, running when the machine is idle."
                 }
             }
         }

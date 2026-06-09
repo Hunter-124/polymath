@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import Polymath
 
 Item {
     id: root
@@ -10,25 +11,31 @@ Item {
     Component.onCompleted: reload()
 
     ColumnLayout {
-        anchors.fill: parent; anchors.margins: 24; spacing: 12
-        Label { text: "Model Manager"; color: "#c0caf5"; font.pixelSize: 24; font.bold: true }
+        anchors.fill: parent; anchors.margins: Style.pad; spacing: Style.gap
         Label {
-            text: "Add GGUF models and assign roles: Fast (resident), Heavy (on-demand deep work),\nVision (image analysis), Embedding (memory). Set GPU layers per the ~8 GB budget."
-            color: "#565f89"; wrapMode: Text.WordWrap; Layout.fillWidth: true
+            text: "Model Manager"; color: Style.text
+            font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
+        }
+        Label {
+            text: "Add GGUF models and assign roles: Fast (resident), Heavy (on-demand deep work), Vision (image analysis), Embedding (memory). Set GPU layers per the ~8 GB budget."
+            color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsBody
+            wrapMode: Text.WordWrap; Layout.fillWidth: true
         }
         RowLayout {
-            Layout.fillWidth: true
-            Button { text: "Add GGUF…" }
-            ComboBox { model: ["fast", "heavy", "vision", "embedding"] }
+            Layout.fillWidth: true; spacing: Style.gap
+            PmButton { text: "Add GGUF…"; onClicked: app.openModelsFolder() }
+            PmComboBox {
+                Layout.preferredWidth: 150
+                model: ["fast", "heavy", "vision", "embedding"]
+            }
             Item { Layout.fillWidth: true }
-            Button { text: "Refresh"; onClicked: root.reload() }
+            PmButton { text: "Refresh"; onClicked: root.reload() }
         }
 
         Rectangle {
             Layout.fillWidth: true; Layout.fillHeight: true
-            radius: 10; color: "#171a21"; border.color: "#24283b"
+            radius: Style.radius; color: Style.surface; border.color: Style.borderSoft
 
-            // Lists the rows of the `models` table (via app.models()).
             ListView {
                 id: list
                 anchors.fill: parent; anchors.margins: 8
@@ -39,53 +46,83 @@ Item {
                     id: mrow
                     required property var modelData
                     width: ListView.view ? ListView.view.width : 0
-                    height: col.implicitHeight + 16
-                    radius: 8; color: "#1f2335"
+                    height: col.implicitHeight + 18
+                    radius: Style.radiusSm; color: Style.surface2
+                    border.width: modelData.active === true ? 1 : 0
+                    border.color: Style.good
 
                     RowLayout {
-                        anchors.fill: parent; anchors.margins: 8; spacing: 10
+                        anchors.fill: parent; anchors.margins: 10; spacing: 10
+                        // Role accent stripe.
+                        Rectangle {
+                            width: 4; Layout.fillHeight: true; radius: 2
+                            color: {
+                                switch (mrow.modelData.role) {
+                                    case "fast":      return Style.accent
+                                    case "heavy":     return Style.magenta
+                                    case "vision":    return Style.info
+                                    case "embedding": return Style.good
+                                    default:          return Style.textFaint
+                                }
+                            }
+                        }
                         ColumnLayout {
                             id: col
-                            Layout.fillWidth: true; spacing: 2
+                            Layout.fillWidth: true; spacing: 3
                             RowLayout {
-                                Layout.fillWidth: true
+                                Layout.fillWidth: true; spacing: 8
                                 Label {
                                     text: mrow.modelData.displayName
-                                    color: "#c0caf5"; font.bold: true
+                                    color: Style.text; font.family: Style.fontFamily
+                                    font.pixelSize: Style.fsBody; font.bold: true
                                 }
                                 Rectangle {
                                     visible: mrow.modelData.active === true
-                                    radius: 4; color: "#9ece6a"
-                                    implicitWidth: activeLbl.implicitWidth + 10
+                                    radius: Style.radiusXs; color: Style.good
+                                    implicitWidth: activeLbl.implicitWidth + 12
                                     implicitHeight: activeLbl.implicitHeight + 4
                                     Label {
                                         id: activeLbl; anchors.centerIn: parent
-                                        text: "active"; color: "#1a1b26"; font.pixelSize: 10; font.bold: true
+                                        text: "resident"; color: Style.accentText
+                                        font.family: Style.fontFamily; font.pixelSize: Style.fsTiny; font.bold: true
                                     }
                                 }
                                 Item { Layout.fillWidth: true }
-                                Label {
-                                    text: mrow.modelData.role
-                                    color: "#7aa2f7"; font.pixelSize: 12
+                                Rectangle {
+                                    radius: Style.radiusXs; color: Style.surface3
+                                    implicitWidth: roleLbl.implicitWidth + 14
+                                    implicitHeight: roleLbl.implicitHeight + 5
+                                    Label {
+                                        id: roleLbl; anchors.centerIn: parent
+                                        text: mrow.modelData.role; color: Style.accent
+                                        font.family: Style.fontFamily; font.pixelSize: Style.fsTiny; font.bold: true
+                                    }
                                 }
                             }
                             Label {
-                                text: "ctx " + mrow.modelData.nCtx + "  ·  gpu layers " + mrow.modelData.nGpuLayers
-                                color: "#565f89"; font.pixelSize: 11
+                                text: "ctx " + mrow.modelData.nCtx + "   ·   gpu layers " + mrow.modelData.nGpuLayers
+                                color: Style.textDim; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
                             }
                             Label {
                                 text: mrow.modelData.path
-                                color: "#414868"; font.pixelSize: 10
+                                color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsTiny
                                 elide: Text.ElideMiddle; Layout.fillWidth: true
                             }
                         }
                     }
                 }
 
-                Label {
-                    anchors.centerIn: parent
+                // First-run / no-models guide -> points at fetch-models.
+                EmptyState {
+                    anchors.fill: parent
                     visible: list.count === 0
-                    text: "registered models appear here"; color: "#565f89"
+                    glyph: "●"
+                    glyphColor: Style.accent
+                    title: "No models registered yet"
+                    hint: "Polymath needs at least a Fast model to think. Run  scripts/fetch-models.ps1  to download the default local set (Gemma 3n, embeddings, voices), or drop a .gguf into data/models/ and click Refresh."
+                    actionVisible: true
+                    actionText: "Open models folder"
+                    onActionTriggered: app.openModelsFolder()
                 }
             }
         }
