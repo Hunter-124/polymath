@@ -105,3 +105,18 @@ Format:
   (`app.firstRun !== undefined ? ... : false`) so no QML error; left the two
   action buttons calling the proposed invokable names (harmless warning if
   unimplemented) so wiring them later is a one-line backend change, no QML edit.
+
+## J-phase2 — Qt6::WebSockets not in the kit (optional build/toolchain add)
+- Contract: build/toolchain (NOT a schema or event_bus edit)
+- Proposed change: add `qtwebsockets` to the aqtinstall module list in
+  `scripts/build-cpu.ps1` (the `-m qtmultimedia qtimageformats qtshadertools`
+  line) if a future card wants a fuller/WSS WebSocket surface.
+- Why: the new `browser_drive` tool speaks the Chrome DevTools Protocol over a
+  WebSocket, but `Qt6::WebSockets` is absent from the deployed Qt 6.6.3 kit (only
+  `Qt6::Network` is installed). With the module present, the CDP transport could
+  use `QWebSocket` instead of the hand-rolled RFC6455 client.
+- Workaround used meanwhile: implemented a minimal RFC6455 client on `QTcpSocket`
+  (already in `Qt6::Network`, already linked by `pm_agent`) — CDP is plain
+  `ws://127.0.0.1:<port>` to localhost, so masked-client/unmasked-server text
+  frames suffice. Zero new third-party deps. Fully working + tested
+  (`ctest -R j_phase2`, B1 framing + B2 live Chrome round-trip). Non-blocking.

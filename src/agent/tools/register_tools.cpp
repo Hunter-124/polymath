@@ -3,6 +3,7 @@
 #include "shopping_tool.h"
 #include "web_search.h"
 #include "fetch_page.h"
+#include "browser_drive.h"
 #include "documents.h"
 #include "print.h"
 #include "reminders.h"
@@ -31,6 +32,9 @@ void registerBuiltinTools(ToolRegistry& reg) {
     // Web (Qt Network).
     reg.add(std::make_shared<WebSearchTool>());
     reg.add(std::make_shared<FetchPageTool>());
+
+    // Browser automation (Chrome via DevTools Protocol over a QTcpSocket WebSocket).
+    reg.add(std::make_shared<BrowserDriveTool>());
 
     // Documents (.docx via OOXML) + printing (QPrinter).
     reg.add(std::make_shared<DraftDocumentTool>());

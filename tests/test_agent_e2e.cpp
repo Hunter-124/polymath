@@ -83,11 +83,12 @@ void testAllToolsDirect(const std::filesystem::path& root) {
     ToolRegistry reg;
     registerBuiltinTools(reg);
 
-    // The registry must expose exactly the 16 builtin tools.
+    // The registry must expose exactly the 17 builtin tools.
+    // (Wave 3 · Card J added browser_drive; count bumped 16 -> 17.)
     const auto names = reg.names();
-    assert(names.size() == 16 && "expected 16 builtin tools");
+    assert(names.size() == 17 && "expected 17 builtin tools");
     for (const char* n : {"shopping_add", "shopping_list", "shopping_remove",
-                          "web_search", "fetch_page", "draft_document",
+                          "web_search", "fetch_page", "browser_drive", "draft_document",
                           "generate_lab_report", "print_document", "print_image",
                           "set_reminder", "remember", "recall", "search_memory",
                           "camera_snapshot", "who_is_home", "queue_deep_task"})

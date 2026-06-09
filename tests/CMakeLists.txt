@@ -95,3 +95,27 @@ add_test(NAME ui COMMAND test_ui_e2e)
 set_tests_properties(ui PROPERTIES
     TIMEOUT 120
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Wave 3 · Card J — Phase 2: ESP32-CAM ingest (simulated) + browser_drive (CDP).
+#   A) An in-process QTcpServer streams multipart/x-mixed-replace JPEG frames in
+#      the exact framing the shipped esp32cam.ino firmware emits; a real
+#      CameraWorker ingests it (MJPEG over HTTP via OpenCV/FFMPEG) and we assert
+#      the tile-frame + motion-Detection + events-row path, plus auto-reconnect.
+#   B) browser_drive: verifies the CDP RFC6455 WebSocket framing round-trip
+#      (no Chrome needed) and, when Chrome is installed, a live navigate + type +
+#      extract round-trip against a local file:// page (auto-skips if absent).
+# Links pm_vision (CameraWorker) + pm_agent (BrowserDriveTool + cdpws helpers) +
+# OpenCV (encode the MJPEG frames) + Qt Network (the in-process MJPEG server).
+add_executable(test_j_phase2_e2e test_j_phase2_e2e.cpp)
+target_link_libraries(test_j_phase2_e2e PRIVATE
+    pm_vision pm_agent pm_core
+    Qt6::Core Qt6::Network ${OpenCV_LIBS} onnxruntime::onnxruntime)
+target_include_directories(test_j_phase2_e2e PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/src/agent/tools)
+target_compile_definitions(test_j_phase2_e2e PRIVATE
+    PM_VISION_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/vision")
+add_test(NAME j_phase2 COMMAND test_j_phase2_e2e)
+set_tests_properties(j_phase2 PROPERTIES
+    TIMEOUT 240
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
