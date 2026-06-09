@@ -62,3 +62,23 @@ add_test(NAME memory COMMAND test_memory_e2e)
 add_executable(test_privacy_e2e test_privacy_e2e.cpp)
 target_link_libraries(test_privacy_e2e PRIVATE pm_core Qt6::Core)
 add_test(NAME privacy COMMAND test_privacy_e2e)
+
+# Wave 2 · Card H — integration: headless drive-the-app harness + cross-service
+# flows. Boots the WHOLE backend offscreen (AppController without the GUI, every
+# service on its own QThread, real EventBus) via tests/test_harness.h, then drives
+# flows that span module boundaries:
+#   * Utterance -> AgentRuntime -> transcripts(DB) + SpeakRequest(bus)
+#   * setPrivacy -> privacyChanged(bus) + settings(DB)
+#   * addShoppingItem -> shopping_items(DB)
+#   * queue_deep_task -> tasks(DB,'queued') + taskUpdated(bus); heavy drain opt-in.
+# Links pm_app (the AppController facade) so the harness uses the app's own
+# construction path. Default suite is model-free + deterministic; the heavy
+# scheduler-drain half is gated on POLYMATH_E2E_FULL=1 (+ a model on disk), so
+# this stays green on a CI machine without the ~28 GB models. QT_QPA_PLATFORM is
+# forced to offscreen so no display is required.
+add_executable(test_integration_e2e test_integration_e2e.cpp test_harness.h)
+target_link_libraries(test_integration_e2e PRIVATE pm_app Qt6::Core)
+add_test(NAME integration COMMAND test_integration_e2e)
+set_tests_properties(integration PROPERTIES
+    TIMEOUT 300
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
