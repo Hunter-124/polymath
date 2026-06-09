@@ -1,59 +1,117 @@
 # Build status
 
-The **CPU build is verified: it compiles, links, runs the tests, and launches.**
+Both builds are verified: **they compile, link, run the tests, and launch.**
 
-`Polymath.exe` was built with MSVC 2022 + Qt 6.6.3 + OpenCV 4.9 + ONNX Runtime
-1.17 (CPU) + llama.cpp/whisper.cpp built from source, and confirmed at runtime to:
+- **CPU build** — `build/cpu` (Visual Studio 2022 generator). Reproduced by
+  [`scripts/build-cpu.ps1`](../scripts/build-cpu.ps1).
+- **GPU / CUDA build** — `build/cuda` (Ninja generator + portable CUDA 13.2 toolkit,
+  `sm_86`). Reproduced by [`scripts/build-gpu.ps1`](../scripts/build-gpu.ps1).
+  **GPU inference is verified end-to-end (token generation on the RTX 3080 Ti).**
+
+`Polymath.exe` is built with MSVC 2022 + Qt 6.6.3 + OpenCV 4.9 + ONNX Runtime 1.17
+(CPU) + llama.cpp/whisper.cpp built from source, and confirmed at runtime to:
 
 - open the database (static sqlite3), start all **8 service threads**
   (Inference, Scheduler, Memory, Proactive, Agent, Idle, Vision, Audio),
-- seed + load the modular personalities (Marcus Aurelius, Ada Lovelace),
-- open the microphone (16 kHz mono capture streaming),
-- register all **16 agent tools**,
+- auto-register + load the **Gemma 3n E4B** Fast model, seed + load the modular
+  personalities (Marcus Aurelius, Ada Lovelace),
+- open the microphone (16 kHz mono capture, whisper ASR transcribing), detect Piper TTS,
+- register all **16 agent tools**, load the YOLOv8n / SCRFD / ArcFace ONNX models,
 - load the Qt Quick GUI scene and run the event loop,
 - degrade gracefully when models/CUDA are absent — **no crashes**.
 
 `ctest` green: `test_core` and `test_tools` pass with real assertions.
 
+## GPU build — what was verified (headless, `QT_QPA_PLATFORM=offscreen`)
+
+Observed in `data/logs/polymath.log` and the engine's stderr on an RTX 3080 Ti 12 GB
+(driver 596.36):
+
+```
+VramBudget: CUDA device 12287 MiB total, 11100 MiB free, budget 8192 MiB
+InferenceManager starting (CUDA=true)
+LlamaBackend loaded 'gemma-3n-E4B-it-Q4_K_M' role=0 n_ctx=8192 ngl=999 (~5352 MiB)
+llama_kv_cache:  CUDA0 KV buffer size = 256.00 MiB
+sched_reserve:   CUDA0 compute buffer size = 516.00 MiB   (Flash Attention enabled)
+InferenceManager: Fast model resident
+```
+
+- **GPU detected**, the Fast model offloads **all** layers (`ngl=999`, ~5.3 GB resident),
+  KV-cache + compute graph live in `CUDA0` VRAM. All 8 services start; whisper ASR runs;
+  the process is stable (ran headless, killed after ~50 s, no crash).
+- **Generation smoke test** (`llama-bench -m gemma-3n-E4B -ngl 999 -p 16 -n 16`):
+
+  | model | backend | ngl | test | t/s |
+  |-------|---------|-----|------|-----|
+  | gemma3n E4B Q4_K_M | **CUDA** | 999 | pp16 | 446 |
+  | gemma3n E4B Q4_K_M | **CUDA** | 999 | tg16 | **108** |
+
+  108 tok/s generation on GPU (vs. ~10–20 on CPU) confirms the ggml-cuda path produces
+  tokens. **This is the end-to-end GPU verification.**
+- **ONNX Runtime stays on CPU** by design: we ship the CPU ORT package, so the YOLO/face
+  detectors log a harmless `onnxruntime_providers_shared.dll … error 126` and fall back to
+  CPU. The CUDA build accelerates **llama/whisper (ggml-cuda)**; perception ONNX is CPU.
+
 ## How it was built (reproducible)
-Run [`scripts/build-cpu.ps1`](../scripts/build-cpu.ps1). It uses prebuilt Qt
-(via `aqtinstall`), prebuilt OpenCV + ONNX Runtime, a tiny classic-mode vcpkg for
-the small libs (nlohmann-json/fmt/spdlog/libsamplerate), and builds
-llama.cpp/whisper.cpp from the submodules. See also [`BUILD.md`](BUILD.md).
 
 ```powershell
 git submodule update --init --recursive   # or scripts/setup-dev.ps1
 pwsh scripts/build-cpu.ps1                 # configures + builds build/cpu
-pwsh scripts/fetch-models.ps1             # download default local models
-build/cpu/bin/Release/Polymath.exe         # run (after windeployqt — see build-cpu.ps1)
+pwsh scripts/fetch-models.ps1              # download the default local models
+pwsh scripts/build-gpu.ps1                 # configures + builds + deploys build/cuda (CUDA)
 ```
+
+`build-gpu.ps1` assumes the CPU prereqs exist (Qt/OpenCV/ONNX + the small vcpkg libs +
+the portable CUDA toolkit under `build/deps/cuda/toolkit`). It builds through a no-space
+NTFS junction (`C:\pm` → repo) because **nvcc cannot tolerate a space anywhere in its
+paths** and the repo lives in `…\Home Assistant`. See `BUILD.md`.
 
 ## Module status
 
 | Module | Status |
 |--------|--------|
-| core, inference, audio, vision, scheduler, memory, agent, personality, ui/app | ✅ compile + link; backend init verified at runtime |
+| core, inference, audio, vision, scheduler, memory, agent, personality, ui/app | ✅ compile + link; verified at runtime (CPU **and** CUDA) |
+| inference (llama.cpp ggml-CUDA) | ✅ GPU offload verified — Gemma 3n E4B at 108 tok/s on `sm_86` |
+| VLM (mtmd / `describeImage`) | ✅ built (`LLAMA_BUILD_TOOLS/COMMON=ON`); `mtmd.dll` linked + deployed |
+| Piper TTS | ✅ drives the prebuilt `piper.exe` via QProcess (detected at runtime) |
 | ESP32-CAM firmware | ✅ complete (compile in Arduino IDE) |
 | tests | ✅ pass (`test_core`, `test_tools`) |
 
-## Deferred / next steps (honest)
-1. **CUDA build.** Built CPU-only (the box's CUDA toolkit had no `nvcc` on PATH).
-   For GPU: install CUDA 12.x, use `-DGGML_CUDA=ON -DPOLYMATH_USE_CUDA=ON`, and a
-   GPU ONNX Runtime package. The code already guards/branches on CUDA.
-2. **VLM (`mtmd`) is off.** `LLAMA_BUILD_TOOLS=OFF` for bring-up (fastest-drifting
-   API). `describeImage()`/"find my keys" stubs until re-enabled + reconciled.
-3. **Piper TTS** not linked (`POLYMATH_HAVE_PIPER` unset) — `speak()` is a no-op.
-   Vendor Piper (+espeak-ng) and flip the flag to get voice output.
-4. **Models** aren't bundled — run `scripts/fetch-models.ps1`, then assign roles
-   in the Model Manager. Until then voice/vision features self-disable.
-5. **Packaging.** `windeployqt` gathers the Qt runtime; bundle the ONNX/OpenCV/
-   ggml DLLs + `models/` as the portable zip (see [`PACKAGING.md`](PACKAGING.md)).
+## Models
+
+`scripts/fetch-models.ps1` downloads the default local set into `data/models/`. All present
+and loaded at runtime: Gemma 3n E4B (Fast), Gemma 3 27B (Heavy), Gemma 3 4B + mmproj (VLM),
+EmbeddingGemma, whisper base/tiny, Piper voices, Silero VAD, openWakeWord, SCRFD, ArcFace,
+and **yolov8n.onnx** (person detection — sourced from a GitHub mirror since the HF
+Xenova/onnx-community mirrors now 401; the detector confirms `in=images out=output0 640x640`).
+
+## Honest remaining notes
+
+1. **Perception on GPU.** YOLO/SCRFD/ArcFace run on CPU (CPU ORT package). To accelerate
+   them, drop in the CUDA ORT package + `onnxruntime_providers_cuda.dll`; the code already
+   requests the CUDA EP and falls back cleanly.
+2. **Heavy model on a 12 GB card.** Gemma 3 27B Q4 (~16 GB) still partial-offloads; the
+   VramBudget manager trims `n_gpu_layers` to fit. Fast/VLM/Embedding fit comfortably.
+3. **Packaging.** `windeployqt` + the runtime-DLL copy in `build-gpu.ps1` produce a runnable
+   tree; bundling it as the portable zip is the remaining packaging step (see `PACKAGING.md`).
 
 ## Notes from the bring-up
-The compiler/linker/runtime surfaced (and we fixed) real issues: a C++20 vs
-C++17 `char8_t` clash in the engines, ONNX `AllocatedStringPtr` not being
-default-constructible, a `QMetaTypeId` ordering hazard, a `unique_ptr<incomplete>`
-destructor, std::string→QString at EventBus boundaries, the QML module needing to
-be STATIC so its symbols link, and the vcpkg sqlite3 **DLL** producing spurious
-`SQLITE_NOMEM` (fixed by vendoring the amalgamation statically). See the
-`Build bring-up` commit for the full list.
+
+The compiler/linker/runtime surfaced (and we fixed) real issues — see the `Build bring-up`
+commit and the **KEY GOTCHAS** in `BUILD.md`. The CUDA-specific ones:
+
+- **nvcc + MSVC `/flag` leak.** A global `add_compile_options(/utf-8 /MP /EHsc /Zc:char8_t-)`
+  reaches CUDA compiles verbatim (CMake does not wrap COMPILE_OPTIONS in `-Xcompiler`), and
+  nvcc misparses a `/flag` as an input file → *"nvcc fatal: A single input file is required
+  for a non-link phase."* Fixed by gating the flags with `$<COMPILE_LANGUAGE:…>` so they
+  never reach `.cu` files.
+- **char8_t split in the llama tree at C++20.** Our global C++20 standard leaked into the
+  vendored engines: `llama-chat.cpp` uses `u8""` as `const char*` (needs char8_t **off**)
+  while `common/`'s nlohmann/json uses `std::u8string` (needs it **on**) — irreconcilable.
+  Fixed by compiling third_party at its native **C++17** (no char8_t at all); our modules
+  stay C++20.
+- **nvcc + spaces.** Build through the `C:\pm` junction (no admin needed).
+- **Runtime DLLs windeployqt misses.** `Polymath.exe` also needs `fmt.dll`, `spdlog.dll`
+  (vcpkg), `opencv_videoio_ffmpeg490_64.dll`, and the CUDA `cudart/cublas/cublasLt 64_13`
+  DLLs next to the exe; without them the loader hangs before `main()`. `build-gpu.ps1`
+  deploys all of these.

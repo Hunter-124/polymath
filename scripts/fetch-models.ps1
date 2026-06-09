@@ -76,7 +76,13 @@ Fetch "$oww/embedding_model.onnx"  "$models/wakeword/embedding_model.onnx"
 Fetch "$oww/hey_jarvis_v0.1.onnx"  "$models/wakeword/hey_jarvis.onnx"   # default wake phrase
 
 Write-Host "Vision (YOLO + face) ->" -ForegroundColor Green
-Fetch "$HF/Xenova/yolov8n/resolve/main/onnx/model.onnx" "$models/yolov8n.onnx"
+# YOLOv8n person detector. The HF Xenova / onnx-community mirrors now return 401
+# for anonymous downloads; this GitHub-hosted file is the standard Ultralytics
+# yolov8n export the detector expects (input images[1,3,640,640], output
+# output0[1,84,8400], opset 17 — verified loadable by ONNX Runtime 1.17). To
+# regenerate from scratch instead: `pip install ultralytics` then
+# `yolo export model=yolov8n.pt format=onnx opset=17` and copy the .onnx here.
+Fetch "https://github.com/Hyuto/yolov8-onnxruntime-web/raw/master/public/model/yolov8n.onnx" "$models/yolov8n.onnx"
 # InsightFace SCRFD detector + ArcFace recognizer (ONNX, buffalo_l pack). Named
 # to match the code; the architectures are interface-compatible with the loaders.
 Fetch "$HF/immich-app/buffalo_l/resolve/main/detection/model.onnx"   "$models/scrfd_500m.onnx"
