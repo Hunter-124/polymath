@@ -137,9 +137,14 @@ std::vector<FaceBox> FaceRecognizer::detect(const cv::Mat& bgr) {
         auto outs = scrfd_->Run(Ort::RunOptions{nullptr}, in_names, &in, 1,
                                 out_names.data(), out_names.size());
 
-        // SCRFD with kps emits 9 outputs, grouped per stride {8,16,32} as
-        // (score[N,1], bbox[N,4], kps[N,10]). We locate each group by output
-        // count to stay robust to name ordering.
+        // SCRFD emits 6 (no-kps) or 9 (with-kps) outputs: score[N,1], bbox[N,4]
+        // and optionally kps[N,10], one tensor per stride {8,16,32}. The export
+        // order is NOT fixed — InsightFace's standard ONNX groups them by type
+        // (all scores, then all bboxes, then all kps), not interleaved per
+        // stride. Selecting them by a fixed stride*group offset therefore reads
+        // the wrong tensors (bbox values get treated as scores → hundreds of
+        // bogus "faces"). Instead, match each output to a stride by its row
+        // count (anchors) and to a role by its last-dim width (1/4/10).
         const std::array<int, 3> strides{8, 16, 32};
         const int num_anchors = 2;   // SCRFD anchors per location
 
@@ -147,17 +152,36 @@ std::vector<FaceBox> FaceRecognizer::detect(const cv::Mat& bgr) {
         std::vector<float>     nms_scores;
         std::vector<FaceBox>   cands;
 
+        // Index every output by (rows, width) so we can look up the right tensor.
+        struct OutInfo { const float* data; int64_t rows; int64_t width; };
+        std::vector<OutInfo> infos;
+        infos.reserve(outs.size());
+        for (auto& o : outs) {
+            auto sh = o.GetTensorTypeAndShapeInfo().GetShape();
+            int64_t rows = sh.size() >= 1 ? sh[0] : 0;
+            int64_t width = sh.size() >= 2 ? sh[1] : 1;
+            // Tolerate a leading batch dim (e.g. [1, N, w]).
+            if (sh.size() == 3) { rows = sh[1]; width = sh[2]; }
+            infos.push_back({o.GetTensorData<float>(), rows, width});
+        }
+        auto findOut = [&](int64_t rows, int64_t width) -> const float* {
+            for (const auto& in : infos)
+                if (in.rows == rows && in.width == width) return in.data;
+            return nullptr;
+        };
         const bool has_kps = outs.size() >= 9;
-        const int group = has_kps ? 3 : 2;
 
         for (size_t s = 0; s < strides.size(); ++s) {
             const int stride = strides[s];
             const int fw = scrfd_w_ / stride;
             const int fh = scrfd_h_ / stride;
+            const int64_t rows = static_cast<int64_t>(fw) * fh * num_anchors;
 
-            const float* scores = outs[s * group + 0].GetTensorData<float>();
-            const float* bboxes = outs[s * group + 1].GetTensorData<float>();
-            const float* kps    = has_kps ? outs[s * group + 2].GetTensorData<float>() : nullptr;
+            const float* scores = findOut(rows, 1);
+            const float* bboxes = findOut(rows, 4);
+            const float* kps    = has_kps ? findOut(rows, 10) : nullptr;
+            if (!scores || !bboxes)
+                continue;   // unexpected export shape for this stride; skip it
 
             int idx = 0;
             for (int y = 0; y < fh; ++y) {
