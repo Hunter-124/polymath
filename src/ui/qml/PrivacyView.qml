@@ -9,7 +9,7 @@ Item {
         anchors.fill: parent; anchors.margins: Style.pad; spacing: Style.gap
 
         Label {
-            text: "Privacy & Settings"; color: Style.text
+            text: "Privacy"; color: Style.text
             font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
         }
         Label {

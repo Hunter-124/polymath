@@ -16,6 +16,9 @@ class Database;
 
 class ShoppingModel : public QAbstractListModel {
     Q_OBJECT
+    // Live counts for headers/dashboard ("4 to buy · 2 bought").
+    Q_PROPERTY(int remainingCount READ remainingCount NOTIFY countsChanged)
+    Q_PROPERTY(int doneCount      READ doneCount      NOTIFY countsChanged)
 public:
     enum Roles {
         IdRole = Qt::UserRole + 1,
@@ -45,6 +48,12 @@ public:
 
     // Drop completed items (a common "clear bought" action).
     Q_INVOKABLE void clearDone();
+
+    int remainingCount() const;
+    int doneCount() const;
+
+signals:
+    void countsChanged();
 
 private:
     struct Item {

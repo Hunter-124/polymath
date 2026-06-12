@@ -120,20 +120,29 @@ Item {
             target: app
             function onFindObjectAnswered(query, answer) {
                 ans.text = "“" + query + "”  →  " + answer
-                ans.visible = true
+                ansCard.visible = true
             }
         }
         Rectangle {
-            visible: ans.visible
+            id: ansCard
+            visible: false
             Layout.fillWidth: true
             radius: Style.radiusSm; color: Style.surface2; border.color: Style.good
-            implicitHeight: ans.implicitHeight + 18
-            Label {
-                id: ans
-                anchors.fill: parent; anchors.margins: 9
-                visible: false
-                color: Style.good; wrapMode: Text.WordWrap
-                font.family: Style.fontFamily; font.pixelSize: Style.fsBody
+            implicitHeight: ansRow.implicitHeight + 18
+            RowLayout {
+                id: ansRow
+                anchors.fill: parent; anchors.margins: 9; spacing: 8
+                Label {
+                    id: ans
+                    Layout.fillWidth: true
+                    color: Style.good; wrapMode: Text.WordWrap
+                    font.family: Style.fontFamily; font.pixelSize: Style.fsBody
+                }
+                PmIconButton {
+                    glyph: "x"; tip: "Dismiss"
+                    Layout.alignment: Qt.AlignTop
+                    onClicked: ansCard.visible = false
+                }
             }
         }
     }

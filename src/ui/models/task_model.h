@@ -18,6 +18,10 @@ class Database;
 
 class TaskModel : public QAbstractListModel {
     Q_OBJECT
+    // Live status tallies for the queue header chips / dashboard.
+    Q_PROPERTY(int queuedCount  READ queuedCount  NOTIFY countsChanged)
+    Q_PROPERTY(int runningCount READ runningCount NOTIFY countsChanged)
+    Q_PROPERTY(int doneCount    READ doneCount    NOTIFY countsChanged)
 public:
     enum Roles {
         IdRole = Qt::UserRole + 1,
@@ -37,6 +41,13 @@ public:
 
     Q_INVOKABLE void refresh();
 
+    int queuedCount() const  { return countByStatus(QLatin1String("queued")); }
+    int runningCount() const { return countByStatus(QLatin1String("running")); }
+    int doneCount() const    { return countByStatus(QLatin1String("done")); }
+
+signals:
+    void countsChanged();
+
 public slots:
     // Queued connection from EventBus::taskUpdated (worker -> UI thread).
     void onTaskUpdated(const polymath::TaskEvent& e);
@@ -54,6 +65,7 @@ private:
 
     int  rowForId(int64_t id) const;
     bool loadOne(int64_t id, Task& out) const;  // pull a single row from the DB
+    int  countByStatus(QLatin1String status) const;
 
     Database&     db_;
     QVector<Task> tasks_;

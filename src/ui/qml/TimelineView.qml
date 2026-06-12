@@ -12,21 +12,53 @@ Item {
             text: "Memory & Timeline"; color: Style.text
             font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
         }
-        Label {
-            text: "Searchable daily summaries, transcripts, and detected events."
-            color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsBody
-            wrapMode: Text.WordWrap; Layout.fillWidth: true
-        }
 
-        PmTextField {
-            id: search
-            Layout.fillWidth: true
-            placeholderText: "Search memory…"
-            text: timelineModel.filter
-            onTextChanged: searchTimer.restart()
-            Timer {
-                id: searchTimer; interval: 250
-                onTriggered: timelineModel.setFilter(search.text)
+        RowLayout {
+            Layout.fillWidth: true; spacing: Style.gap
+
+            PmTextField {
+                id: search
+                Layout.fillWidth: true
+                placeholderText: "Search memory…"
+                text: timelineModel.filter
+                onTextChanged: searchTimer.restart()
+                Timer {
+                    id: searchTimer; interval: 250
+                    onTriggered: timelineModel.setFilter(search.text)
+                }
+            }
+
+            // Category chips — backed by TimelineModel.categoryFilter.
+            RowLayout {
+                spacing: 6
+                component Chip: AbstractButton {
+                    id: chip
+                    property string category: ""
+                    readonly property bool active: timelineModel.categoryFilter === category
+                    implicitHeight: Style.controlH - 6
+                    implicitWidth: chipLbl.implicitWidth + 22
+                    onClicked: timelineModel.setCategoryFilter(category)
+                    background: Rectangle {
+                        radius: height / 2
+                        color: chip.active ? Style.accentDim
+                             : chip.hovered ? Style.surface2 : "transparent"
+                        border.width: 1
+                        border.color: chip.active ? Style.accent : Style.border
+                        Behavior on color { ColorAnimation { duration: Style.durFast } }
+                    }
+                    contentItem: Text {
+                        id: chipLbl
+                        text: chip.text
+                        color: chip.active ? Style.accent : Style.textDim
+                        font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+                Chip { text: "All";         category: "" }
+                Chip { text: "Events";      category: "event" }
+                Chip { text: "Transcripts"; category: "transcript" }
+                Chip { text: "Memories";    category: "memory" }
             }
         }
 
@@ -94,7 +126,7 @@ Item {
                     glyph: search.text.length > 0 ? "?" : "○"
                     title: search.text.length > 0 ? "No matches" : "Your timeline is empty"
                     hint: search.text.length > 0
-                        ? "Nothing in memory matches “" + search.text + "”. Try a broader term."
+                        ? "Nothing in memory matches “" + search.text + "”. Try a broader term or another category."
                         : "As Hearth listens and watches, detected events, transcripts and daily summaries collect here — fully searchable."
                 }
             }

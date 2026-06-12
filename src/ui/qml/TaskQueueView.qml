@@ -8,13 +8,45 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent; anchors.margins: Style.pad; spacing: Style.gap
-        Label {
-            text: "Deep-Work Task Queue"; color: Style.text
-            font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
+
+        RowLayout {
+            Layout.fillWidth: true; spacing: 10
+            Label {
+                text: "Tasks"; color: Style.text
+                font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
+            }
+            Item { Layout.fillWidth: true }
+
+            // Live status tallies.
+            component CountChip: Rectangle {
+                id: countChip
+                property string caption: ""
+                property int    value: 0
+                property color  tone: Style.textFaint
+                visible: value > 0
+                radius: height / 2
+                color: Qt.rgba(tone.r, tone.g, tone.b, 0.14)
+                implicitHeight: 24
+                implicitWidth: chipRow.implicitWidth + 18
+                RowLayout {
+                    id: chipRow
+                    anchors.centerIn: parent; spacing: 5
+                    Rectangle { width: 7; height: 7; radius: 3.5; color: countChip.tone }
+                    Label {
+                        text: countChip.value + " " + countChip.caption
+                        color: countChip.tone
+                        font.family: Style.fontFamily; font.pixelSize: Style.fsTiny; font.bold: true
+                    }
+                }
+            }
+            CountChip { caption: "running"; value: taskModel.runningCount; tone: Style.accent }
+            CountChip { caption: "queued";  value: taskModel.queuedCount;  tone: Style.warn }
+            CountChip { caption: "done";    value: taskModel.doneCount;    tone: Style.good }
         }
+
         Label {
-            text: "Long/important jobs (lab reports, research, daily summaries) run here when the machine is idle and the heavy model can be loaded."
-            color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsBody
+            text: "Long jobs (reports, research, daily summaries) run here when the machine is idle and the heavy model can load."
+            color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
             wrapMode: Text.WordWrap; Layout.fillWidth: true
         }
 

@@ -20,7 +20,8 @@ public:
         WhoRole = Qt::UserRole + 1,   // "you" | "assistant"
         TextRole,
         StreamingRole,                // true while the assistant bubble is still filling
-        RequestIdRole
+        RequestIdRole,
+        TimeLabelRole                 // local "HH:MM" stamped when the turn is created
     };
 
     explicit ChatModel(QObject* parent = nullptr);
@@ -50,6 +51,7 @@ private:
         QString text;
         QString request_id;
         bool    streaming = false;
+        QString time_label;
     };
 
     int indexForRequest(const QString& request_id) const;  // assistant row, or -1

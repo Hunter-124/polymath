@@ -1,6 +1,14 @@
 #include "chat_model.h"
 
+#include <QDateTime>
+
 namespace polymath {
+
+namespace {
+QString nowLabel() {
+    return QDateTime::currentDateTime().toString(QStringLiteral("HH:mm"));
+}
+} // namespace
 
 ChatModel::ChatModel(QObject* parent) : QAbstractListModel(parent) {}
 
@@ -18,6 +26,7 @@ QVariant ChatModel::data(const QModelIndex& index, int role) const {
         case TextRole:      return t.text;
         case StreamingRole: return t.streaming;
         case RequestIdRole: return t.request_id;
+        case TimeLabelRole: return t.time_label;
         default:            return {};
     }
 }
@@ -28,13 +37,14 @@ QHash<int, QByteArray> ChatModel::roleNames() const {
         {TextRole,      "text"},
         {StreamingRole, "streaming"},
         {RequestIdRole, "requestId"},
+        {TimeLabelRole, "timeLabel"},
     };
 }
 
 void ChatModel::appendUser(const QString& text) {
     const int row = static_cast<int>(turns_.size());
     beginInsertRows({}, row, row);
-    turns_.push_back(Turn{QStringLiteral("you"), text, {}, false});
+    turns_.push_back(Turn{QStringLiteral("you"), text, {}, false, nowLabel()});
     endInsertRows();
 }
 
@@ -57,7 +67,7 @@ void ChatModel::appendAssistantToken(const QString& request_id,
         // First token for this request: create the assistant bubble.
         row = static_cast<int>(turns_.size());
         beginInsertRows({}, row, row);
-        turns_.push_back(Turn{QStringLiteral("assistant"), text, request_id, !done});
+        turns_.push_back(Turn{QStringLiteral("assistant"), text, request_id, !done, nowLabel()});
         endInsertRows();
         if (done) {
             const QModelIndex idx = index(row);

@@ -10,7 +10,28 @@
 #include <QCoreApplication>
 #include <QtGlobal>
 
+#ifdef Q_OS_WIN
+#  define NOMINMAX
+#  include <windows.h>
+#endif
+
 using namespace polymath;
+
+// A startup failure in a WIN32 (GUI-subsystem) build is otherwise completely
+// silent — the process exits and the user sees nothing at all.  Log it AND put
+// a native message box on screen (no Qt widgets dependency) so "the app does
+// nothing when I launch it" is never the failure mode again.
+static void reportFatalStartupError(const QString& what) {
+    PM_ERROR("startup failed: {}", what.toStdString());
+#ifdef Q_OS_WIN
+    const QString msg = what +
+        "\n\nDetails may be in  data\\logs\\polymath.log  next to the executable.";
+    MessageBoxW(nullptr,
+                reinterpret_cast<const wchar_t*>(msg.utf16()),
+                L"Hearth could not start",
+                MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+#endif
+}
 
 // Route Qt/QML diagnostics into our log. Without this they vanish in a WIN32
 // (GUI-subsystem) build, which has no console.
@@ -42,8 +63,11 @@ int main(int argc, char* argv[]) {
     Paths::instance().setRoot(resolveAppRoot());
 
     AppController controller;
-    if (!controller.initialize())
+    if (!controller.initialize()) {
+        reportFatalStartupError(
+            "Core services failed to initialize (database or service startup).");
         return 1;
+    }
 
     qInstallMessageHandler(qtMessageToLog);   // Qt/QML diagnostics -> our log
 
@@ -55,14 +79,23 @@ int main(int argc, char* argv[]) {
     controller.registerWithEngine(engine);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
-                     &app, [] { QCoreApplication::exit(2); }, Qt::QueuedConnection);
+                     &app, [] {
+                         reportFatalStartupError(
+                             "The user interface failed to load (QML object creation failed). "
+                             "The install may be missing Qt QML modules under qml\\.");
+                         QCoreApplication::exit(2);
+                     }, Qt::QueuedConnection);
 
     // Load the embedded scene by resource URL. (Loading by module name would
     // require importing the static QML module's plugin into the exe; the URL is
     // deterministic and the QML files only import standard Qt modules.)
     engine.load(QUrl(QStringLiteral("qrc:/qt/qml/Polymath/qml/Main.qml")));
-    if (engine.rootObjects().isEmpty())
+    if (engine.rootObjects().isEmpty()) {
+        reportFatalStartupError(
+            "The user interface failed to load (no root window was created). "
+            "The install may be missing Qt QML modules under qml\\.");
         return 2;
+    }
 
     const int rc = app.exec();
     controller.shutdown();

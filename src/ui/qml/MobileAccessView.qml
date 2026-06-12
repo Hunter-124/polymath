@@ -142,7 +142,7 @@ Item {
                         font.pixelSize: Style.fsBody; font.bold: true
                     }
                     Label {
-                        text: "Open the app ▸ Scan pairing QR. No camera? Tap “Enter code " +
+                        text: "Open the app › Scan pairing QR. No camera? Tap “Enter code " +
                               "manually” and paste the text below."
                         color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsTiny
                         wrapMode: Text.WordWrap; Layout.fillWidth: true

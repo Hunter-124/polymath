@@ -6,6 +6,9 @@
 # Style.qml is a QML singleton (pragma Singleton) — mark it so the module's
 # generated qmldir registers it and `import Polymath` exposes `Style`.
 set_source_files_properties(qml/Style.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+# Nav.qml is the QML-layer message bus (navigation/notify signals) — also a
+# singleton so isolated views and the Main shell share one instance.
+set_source_files_properties(qml/Nav.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 qt_add_qml_module(pm_ui
     STATIC          # static so the model/provider symbols link into pm_app and
@@ -33,6 +36,9 @@ qt_add_qml_module(pm_ui
         qml/ModelManagerView.qml
         qml/PrivacyView.qml
         qml/MobileAccessView.qml
+        qml/SettingsView.qml
+        qml/CommandPalette.qml
+        qml/Nav.qml
         # Self-contained QR encoder (MIT) for the Mobile Access pairing QR; pure
         # ECMAScript usable from the Canvas, no extra Qt module / C++ dependency.
         qml/qrcode.js
@@ -46,6 +52,8 @@ qt_add_qml_module(pm_ui
         qml/controls/PmCheckBox.qml
         qml/controls/PmItemDelegate.qml
         qml/controls/PmToolButton.qml
+        qml/controls/PmIcon.qml
+        qml/controls/PmIconButton.qml
         qml/controls/EmptyState.qml
     # Bundle the Inter (SIL OFL) UI font so QFontDatabase always finds a family
     # and the app renders identically headless and on any machine.

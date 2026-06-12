@@ -11,12 +11,25 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
+            spacing: 12
             Label {
                 text: "Shopping List"; color: Style.text
                 font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
             }
+            Label {
+                visible: shoppingModel.remainingCount + shoppingModel.doneCount > 0
+                text: shoppingModel.remainingCount + " to buy"
+                      + (shoppingModel.doneCount > 0 ? "  ·  " + shoppingModel.doneCount + " bought" : "")
+                color: Style.textFaint
+                font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
+                Layout.alignment: Qt.AlignBaseline
+            }
             Item { Layout.fillWidth: true }
-            PmButton { text: "Clear bought"; onClicked: shoppingModel.clearDone() }
+            PmButton {
+                text: "Clear bought"
+                enabled: shoppingModel.doneCount > 0
+                onClicked: shoppingModel.clearDone()
+            }
         }
 
         RowLayout {

@@ -59,12 +59,19 @@ void TaskModel::refresh() {
             tasks_.push_back(std::move(t));
         });
     endResetModel();
+    emit countsChanged();
 }
 
 int TaskModel::rowForId(int64_t id) const {
     for (int i = 0; i < tasks_.size(); ++i)
         if (tasks_.at(i).id == id) return i;
     return -1;
+}
+
+int TaskModel::countByStatus(QLatin1String status) const {
+    int n = 0;
+    for (const Task& t : tasks_) n += t.status == status ? 1 : 0;
+    return n;
 }
 
 bool TaskModel::loadOne(int64_t id, Task& out) const {
@@ -93,6 +100,7 @@ void TaskModel::onTaskUpdated(const TaskEvent& e) {
         t.detail = e.detail;
         const QModelIndex idx = index(row);
         emit dataChanged(idx, idx, {TypeRole, StatusRole, DetailRole});
+        emit countsChanged();
         return;
     }
 
@@ -108,6 +116,7 @@ void TaskModel::onTaskUpdated(const TaskEvent& e) {
     beginInsertRows({}, 0, 0);
     tasks_.insert(0, std::move(t));
     endInsertRows();
+    emit countsChanged();
 }
 
 } // namespace polymath

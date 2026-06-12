@@ -67,13 +67,39 @@ public:
     Q_INVOKABLE void removeItem(int) {}
     Q_INVOKABLE void clearDone() {}
     Q_INVOKABLE void setFilter(const QString&) {}
+    Q_INVOKABLE void setCategoryFilter(const QString& c) { category_filter_ = c; }
+
+    // Count properties the dashboard / headers bind to.  Computed from the row
+    // maps so the seeded data and the chips always agree.
+    int remainingCount() const { return countWhere([](const QVariantMap& m) {
+        return m.contains("done") && !m.value("done").toBool(); }); }
+    int doneCount() const { return countWhere([](const QVariantMap& m) {
+        return m.contains("done") ? m.value("done").toBool()
+                                  : m.value("status").toString() == "done"; }); }
+    int queuedCount() const { return countWhere([](const QVariantMap& m) {
+        return m.value("status").toString() == "queued"; }); }
+    int runningCount() const { return countWhere([](const QVariantMap& m) {
+        return m.value("status").toString() == "running"; }); }
 
 private:
+    template <typename Pred>
+    int countWhere(Pred p) const {
+        int n = 0;
+        for (const auto& row : rows_) if (p(row.toMap())) ++n;
+        return n;
+    }
+
     QHash<int, QByteArray> roles_;
     QVariantList rows_;
     Q_OBJECT
     Q_PROPERTY(QString filter MEMBER filter_)
+    Q_PROPERTY(QString categoryFilter MEMBER category_filter_)
+    Q_PROPERTY(int remainingCount READ remainingCount CONSTANT)
+    Q_PROPERTY(int doneCount      READ doneCount      CONSTANT)
+    Q_PROPERTY(int queuedCount    READ queuedCount    CONSTANT)
+    Q_PROPERTY(int runningCount   READ runningCount   CONSTANT)
     QString filter_;
+    QString category_filter_;
 };
 
 // ---------------------------------------------------------------------------
@@ -220,12 +246,12 @@ int main(int argc, char* argv[]) {
     stub.populated = !empty;
     StubGateway stubGw;   // seeds MobileAccessView's pairing QR + payload
 
-    auto chat = empty ? new StubListModel({"who","text","streaming","requestId"}, {}, &stub)
-        : new StubListModel({"who","text","streaming","requestId"}, QVariantList{
-            QVariantMap{{"who","you"},{"text","Where did I leave my keys?"},{"streaming",false}},
-            QVariantMap{{"who","assistant"},{"text","You set them on the kitchen counter at 4:12 PM — the camera caught it."},{"streaming",false}},
-            QVariantMap{{"who","you"},{"text","Add milk to the shopping list."},{"streaming",false}},
-            QVariantMap{{"who","assistant"},{"text","Done. Milk is on your list."},{"streaming",true}},
+    auto chat = empty ? new StubListModel({"who","text","streaming","requestId","timeLabel"}, {}, &stub)
+        : new StubListModel({"who","text","streaming","requestId","timeLabel"}, QVariantList{
+            QVariantMap{{"who","you"},{"text","Where did I leave my keys?"},{"streaming",false},{"timeLabel","16:09"}},
+            QVariantMap{{"who","assistant"},{"text","You set them on the **kitchen counter** at 4:12 PM — the camera caught it."},{"streaming",false},{"timeLabel","16:09"}},
+            QVariantMap{{"who","you"},{"text","Add milk to the shopping list."},{"streaming",false},{"timeLabel","16:10"}},
+            QVariantMap{{"who","assistant"},{"text","Done. Milk is on your list."},{"streaming",true},{"timeLabel","16:10"}},
         }, &stub);
     stub.setChat(chat);
 
@@ -330,6 +356,7 @@ int main(int argc, char* argv[]) {
         {"ModelManagerView.qml",  "09-models",       false},
         {"PrivacyView.qml",       "10-privacy",      false},
         {"MobileAccessView.qml",  "11-mobile-access",false},
+        {"SettingsView.qml",      "12-settings",     false},
     };
 
     int failures = 0;

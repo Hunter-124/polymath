@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import Polymath
 
@@ -32,13 +33,33 @@ Item {
         }
         RowLayout {
             Layout.fillWidth: true; spacing: Style.gap
-            PmButton { text: "Add GGUF…"; onClicked: app.openModelsFolder() }
+            PmButton { text: "Add GGUF…"; accent: true; onClicked: addDialog.open() }
+            Label {
+                text: "as"; color: Style.textFaint
+                font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
+            }
             PmComboBox {
-                Layout.preferredWidth: 150
+                id: addRole
+                Layout.preferredWidth: 130
                 model: ["fast", "heavy", "vision", "embedding"]
             }
             Item { Layout.fillWidth: true }
-            PmButton { text: "Refresh"; onClicked: root.reload() }
+            PmIconButton { glyph: "folder";  tip: "Open models folder"; onClicked: app.openModelsFolder() }
+            PmIconButton { glyph: "refresh"; tip: "Refresh list";       onClicked: root.reload() }
+        }
+
+        FileDialog {
+            id: addDialog
+            title: "Choose a GGUF model"
+            nameFilters: ["GGUF models (*.gguf)", "All files (*)"]
+            onAccepted: {
+                // FileDialog hands back a file:// URL; addModel wants a plain path.
+                var p = selectedFile.toString()
+                if (p.startsWith("file:///")) p = p.substring(8)
+                else if (p.startsWith("file://")) p = p.substring(7)
+                if (app.addModel(decodeURIComponent(p), addRole.currentText))
+                    root.reload()
+            }
         }
 
         Rectangle {

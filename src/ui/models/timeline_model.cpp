@@ -77,9 +77,12 @@ void TimelineModel::refresh() {
 
     const bool filtered = !filter_.isEmpty();
     const std::string like = filtered ? likePattern(filter_) : std::string();
+    const auto wantCategory = [this](QLatin1String c) {
+        return category_filter_.isEmpty() || category_filter_ == c;
+    };
 
     // --- events ---
-    {
+    if (wantCategory(QLatin1String("event"))) {
         std::string sql =
             "SELECT ts,kind,label FROM events ";
         if (filtered) sql += "WHERE (kind LIKE ?1 ESCAPE '\\' OR label LIKE ?1 ESCAPE '\\') ";
@@ -99,7 +102,7 @@ void TimelineModel::refresh() {
     }
 
     // --- transcripts ---
-    {
+    if (wantCategory(QLatin1String("transcript"))) {
         std::string sql =
             "SELECT ts,is_ambient,text FROM transcripts ";
         if (filtered) sql += "WHERE text LIKE ?1 ESCAPE '\\' ";
@@ -118,7 +121,7 @@ void TimelineModel::refresh() {
     }
 
     // --- memories ---
-    {
+    if (wantCategory(QLatin1String("memory"))) {
         std::string sql =
             "SELECT ts,kind,text FROM memories ";
         if (filtered) sql += "WHERE text LIKE ?1 ESCAPE '\\' ";
@@ -151,7 +154,15 @@ void TimelineModel::setFilter(const QString& text) {
     emit filterChanged();
 }
 
+void TimelineModel::setCategoryFilter(const QString& category) {
+    if (category == category_filter_) return;
+    category_filter_ = category;
+    refresh();
+    emit categoryFilterChanged();
+}
+
 bool TimelineModel::matchesFilter(const Entry& e) const {
+    if (!category_filter_.isEmpty() && e.category != category_filter_) return false;
     if (filter_.isEmpty()) return true;
     return e.text.contains(filter_, Qt::CaseInsensitive) ||
            e.kind.contains(filter_, Qt::CaseInsensitive);

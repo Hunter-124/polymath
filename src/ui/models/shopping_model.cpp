@@ -38,6 +38,16 @@ QHash<int, QByteArray> ShoppingModel::roleNames() const {
     };
 }
 
+int ShoppingModel::remainingCount() const {
+    int n = 0;
+    for (const Item& it : items_) n += it.done ? 0 : 1;
+    return n;
+}
+
+int ShoppingModel::doneCount() const {
+    return static_cast<int>(items_.size()) - remainingCount();
+}
+
 void ShoppingModel::refresh() {
     beginResetModel();
     items_.clear();
@@ -55,6 +65,7 @@ void ShoppingModel::refresh() {
             items_.push_back(std::move(it));
         });
     endResetModel();
+    emit countsChanged();
 }
 
 void ShoppingModel::addItem(const QString& item, const QString& quantity) {
@@ -74,6 +85,7 @@ void ShoppingModel::addItem(const QString& item, const QString& quantity) {
     beginInsertRows({}, 0, 0);
     items_.insert(0, Item{id, trimmed, quantity, false, now});
     endInsertRows();
+    emit countsChanged();
 }
 
 int ShoppingModel::rowForId(int64_t id) const {
@@ -92,6 +104,7 @@ void ShoppingModel::setDone(int row, bool done) {
     it.done = done;
     const QModelIndex idx = index(row);
     emit dataChanged(idx, idx, {DoneRole});
+    emit countsChanged();
 }
 
 void ShoppingModel::removeItem(int row) {
@@ -101,6 +114,7 @@ void ShoppingModel::removeItem(int row) {
     beginRemoveRows({}, row, row);
     items_.removeAt(row);
     endRemoveRows();
+    emit countsChanged();
 }
 
 void ShoppingModel::clearDone() {

@@ -34,14 +34,26 @@ QtObject {
     // (Not named on*, which QML would parse as a signal handler.)
     readonly property color accentText: "#0f1115"
 
+    // --- scrim drawn behind modal popups (command palette, dialogs) ---------
+    readonly property color overlay:   "#990a0c11"
+
     // --- shape & rhythm -----------------------------------------------------
     readonly property int   radius:    10
+    readonly property int   radiusLg:  14
     readonly property int   radiusSm:  8
     readonly property int   radiusXs:  6
     readonly property int   gap:       12
     readonly property int   gapLg:     16
     readonly property int   pad:       24
     readonly property int   controlH:  36
+
+    // --- navigation rail ------------------------------------------------------
+    readonly property int   railWidth:          216
+    readonly property int   railWidthCollapsed: 64
+
+    // --- motion ---------------------------------------------------------------
+    readonly property int   durFast: 90
+    readonly property int   durMed:  160
 
     // --- type ---------------------------------------------------------------
     // Set by Main.qml's FontLoader once Inter is registered; falls back to the

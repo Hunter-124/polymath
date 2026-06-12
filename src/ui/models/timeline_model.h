@@ -23,6 +23,8 @@ class Database;
 class TimelineModel : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(QString filter READ filter WRITE setFilter NOTIFY filterChanged)
+    Q_PROPERTY(QString categoryFilter READ categoryFilter WRITE setCategoryFilter
+                   NOTIFY categoryFilterChanged)
 public:
     enum Roles {
         CategoryRole = Qt::UserRole + 1,   // "event" | "transcript" | "memory"
@@ -44,6 +46,11 @@ public:
     Q_INVOKABLE void setFilter(const QString& text);
     QString filter() const { return filter_; }
 
+    // Restrict the feed to one category ("event" | "transcript" | "memory");
+    // an empty string shows everything.  Backs the TimelineView filter chips.
+    Q_INVOKABLE void setCategoryFilter(const QString& category);
+    QString categoryFilter() const { return category_filter_; }
+
 public slots:
     // Queued from the EventBus (worker -> UI thread).
     void onDetection(const polymath::Detection& d);
@@ -51,6 +58,7 @@ public slots:
 
 signals:
     void filterChanged();
+    void categoryFilterChanged();
 
 private:
     struct Entry {
@@ -67,6 +75,7 @@ private:
     Database&      db_;
     QVector<Entry> entries_;
     QString        filter_;
+    QString        category_filter_;   // empty = all categories
 
     static constexpr int kLimit = 500;     // per-source cap before the merge
 };
