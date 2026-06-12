@@ -138,8 +138,9 @@ Get-ChildItem "$deps\opencv\build\x64\vc16\bin\opencv_world*.dll",
 # without them the loader fails before main(): the app hangs on a missing-DLL dialog).
 $vcpkgBin = "$work\third_party\vcpkg\installed\x64-windows\bin"
 # libcrypto-3-x64.dll: OpenSSL crypto backend for the SQLCipher codec (at-rest
-# encryption). Required at runtime; without it the loader fails before main().
-foreach ($d in 'fmt.dll','spdlog.dll','libcrypto-3-x64.dll') {
+# encryption). libssl-3-x64.dll: imported by llama-common.dll (HTTPS downloads).
+# All required at runtime; without them the loader fails before main().
+foreach ($d in 'fmt.dll','spdlog.dll','libcrypto-3-x64.dll','libssl-3-x64.dll') {
   if (Test-Path "$vcpkgBin\$d") { Copy-Item "$vcpkgBin\$d" $bin -Force }
 }
 

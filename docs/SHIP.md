@@ -18,11 +18,11 @@ GPU build runs end-to-end with at-rest encryption active, and both installers co
 | Privacy | master kill-switch + per-feature gating (live teardown), per-category retention, activity log |
 | **At-rest encryption** | **ACTIVE** — vendored SQLCipher 4.6.1 + OpenSSL, AES; per-install DPAPI-protected key; plaintext→encrypted first-run migration; wrong-key open rejected |
 | First-run UX | no-models wizard + GPU/driver check; live `hasModels`/`firstRun`, open-models-folder, add-model/role |
-| UI | 10 themed views, bundled Inter font, empty/loading/error states (rendered headless to PNG) |
+| UI | condensed shell: 6 daily views + Settings hub (Personalities/Models/Privacy/Mobile Access), collapsible icon rail, Ctrl+K command palette, Ctrl+1..7 hotkeys; markdown chat with copy/timestamps; live dashboard; bundled Inter font; empty/loading/error states (rendered headless to PNG via `capture_views`) |
 | Integration/CI | headless `AppController` harness + cross-service flows; `scripts/ci.ps1` (CPU, model-less green) |
 | Phase 2 | ESP32-CAM ingest verified vs a software MJPEG stream; `browser_drive` CDP tool (real Chrome round-trip) |
 | Mobile companion | `pm_gateway` embedded in `Hearth.exe` (LAN HTTP+WS on `:8765`, HMAC device tokens, shared `HttpRouter` for LAN + relay); `app/` PWA builds (`npm run build`→`app/dist/`); `cloud/relay/` builds (off by default). Desktop **Settings ▸ Mobile Access** mints a pairing QR (vendored MIT `qrcode.js`) + copyable payload. Runtime-verified: status→200, auth gate→401, clean start/stop. |
-| Packaging | `scripts/package.ps1 -Flavor {cpu,cuda}` portable zips; **Inno Setup installers compile** for both flavors (silent install/launch/uninstall verified for CPU) |
+| Packaging | `scripts/package.ps1 -Flavor {cpu,cuda}` portable zips; **Inno Setup installers compile** for both flavors (silent install/launch/uninstall verified for CPU). Bundles now ship the **full VC143 CRT** (incl. `msvcp140_2`, `vcomp140`) and every staging run is gated by `scripts/verify-bundle.ps1` (PE import walk — fails the package if any binary's imports don't resolve inside the bundle). `Hearth.exe` startup failures now raise a native error dialog instead of exiting silently. |
 
 ## Release commands
 
@@ -48,16 +48,18 @@ Models: minimal set (Fast + whisper + embeddings ≈ a few GB) vs full (~28 GB) 
    documented in `PACKAGING.md`; needs an Authenticode/EV cert.
 2. **Clean-VM smoke.** Install→first-run→model-fetch was validated by simulation (extract-and-run,
    silent per-user install) on the dev box, **not** on a pristine Windows image. Do one clean Win10/11
-   VM pass before a public release (SmartScreen, no-VC++-redist, ISCC signing).
+   VM pass before a public release (SmartScreen, ISCC signing). The no-VC++-redist case is now covered
+   structurally: the **0.1.0 release installers were missing `msvcp140_2.dll`/`vcomp140.dll`** and did
+   not launch on clean machines; `package.ps1` now bundles the full CRT and `verify-bundle.ps1` gates
+   every package. **The 0.1.0 GitHub release assets should be replaced.**
 3. **GPU perception.** YOLO/SCRFD/ArcFace run on **CPU** by design (we ship the CPU ONNX Runtime;
    `error 126` on `onnxruntime_providers_shared.dll` is the expected CPU fallback). Drop in the CUDA ORT
    package to accelerate; the code already requests the CUDA EP and falls back cleanly. llama/whisper are
    CUDA-accelerated.
 4. **Heavy 27B on 12 GB.** Gemma 3 27B partial-offloads (VRAM budgeter trims layers) → correct but slow
    on a 12 GB card. A 12–14B Heavy fits far more.
-5. **"Add GGUF…" file picker.** Opens the models folder (drop file + Refresh) because `QtQuick.Dialogs`
-   isn't in the deployed Qt kit; `addModel(path, role)` is the live backing API. Add the module for a
-   native picker.
+5. ~~**"Add GGUF…" file picker.**~~ Done — Model Manager now opens a native `QtQuick.Dialogs` FileDialog
+   wired to `addModel(path, role)`; windeployqt deploys the module (it is imported by the QML now).
 6. **Optional Qt6::WebSockets** for `browser_drive` (currently a minimal RFC6455 client on `QTcpSocket`,
    fully working — no new dependency needed).
 7. **Cosmetic.** Benign startup `UNIQUE constraint failed: models.id` warnings from model auto-register

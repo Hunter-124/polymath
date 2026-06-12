@@ -55,9 +55,15 @@ Write-Host "Staging $name ..." -ForegroundColor Cyan
 #    Also drop test/headless run logs that ctest + offscreen verify runs leave in the
 #    build dir (headless.*.log, run_*.txt) — they are not runtime files and have no
 #    business in a shipped bundle/installer.
+#    Drop debug-built DLLs too (opencv_world<ver>d.dll): nothing imports them, they
+#    are huge, and they require the debug CRT (ucrtbased) that user machines never
+#    have. Same for llama-*-impl.dll — they back the llama-*.exe dev tools we
+#    already drop; nothing the app loads imports them.
 Get-ChildItem $bin -File | Where-Object {
   $_.Name -notmatch '\.(lib|exp|pdb|ilk|manifest|log)$' -and
   $_.Name -notmatch '^(headless\.|run_).*\.(txt|log)$' -and
+  $_.Name -notmatch '^opencv_world\d+d\.dll$' -and
+  $_.Name -notmatch '^llama-.+-impl\.dll$' -and
   -not ($_.Extension -eq '.exe' -and $_.Name -ne 'Hearth.exe')
 } | ForEach-Object { Copy-Item $_.FullName $stage -Force }
 
@@ -66,10 +72,45 @@ Get-ChildItem $bin -File | Where-Object {
 Get-ChildItem $bin -Directory | Where-Object Name -ne 'data' |
   ForEach-Object { Copy-Item $_.FullName $stage -Recurse -Force }
 
+# 2.5) Prune debug-plugin twins. Qt ships every QML plugin in release+debug
+#      pairs (<name>.dll / <name>d.dll); the debug ones import the debug CRT
+#      (ucrtbased.dll) that user machines never have, and the engine only loads
+#      the release one anyway. Only delete a *d.dll when its release twin sits
+#      beside it — that exactly targets the pairs and can never hit names that
+#      merely end in 'd' (mtmd.dll has no 'mtm.dll' twin).
+Get-ChildItem $stage -Recurse -Filter '*d.dll' | Where-Object {
+  Test-Path (Join-Path $_.DirectoryName ($_.Name -replace 'd\.dll$', '.dll'))
+} | Remove-Item -Force
+
 # 3) VC++ runtime so the zip runs on a machine without the redist installed.
-foreach ($d in 'msvcp140.dll','msvcp140_1.dll','vcruntime140.dll','vcruntime140_1.dll','concrt140.dll') {
-  $p = Join-Path $env:WINDIR "System32\$d"
-  if (Test-Path $p) { Copy-Item $p $stage -Force }
+#    This must be the FULL VC143 CRT set: Qt6Gui/Qt6Quick import msvcp140_2.dll
+#    and ggml imports vcomp140.dll (OpenMP). The 0.1.0 installers shipped only
+#    the classic five and did not launch on clean machines — the dev box masked
+#    it because the system-wide redist satisfied the imports from System32.
+#    Prefer the VS redist payload (canonical), fall back to System32.
+$crtDlls = 'msvcp140.dll','msvcp140_1.dll','msvcp140_2.dll','msvcp140_atomic_wait.dll',
+           'msvcp140_codecvt_ids.dll','vcruntime140.dll','vcruntime140_1.dll',
+           'vcruntime140_threads.dll','concrt140.dll','vcomp140.dll'
+$redistDirs = @()
+foreach ($ed in 'Community','Professional','Enterprise','BuildTools') {
+  $r = "C:\Program Files\Microsoft Visual Studio\2022\$ed\VC\Redist\MSVC"
+  if (Test-Path $r) {
+    $latest = Get-ChildItem $r -Directory | Where-Object Name -match '^\d+\.' |
+              Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+    if ($latest) {
+      $redistDirs += "$($latest.FullName)\x64\Microsoft.VC143.CRT"
+      $redistDirs += "$($latest.FullName)\x64\Microsoft.VC143.OpenMP"
+    }
+  }
+}
+foreach ($d in $crtDlls) {
+  $src = $redistDirs | ForEach-Object { Join-Path $_ $d } | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $src) {
+    $p = Join-Path $env:WINDIR "System32\$d"
+    if (Test-Path $p) { $src = $p }
+  }
+  if ($src) { Copy-Item $src $stage -Force }
+  else      { Write-Warning "VC++ runtime DLL not found anywhere: $d (bundle may not run on a clean machine)" }
 }
 
 # 4) Models. ~28 GB — opt-in. Otherwise ship the fetcher + an empty models\ dir.
@@ -150,6 +191,12 @@ Logs: data\logs\polymath.log.  Everything here is self-contained except the mode
 
 $sizeMB = [math]::Round((Get-ChildItem $stage -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1)
 Write-Host "Staged $name : $sizeMB MB ($((Get-ChildItem $stage -Recurse -File).Count) files)" -ForegroundColor Green
+
+# 5.5) Verify the bundle is actually self-contained (PE import walk). Catches
+#      missing CRT/Qt DLLs that the dev box masks via its installed redist —
+#      exactly the 0.1.0 "does nothing on a clean machine" bug.
+& (Join-Path $PSScriptRoot 'verify-bundle.ps1') -BundleDir $stage
+if ($LASTEXITCODE -ne 0) { throw "Bundle verification failed — see report above." }
 
 if ($NoZip) { Write-Host "Folder: $stage" -ForegroundColor Green; return }
 

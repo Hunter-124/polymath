@@ -23,7 +23,7 @@
 ;       This writes dist\Hearth-<ver>-win64-cuda\.
 ;    2. Compile (pass the version + flavor so SourceDir resolves):
 ;         "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ^
-;             /DAppVersion=0.1.0 /DFlavor=cuda scripts\installer\hearth.iss
+;             /DAppVersion=0.1.0 /DFlavor=cuda scripts\installer\polymath.iss
 ;       Output: dist\Hearth-0.1.0-win64-cuda-Setup.exe
 ;    Defaults: AppVersion=0.1.0, Flavor=cuda. Override either with /D as above.
 ;
