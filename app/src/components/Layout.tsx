@@ -4,6 +4,7 @@
 //
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Icon, type IconName } from './icons';
+import { ErrorBoundary } from './ErrorBoundary';
 import { useApp } from '../state/store';
 
 const TABS: { to: string; label: string; icon: IconName }[] = [
@@ -69,7 +70,9 @@ export function Layout() {
       </header>
 
       <main className="app-body">
-        <Outlet />
+        <ErrorBoundary resetKey={pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
 
       <nav className="tabbar">
