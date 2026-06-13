@@ -40,6 +40,17 @@ and acts, entirely on your own hardware and GPU.
 > people-only clips on their **own SD card** (net-0 hosting, no subscription). See
 > [`docs/PRIVACY.md`](docs/PRIVACY.md).
 
+## Screenshots
+
+|  |  |
+| --- | --- |
+| **Desktop dashboard** — ask anything, live status, recent activity | **Lab cockpit** — live instruments + guided, range-verified sessions |
+| ![Dashboard](docs/images/desktop-dashboard.png) | ![Lab cockpit](docs/images/desktop-lab.png) |
+| **Wall-panel / kiosk mode** (`Hearth.exe --panel`) | **First run** — guided, local-only model setup |
+| ![Panel mode](docs/images/panel-mode.png) | ![First run](docs/images/first-run.png) |
+
+<sub>Rendered from the offscreen `capture_views` harness, so they match the shipping UI exactly.</sub>
+
 ## The hardware ecosystem 🆕
 
 Hearth is sold as a hub **and** as a tiered line of edge devices that are useful on their own. The cheap
