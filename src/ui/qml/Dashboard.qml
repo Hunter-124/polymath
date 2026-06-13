@@ -55,7 +55,7 @@ Item {
                         font.pixelSize: Style.fsBody; font.bold: true
                     }
                     Label {
-                        text: "Run  scripts/fetch-models.ps1  to download the default local models, then confirm roles in Settings › Models."
+                        text: "Open Settings › Models to download Hearth's local models — then it can listen, chat and see. Everything stays on this machine."
                         color: Style.textDim; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
                         wrapMode: Text.WordWrap; Layout.fillWidth: true
                     }
