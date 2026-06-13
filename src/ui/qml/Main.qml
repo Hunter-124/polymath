@@ -36,6 +36,7 @@ ApplicationWindow {
         { name: "Tasks",     icon: "tasks",    src: "TaskQueueView.qml" },
         { name: "Timeline",  icon: "clock",    src: "TimelineView.qml" },
         { name: "Shopping",  icon: "cart",     src: "ShoppingView.qml" },
+        { name: "Lab",       icon: "flask",    src: "LabView.qml" },
         { name: "Settings",  icon: "settings", src: "SettingsView.qml" }
     ]
 

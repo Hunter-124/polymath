@@ -37,6 +37,8 @@ class ShoppingModel;
 class CameraModel;
 class TaskModel;
 class TimelineModel;
+class LabModel;
+class InstrumentModel;
 class CameraImageProvider;
 
 class AppController : public QObject {
@@ -56,6 +58,9 @@ class AppController : public QObject {
     Q_PROPERTY(QObject* cameraModel   READ cameraModel   CONSTANT)
     Q_PROPERTY(QObject* taskModel     READ taskModel     CONSTANT)
     Q_PROPERTY(QObject* timelineModel READ timelineModel CONSTANT)
+    // v0.2 device fabric: the Lab cockpit's sessions + live instrument readout.
+    Q_PROPERTY(QObject* labModel        READ labModel        CONSTANT)
+    Q_PROPERTY(QObject* instrumentModel READ instrumentModel CONSTANT)
 public:
     explicit AppController(QObject* parent = nullptr);
     ~AppController() override;
@@ -87,6 +92,8 @@ public:
     QObject* cameraModel() const;
     QObject* taskModel() const;
     QObject* timelineModel() const;
+    QObject* labModel() const;
+    QObject* instrumentModel() const;
 
     // --- QML-callable actions ---
     Q_INVOKABLE void sendText(const QString& text);
@@ -106,6 +113,7 @@ public:
     Q_INVOKABLE void refreshCameras();
     Q_INVOKABLE void refreshTasks();
     Q_INVOKABLE void refreshTimeline();
+    Q_INVOKABLE void refreshLab();
 
     // Send chat text, appending the user turn to the ChatModel and correlating
     // the streamed reply.  Thin wrapper over sendText() the ChatView calls.
@@ -161,6 +169,8 @@ private:
     std::unique_ptr<CameraModel>         camera_model_;
     std::unique_ptr<TaskModel>           task_model_;
     std::unique_ptr<TimelineModel>       timeline_model_;
+    std::unique_ptr<LabModel>            lab_model_;
+    std::unique_ptr<InstrumentModel>     instrument_model_;
     // The QML engine takes ownership of the image provider on registration; we
     // keep a non-owning pointer to push frames into it. Guarded for lifetime by
     // disconnecting the feed in shutdown().

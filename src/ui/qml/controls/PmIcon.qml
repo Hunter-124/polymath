@@ -177,6 +177,15 @@ Canvas {
             ctx.moveTo(15.2, 12); ctx.arc(12, 12, 3.2, 0, Math.PI * 2)
             ctx.fill()
             break
+        case "flask":   // Erlenmeyer flask — the Lab cockpit
+            ctx.moveTo(9.5, 4); ctx.lineTo(14.5, 4)          // mouth
+            ctx.moveTo(10, 4); ctx.lineTo(10, 9.5)           // neck (left)
+            ctx.lineTo(5.5, 18.5)                            // flare to base (left)
+            ctx.lineTo(18.5, 18.5)                           // base
+            ctx.lineTo(14, 9.5)                              // up right wall
+            ctx.lineTo(14, 4)                                // neck (right)
+            ctx.moveTo(7.7, 14.5); ctx.lineTo(16.3, 14.5)    // liquid line
+            break
         }
         ctx.stroke()
     }

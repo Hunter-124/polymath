@@ -33,6 +33,7 @@ qt_add_qml_module(pm_ui
         qml/TaskQueueView.qml
         qml/TimelineView.qml
         qml/ShoppingView.qml
+        qml/LabView.qml
         qml/PersonalitiesView.qml
         qml/ModelManagerView.qml
         qml/PrivacyView.qml
@@ -66,6 +67,8 @@ qt_add_qml_module(pm_ui
         models/camera_model.h      models/camera_model.cpp
         models/task_model.h        models/task_model.cpp
         models/timeline_model.h    models/timeline_model.cpp
+        models/lab_model.h         models/lab_model.cpp
+        models/instrument_model.h  models/instrument_model.cpp
         camera_image_provider.h    camera_image_provider.cpp
 )
 

@@ -19,6 +19,8 @@
 #include "camera_model.h"
 #include "task_model.h"
 #include "timeline_model.h"
+#include "lab_model.h"
+#include "instrument_model.h"
 #include "camera_image_provider.h"
 
 #include "app_bridge.h"
@@ -168,6 +170,8 @@ void AppController::buildModels() {
     camera_model_   = std::make_unique<CameraModel>(db_, this);
     task_model_     = std::make_unique<TaskModel>(db_, this);
     timeline_model_ = std::make_unique<TimelineModel>(db_, this);
+    lab_model_        = std::make_unique<LabModel>(db_, this);
+    instrument_model_ = std::make_unique<InstrumentModel>(db_, this);
     image_provider_ = new CameraImageProvider();   // engine takes ownership later
 
     // Initial population from SQLite (tables are the source of truth).
@@ -175,6 +179,8 @@ void AppController::buildModels() {
     camera_model_->refresh();
     task_model_->refresh();
     timeline_model_->refresh();
+    lab_model_->refresh();
+    instrument_model_->refresh();
 }
 
 void AppController::wireModels() {
@@ -214,6 +220,12 @@ void AppController::wireModels() {
     connect(&bus, &EventBus::notice, timeline_model_.get(), [this](const Notice& n) {
         if (n.source == QLatin1String("memory")) timeline_model_->refresh();
     });
+
+    // Device fabric (v0.2): the guided lab agent's step progress -> LabModel, and
+    // pushed instrument readings -> InstrumentModel (queued from the agent / fabric).
+    connect(&bus, &EventBus::labStep, lab_model_.get(), &LabModel::onLabStep);
+    connect(&bus, &EventBus::instrumentReading, instrument_model_.get(),
+            &InstrumentModel::onReading);
 }
 
 void AppController::registerWithEngine(QQmlApplicationEngine& engine) {
@@ -229,6 +241,8 @@ void AppController::registerWithEngine(QQmlApplicationEngine& engine) {
     ctx->setContextProperty("cameraModel",   camera_model_.get());
     ctx->setContextProperty("taskModel",     task_model_.get());
     ctx->setContextProperty("timelineModel", timeline_model_.get());
+    ctx->setContextProperty("labModel",        lab_model_.get());
+    ctx->setContextProperty("instrumentModel", instrument_model_.get());
     // Mobile gateway pairing helpers for Settings ▸ Mobile Access (remote toggle,
     // pairing payload/QR, connected-device count). Its Q_INVOKABLEs are
     // thread-safe (auth pair-code store is mutex-guarded; the relay toggle
@@ -241,6 +255,8 @@ QObject* AppController::shoppingModel() const { return shopping_model_.get(); }
 QObject* AppController::cameraModel() const   { return camera_model_.get(); }
 QObject* AppController::taskModel() const     { return task_model_.get(); }
 QObject* AppController::timelineModel() const { return timeline_model_.get(); }
+QObject* AppController::labModel() const        { return lab_model_.get(); }
+QObject* AppController::instrumentModel() const { return instrument_model_.get(); }
 
 void AppController::shutdown() {
     // Stop feeding the (engine-owned) image provider and detach the bus from the
@@ -251,6 +267,8 @@ void AppController::shutdown() {
     if (camera_model_)   disconnect(&bus, nullptr, camera_model_.get(),   nullptr);
     if (task_model_)     disconnect(&bus, nullptr, task_model_.get(),     nullptr);
     if (timeline_model_) disconnect(&bus, nullptr, timeline_model_.get(), nullptr);
+    if (lab_model_)        disconnect(&bus, nullptr, lab_model_.get(),        nullptr);
+    if (instrument_model_) disconnect(&bus, nullptr, instrument_model_.get(), nullptr);
     // The frame-feed lambda is owned by `this` as the connection context.
     disconnect(&bus, &EventBus::frameReady, this, nullptr);
     image_provider_ = nullptr;   // ownership belongs to the QML engine
@@ -266,6 +284,7 @@ void AppController::shutdown() {
     // Drop the UI models (parented to this, but reset explicitly for order).
     chat_model_.reset(); shopping_model_.reset(); camera_model_.reset();
     task_model_.reset(); timeline_model_.reset();
+    lab_model_.reset(); instrument_model_.reset();
 
     // Gateway first (its thread is already joined above): it holds refs to the
     // bridge, db_ and config_, so it must die before them.
@@ -343,12 +362,17 @@ void AppController::refreshAll() {
     refreshCameras();
     refreshTasks();
     refreshTimeline();
+    refreshLab();
 }
 
 void AppController::refreshShopping() { if (shopping_model_) shopping_model_->refresh(); }
 void AppController::refreshCameras()  { if (camera_model_)   camera_model_->refresh(); }
 void AppController::refreshTasks()    { if (task_model_)     task_model_->refresh(); }
 void AppController::refreshTimeline() { if (timeline_model_) timeline_model_->refresh(); }
+void AppController::refreshLab() {
+    if (lab_model_)        lab_model_->refresh();
+    if (instrument_model_) instrument_model_->refresh();
+}
 
 void AppController::sendChat(const QString& text) {
     submitChatTurn(text);

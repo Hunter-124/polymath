@@ -204,6 +204,71 @@ signals:
     void remoteEnabledChanged(bool);
 };
 
+// ---------------------------------------------------------------------------
+// Stub `labModel` — the LabModel surface the Lab cockpit binds to: a sessions
+// list plus the live-step banner properties and the steps() invokable.
+// ---------------------------------------------------------------------------
+class StubLabModel : public QAbstractListModel {
+    Q_OBJECT
+    Q_PROPERTY(int activeCount READ activeCount NOTIFY changed)
+    Q_PROPERTY(qlonglong liveSessionId MEMBER live_session_ NOTIFY changed)
+    Q_PROPERTY(QString livePrompt MEMBER live_prompt_ NOTIFY changed)
+    Q_PROPERTY(QString liveStatus MEMBER live_status_ NOTIFY changed)
+public:
+    explicit StubLabModel(bool populated, QObject* parent = nullptr)
+        : QAbstractListModel(parent) {
+        roles_ = {"sessionId","title","objective","status","startedAt","reportDocId",
+                  "stepCount","verifiedCount"};
+        if (!populated) return;
+        rows_ = QVariantList{
+            QVariantMap{{"sessionId",1},{"title","Potassium oxidation"},
+                {"objective","Investigate the exothermic oxidation of potassium."},
+                {"status","active"},{"reportDocId",0},{"stepCount",5},{"verifiedCount",3}},
+            QVariantMap{{"sessionId",2},{"title","Acid–base titration"},
+                {"objective","Determine the concentration of the unknown HCl sample."},
+                {"status","done"},{"reportDocId",7},{"stepCount",4},{"verifiedCount",4}},
+        };
+        steps_ = QVariantList{
+            QVariantMap{{"stepNo",1},{"prompt","Record the initial mass of the sample."},
+                {"measuredValue",4.21},{"measuredUnit","g"},{"verified",true}},
+            QVariantMap{{"stepNo",2},{"prompt","Note the starting temperature."},
+                {"measuredValue",21.6},{"measuredUnit","°C"},{"verified",true}},
+            QVariantMap{{"stepNo",3},{"prompt","Record the peak temperature of the reaction."},
+                {"measuredValue",QVariant()},{"measuredUnit",""},{"verified",false}},
+        };
+        live_session_ = 1;
+        live_prompt_  = "Record the peak temperature of the reaction.";
+        live_status_  = "ask";
+    }
+    int rowCount(const QModelIndex& = {}) const override { return rows_.size(); }
+    QVariant data(const QModelIndex& idx, int role) const override {
+        if (idx.row() < 0 || idx.row() >= rows_.size()) return {};
+        const int i = role - (Qt::UserRole + 1);
+        if (i < 0 || i >= roles_.size()) return {};
+        return rows_.at(idx.row()).toMap().value(roles_.at(i));
+    }
+    QHash<int, QByteArray> roleNames() const override {
+        QHash<int, QByteArray> h; int r = Qt::UserRole + 1;
+        for (const auto& n : roles_) h.insert(r++, n.toUtf8());
+        return h;
+    }
+    int activeCount() const {
+        int n = 0; for (const auto& row : rows_)
+            if (row.toMap().value("status").toString() == "active") ++n;
+        return n;
+    }
+    Q_INVOKABLE QVariantList steps(qlonglong) const { return steps_; }
+signals:
+    void changed();
+private:
+    QStringList  roles_;
+    QVariantList rows_;
+    QVariantList steps_;
+    qlonglong    live_session_ = 0;
+    QString      live_prompt_;
+    QString      live_status_;
+};
+
 // Spin the event loop briefly so async Image/Loader/Canvas work settles.
 static void settle(int ms) {
     QEventLoop loop;
@@ -287,6 +352,16 @@ int main(int argc, char* argv[]) {
             QVariantMap{{"category","transcript"},{"kind","ambient"},{"text","\"...let's plan the trip this weekend...\""},{"timeLabel","14:58"}},
         }, &stub);
 
+    auto instruments = empty ? new StubListModel({"instrumentId","name","unit","deviceClass","value","inRange","hasReading","ts"}, {}, &stub)
+        : new StubListModel({"instrumentId","name","unit","deviceClass","value","inRange","hasReading","ts"}, QVariantList{
+            QVariantMap{{"instrumentId","hmm_a1_balance_mass_g"},{"name","Balance"},{"unit","g"},{"deviceClass","mass"},{"value",4.21},{"inRange",true},{"hasReading",true}},
+            QVariantMap{{"instrumentId","hmm_a1_hotplate_temp_c"},{"name","Hotplate"},{"unit","°C"},{"deviceClass","temperature"},{"value",72.4},{"inRange",true},{"hasReading",true}},
+            QVariantMap{{"instrumentId","hmm_a1_ph"},{"name","pH probe"},{"unit","pH"},{"deviceClass","ph"},{"value",3.1},{"inRange",false},{"hasReading",true}},
+            QVariantMap{{"instrumentId","hmm_a1_co2"},{"name","CO₂"},{"unit","ppm"},{"deviceClass","co2"},{"value",612},{"inRange",true},{"hasReading",true}},
+            QVariantMap{{"instrumentId","hmm_a1_spec"},{"name","Spectrometer"},{"unit",""},{"deviceClass","spectral"},{"value",0},{"inRange",true},{"hasReading",false}},
+        }, &stub);
+    StubLabModel lab(!empty, &stub);
+
     // --- helper: render one QML file to PNG ---------------------------------
     auto renderView = [&](const QString& qmlUrl, const QString& outPng, bool isWindow) -> bool {
         QQmlApplicationEngine engine;
@@ -297,6 +372,8 @@ int main(int argc, char* argv[]) {
         ctx->setContextProperty("cameraModel", cameras);
         ctx->setContextProperty("taskModel", tasks);
         ctx->setContextProperty("timelineModel", timeline);
+        ctx->setContextProperty("instrumentModel", instruments);
+        ctx->setContextProperty("labModel", &lab);
         // MobileAccessView reads a `gateway` context property at runtime; in the
         // headless harness we feed a stub seeded with a sample pairing payload so
         // the QR encoder + payload box render populated (and scannable).
@@ -356,11 +433,12 @@ int main(int argc, char* argv[]) {
         {"TaskQueueView.qml",     "06-tasks",         false},
         {"TimelineView.qml",      "07-timeline",      false},
         {"ShoppingView.qml",      "08-shopping",      false},
-        {"PersonalitiesView.qml", "09-personalities", false},
-        {"ModelManagerView.qml",  "10-models",        false},
-        {"PrivacyView.qml",       "11-privacy",       false},
-        {"MobileAccessView.qml",  "12-mobile-access", false},
-        {"SettingsView.qml",      "13-settings",      false},
+        {"LabView.qml",           "09-lab",           false},
+        {"PersonalitiesView.qml", "10-personalities", false},
+        {"ModelManagerView.qml",  "11-models",        false},
+        {"PrivacyView.qml",       "12-privacy",       false},
+        {"MobileAccessView.qml",  "13-mobile-access", false},
+        {"SettingsView.qml",      "14-settings",      false},
     };
 
     int failures = 0;
