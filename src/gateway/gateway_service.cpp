@@ -4,6 +4,7 @@
 #include "bridge.h"
 #include "config.h"
 #include "database.h"
+#include "fabric_service.h"
 #include "gateway_db.h"
 #include "http_router.h"
 #include "http_server.h"
@@ -36,9 +37,17 @@ void GatewayService::start() {
     // 1. schema + settings (devices table, gateway.* keys, home_id/secret).
     GatewayDb::ensureSchema(db_);
 
-    // 2. components.  Order: auth -> router -> hub -> server/relay.
+    // 2. components.  Order: auth -> fabric -> router -> hub -> server/relay.
     auth_   = std::make_unique<Auth>(db_, GatewayDb::secret(db_));
-    router_ = std::make_unique<HttpRouter>(bridge_, db_, cfg_, *auth_);
+    fabric_ = std::make_unique<FabricService>(db_);
+    // Optional MQTT bridge (no-op unless built with POLYMATH_USE_MQTT). The HTTP
+    // ingest plane works regardless; the broker host is configurable.
+    if (cfg_.getBool("fabric.mqtt_enabled")) {
+        const std::string host = cfg_.getStr("fabric.mqtt_host", "127.0.0.1");
+        const int port = cfg_.getInt("fabric.mqtt_port", 1883);
+        fabric_->startMqtt(host, port);
+    }
+    router_ = std::make_unique<HttpRouter>(bridge_, db_, cfg_, *auth_, fabric_.get());
     router_->setStartTime(jm::nowUnix());
 
     hub_    = std::make_unique<WsHub>(*auth_, this);
@@ -75,6 +84,8 @@ void GatewayService::stop() {
     server_.reset();
     hub_.reset();
     router_.reset();
+    if (fabric_) fabric_->stopMqtt();
+    fabric_.reset();
     auth_.reset();
     started_ = false;
     PM_INFO("gateway: stopped");

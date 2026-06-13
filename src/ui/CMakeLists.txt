@@ -26,6 +26,7 @@ qt_add_qml_module(pm_ui
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/PanelMode.qml
         qml/Dashboard.qml
         qml/ChatView.qml
         qml/CamerasView.qml

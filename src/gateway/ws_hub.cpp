@@ -89,6 +89,16 @@ void WsHub::connectBus() {
     connect(&bus, &EventBus::privacyChanged, this, [this](const PrivacyChanged& p) {
         broadcast("privacy", jm::privacyEvent(p));
     });
+    // --- device fabric (v2) ---
+    connect(&bus, &EventBus::instrumentReading, this, [this](const InstrumentReading& r) {
+        broadcast("instrument_reading", jm::instrumentReadingEvent(r));
+    });
+    connect(&bus, &EventBus::devicePresence, this, [this](const DevicePresence& p) {
+        broadcast("device_presence", jm::devicePresenceEvent(p));
+    });
+    connect(&bus, &EventBus::labStep, this, [this](const LabStepEvent& s) {
+        broadcast("lab_step", jm::labStepEvent(s));
+    });
     // Frames are opt-in per camera, so they get their own path.
     connect(&bus, &EventBus::frameReady, this, [this](const Frame& f) {
         broadcastFrame(f);

@@ -32,6 +32,7 @@ class Database;
 class Config;
 class Auth;
 class IAssistantBridge;
+class FabricService;
 
 // A buffered request, normalized across transports.  Header keys are stored
 // lower-cased so lookups are case-insensitive.
@@ -58,7 +59,10 @@ struct Response {
 
 class HttpRouter {
 public:
-    HttpRouter(IAssistantBridge& bridge, Database& db, Config& cfg, Auth& auth);
+    // `fabric` is optional: when non-null, the device-fabric routes (camera event
+    // ingest, /fabric/devices, /instruments, /lab) are served; otherwise they 503.
+    HttpRouter(IAssistantBridge& bridge, Database& db, Config& cfg, Auth& auth,
+               FabricService* fabric = nullptr);
 
     // THE entry point.  Thread-safe to the extent the DB (WAL + mutex) and the
     // bridge (which marshals to workers) are; multiple transports may call it
@@ -111,6 +115,13 @@ private:
     Response routeSettings(const Request& req, const Parsed& p);
     Response routeDevices(const Request& req, const Parsed& p);
 
+    // --- device fabric (v2) ----------------------------------------------
+    Response routeFabric(const Request& req, const Parsed& p);       // /fabric/devices[/announce]
+    Response routeInstruments(const Request& req, const Parsed& p);  // /instruments[/:id[/read]]
+    Response routeLab(const Request& req, const Parsed& p);          // /lab/sessions[/:id]
+    Response routeCameraEvents(const Request& req, int cameraId);    // POST /cameras/:id/events
+    Response routeCameraFrame(const Request& req, int cameraId);     // POST /cameras/:id/frame
+
     // Reads a JPEG file from disk into a Response (404 if missing).
     Response serveJpegFile(const std::string& absPath);
 
@@ -118,6 +129,7 @@ private:
     Database&         db_;
     Config&           cfg_;
     Auth&             auth_;
+    FabricService*    fabric_ = nullptr;
     int64_t           start_unix_ = 0;
 };
 

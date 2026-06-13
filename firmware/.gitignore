@@ -1,0 +1,13 @@
+# Per-device secret configs — copy from config.example.* and keep local.
+# (Defaults are committed with placeholder values so `pio run` works out of the
+# box; if you put real Wi-Fi/secret material in these, they stay untracked.)
+**/config.h
+cam-k230/config.py
+cam-pi/cam-pi.json
+
+# PlatformIO / CMake build output
+**/.pio/
+**/build/
+
+# Python bytecode (CanMV host syntax-checks)
+**/__pycache__/

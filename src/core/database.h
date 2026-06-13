@@ -73,6 +73,10 @@ public:
     // Runs the canonical schema (idempotent) and records kSchemaVersion.
     bool migrate();
 
+    // True if `table` already defines a column named `column` (PRAGMA table_info).
+    // Used by migrate() to apply ALTER ADD COLUMN patches idempotently.
+    bool hasColumn(const std::string& table, const std::string& column);
+
     // Parameterized write. Params bound positionally (?1..). Returns last rowid.
     int64_t exec(const std::string& sql, const std::vector<nlohmann::json>& params = {});
 

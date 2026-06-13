@@ -14,6 +14,9 @@ const LINKS: { to: string; label: string; icon: IconName }[] = [
   { to: '/personalities', label: 'Personalities', icon: 'personalities' },
   { to: '/settings', label: 'Settings & privacy', icon: 'settings' },
   { to: '/devices', label: 'Paired devices', icon: 'devices' },
+  { to: '/fabric', label: 'Edge devices', icon: 'fabric' },
+  { to: '/instruments', label: 'Instruments', icon: 'instrument' },
+  { to: '/lab', label: 'Lab sessions', icon: 'lab' },
 ];
 
 export function MoreScreen() {

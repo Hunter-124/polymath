@@ -7,6 +7,7 @@
 
 #include "audio_common.h"
 #include "capture.h"
+#include "network_audio_source.h"
 #include "wakeword.h"
 #include "vad.h"
 #include "asr_whisper.h"
@@ -50,6 +51,13 @@ struct AudioService::Impl {
     AsrWhisper  asr_command;
     AsrWhisper  asr_ambient;
     TtsPiper    tts;
+
+    // Network mic input (Wi-Fi satellites). Owns a dedicated SPSC ring so the
+    // Capture SPSC invariant is not violated. pump() drains both rings.
+    FloatRing                             net_ring{1u << 16};  // ~4 s @ 16 kHz
+    std::unique_ptr<NetworkAudioSource>   net_source;          // null when disabled
+    // last room_id tag seen from the network; "" when local mic is active.
+    std::string                           active_source;
 
     // Worker-thread pump.
     QTimer* timer = nullptr;
@@ -227,6 +235,7 @@ void AudioService::Impl::finishSegment(AudioService* self, bool ambient) {
     u.text       = text;
     u.is_ambient = ambient;
     u.confidence = conf;
+    u.source     = active_source;  // "" = local mic; else satellite room id
     u.ts         = Clock::now();
     EventBus::instance().publishUtterance(u);
 
@@ -245,10 +254,14 @@ void AudioService::Impl::finishSegment(AudioService* self, bool ambient) {
 }
 
 void AudioService::Impl::pump(AudioService* self) {
-    if (!capture.isRunning()) return;
+    const bool has_local = capture.isRunning();
+    const bool has_net   = net_source && net_source->isRunning();
+    if (!has_local && !has_net) return;
+
     if (speaking.load(std::memory_order_acquire)) {
         // Discard audio captured during our own TTS to avoid self-transcription.
-        capture.ring().clear();
+        if (has_local) capture.ring().clear();
+        if (has_net)   net_ring.clear();
         return;
     }
 
@@ -263,12 +276,27 @@ void AudioService::Impl::pump(AudioService* self) {
         emit self->listeningStateChanged(true);
     }
 
-    // Drain the capture ring in 1280-sample frames.
     frame.resize(kFrameSamples);
-    while (capture.ring().available() >= static_cast<size_t>(kFrameSamples)) {
-        size_t got = capture.ring().read(frame.data(), kFrameSamples);
-        if (got == 0) break;
-        feedFrame(self, frame.data(), static_cast<int>(got));
+
+    // Drain the local capture ring (source = local mic, "").
+    if (has_local) {
+        active_source = "";
+        while (capture.ring().available() >= static_cast<size_t>(kFrameSamples)) {
+            size_t got = capture.ring().read(frame.data(), kFrameSamples);
+            if (got == 0) break;
+            feedFrame(self, frame.data(), static_cast<int>(got));
+        }
+    }
+
+    // Drain the network ring (source = room id from last seen datagram).
+    if (has_net && net_ring.available() >= static_cast<size_t>(kFrameSamples)) {
+        active_source = std::to_string(net_source->lastRoomId());
+        while (net_ring.available() >= static_cast<size_t>(kFrameSamples)) {
+            size_t got = net_ring.read(frame.data(), kFrameSamples);
+            if (got == 0) break;
+            feedFrame(self, frame.data(), static_cast<int>(got));
+        }
+        active_source = "";  // reset after network batch
     }
 
     // Push-to-talk release: finalize whatever was captured during the hold.
@@ -289,6 +317,22 @@ void AudioService::start() {
     Config cfg(db_);
     d_->mic_enabled     = cfg.getBool(keys::MicEnabled);
     d_->ambient_enabled = cfg.getBool(keys::AmbientTranscription);
+
+    // Network mic input (Wi-Fi satellites). Off by default; no port is opened
+    // unless explicitly enabled in config.
+    if (cfg.getInt(keys::NetworkMicsEnabled, 0) != 0) {
+        d_->net_source = std::make_unique<audio::NetworkAudioSource>(d_->net_ring);
+        // Track room changes so active_source stays current between frames.
+        d_->net_source->setRoomCallback([impl = d_.get()](uint8_t room_id) {
+            // Runs on the rx thread. Atomic store; worker reads in pump().
+            // active_source is set per-batch in pump; this is informational.
+            (void)room_id;
+        });
+        if (!d_->net_source->start()) {
+            PM_WARN("audio: NetworkAudioSource failed to bind; network mics disabled");
+            d_->net_source.reset();
+        }
+    }
 
     d_->loadModels();
 
@@ -313,6 +357,7 @@ void AudioService::start() {
 void AudioService::stop() {
     if (d_->timer) { d_->timer->stop(); }
     d_->capture.stop();
+    if (d_->net_source) d_->net_source->stop();
     PM_INFO("AudioService stopped");
 }
 
@@ -330,6 +375,7 @@ void AudioService::speak(const QString& text, const QString& voice) {
     emit listeningStateChanged(false);
     d_->tts.speak(t, v);
     d_->capture.ring().clear();
+    d_->net_ring.clear();   // discard satellite audio captured during our own TTS
     d_->speaking.store(false, std::memory_order_release);
 }
 

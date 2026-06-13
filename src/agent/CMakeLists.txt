@@ -24,6 +24,8 @@ qt_add_library(pm_agent STATIC
     tools/memory_tools.cpp
     tools/camera_tools.cpp
     tools/queue_tool.cpp
+    tools/instrument_tool.cpp
+    tools/lab_session.cpp
 )
 target_include_directories(pm_agent PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(pm_agent PUBLIC pm_core pm_inference pm_scheduler pm_memory

@@ -362,6 +362,21 @@ static void bind(sqlite3_stmt* st, const std::vector<nlohmann::json>& params) {
     }
 }
 
+// True if `table` already has a column named `column` (PRAGMA table_info walk).
+bool Database::hasColumn(const std::string& table, const std::string& column) {
+    bool found = false;
+    sqlite3_stmt* st = nullptr;
+    const std::string sql = "PRAGMA table_info(" + table + ");";
+    if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) return false;
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        // table_info columns: cid(0), name(1), type(2), ...
+        if (auto* p = reinterpret_cast<const char*>(sqlite3_column_text(st, 1)))
+            if (column == p) { found = true; break; }
+    }
+    sqlite3_finalize(st);
+    return found;
+}
+
 bool Database::migrate() {
     std::lock_guard lk(mtx_);
     char* err = nullptr;
@@ -369,6 +384,21 @@ bool Database::migrate() {
         PM_ERROR("schema migrate failed: {}", err ? err : "?");
         sqlite3_free(err);
         return false;
+    }
+    // Idempotent column additions for tables that predate the current schema
+    // version. Bare ALTER ADD COLUMN errors on re-run, so each is guarded by a
+    // column-existence check — safe on both fresh and upgraded databases.
+    for (const auto& p : kColumnPatches) {
+        if (hasColumn(p.table, p.column)) continue;
+        const std::string sql =
+            std::string("ALTER TABLE ") + p.table + " ADD COLUMN " + p.definition + ";";
+        char* e = nullptr;
+        if (sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &e) != SQLITE_OK) {
+            PM_ERROR("schema column patch failed [{}]: {}", sql, e ? e : "?");
+            sqlite3_free(e);
+            return false;
+        }
+        PM_INFO("Database: added column {}.{}", p.table, p.column);
     }
     char buf[64];
     std::snprintf(buf, sizeof(buf), "PRAGMA user_version = %d;", kSchemaVersion);

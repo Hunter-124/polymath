@@ -1,7 +1,8 @@
 #include "json_map.h"
 
-#include "config.h"     // keys::*
-#include "database.h"   // Database, Row
+#include "config.h"            // keys::*
+#include "database.h"          // Database, Row
+#include "device_registry.h"   // EdgeDeviceRow (device fabric)
 
 #include <QByteArray>
 #include <chrono>
@@ -97,7 +98,7 @@ json cameraFromRow(const Row& r) {
     };
 }
 
-// SELECT id, kind, camera_id, user_id, label, thumb_path, ts FROM events
+// SELECT id, kind, camera_id, user_id, label, thumb_path, ts, clip_url, confidence FROM events
 json timelineEventFromRow(const Row& r) {
     const int64_t id = r.i64(0);
     json j{
@@ -111,6 +112,9 @@ json timelineEventFromRow(const Row& r) {
     // Only advertise a thumbnail URL when a thumb actually exists on disk-record.
     if (!r.text(5).empty())
         j["thumb_url"] = std::string(kApiBase) + "/timeline/" + std::to_string(id) + "/thumb";
+    // Edge clips (FABRIC.md §4): clip lives on the camera's SD, served by its URL.
+    if (!r.isNull(7) && !r.text(7).empty()) j["clip_url"]   = r.text(7);
+    if (!r.isNull(8) && r.dbl(8) > 0.0)     j["confidence"] = r.dbl(8);
     return j;
 }
 
@@ -163,6 +167,53 @@ json deviceFromRow(const Row& r, bool online) {
     };
 }
 
+// --- device fabric (v2) ----------------------------------------------------
+
+json edgeDeviceToJson(const EdgeDeviceRow& d) {
+    return json{
+        {"device_id",    d.id},
+        {"kind",         d.kind},
+        {"name",         d.name},
+        {"location",     d.location},
+        {"transport",    d.transport},
+        {"endpoint",     d.endpoint},
+        {"capabilities", parseJsonText(d.capabilities_json, json::object())},
+        {"fw_version",   d.fw_version},
+        {"last_seen",    d.last_seen},
+        {"enabled",      d.enabled},
+        {"online",       d.online},
+    };
+}
+
+// SELECT id, device_id, name, channel, unit, device_class, expected_min, expected_max FROM instruments
+json instrumentFromRow(const Row& r) {
+    json j{
+        {"id",           r.text(0)},
+        {"device_id",    r.text(1)},
+        {"name",         r.text(2)},
+        {"channel",      r.i64(3)},
+        {"unit",         r.text(4)},
+        {"device_class", r.text(5)},
+    };
+    j["expected_min"] = r.isNull(6) ? json(nullptr) : json(r.dbl(6));
+    j["expected_max"] = r.isNull(7) ? json(nullptr) : json(r.dbl(7));
+    return j;
+}
+
+// SELECT id, title, objective, status, report_doc_id, started_at, ended_at FROM lab_sessions
+json labSessionFromRow(const Row& r) {
+    json j{
+        {"id",         r.i64(0)},
+        {"title",      r.text(1)},
+        {"objective",  r.text(2)},
+        {"status",     r.text(3)},
+        {"started_at", r.i64(5)},
+    };
+    j["report_doc_id"] = r.isNull(4) ? json(nullptr) : json(r.i64(4));
+    j["ended_at"]      = r.isNull(6) ? json(nullptr) : json(r.i64(6));
+    return j;
+}
+
 json modelFromVariant(const QVariant& v) {
     const QVariantMap m = v.toMap();
     return json{
@@ -199,6 +250,7 @@ json speakEvent(const SpeakRequest& s) {
         {"text",       qstr(s.text)},
         {"voice",      qstr(s.voice)},
         {"request_id", qstr(s.request_id)},
+        {"target",     qstr(s.target)},   // "" => local speaker; else a satellite id
         // audio_url is omitted: TTS is rendered client-side from this payload.
     };
 }
@@ -278,6 +330,40 @@ json frameEvent(const Frame& f) {
         {"height",    f.height},
         {"ts",        to_unix(f.ts)},
         {"jpeg_b64",  jpeg.toBase64().toStdString()},
+    };
+}
+
+json instrumentReadingEvent(const InstrumentReading& r) {
+    return json{
+        {"instrument_id", qstr(r.instrument_id)},
+        {"device_id",     qstr(r.device_id)},
+        {"value",         r.value},
+        {"unit",          qstr(r.unit)},
+        {"device_class",  qstr(r.device_class)},
+        {"in_range",      r.in_range},
+        {"ts",            r.ts},
+    };
+}
+
+json devicePresenceEvent(const DevicePresence& p) {
+    return json{
+        {"device_id", qstr(p.device_id)},
+        {"kind",      qstr(p.kind)},
+        {"name",      qstr(p.name)},
+        {"online",    p.online},
+        {"ts",        p.ts},
+    };
+}
+
+json labStepEvent(const LabStepEvent& s) {
+    return json{
+        {"session_id",     s.session_id},
+        {"step_no",        s.step_no},
+        {"prompt",         qstr(s.prompt)},
+        {"status",         qstr(s.status)},
+        {"measured_value", s.measured_value},
+        {"unit",           qstr(s.unit)},
+        {"verified",       s.verified},
     };
 }
 

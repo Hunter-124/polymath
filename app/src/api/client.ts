@@ -10,10 +10,14 @@ import type {
   ChatSendRequest,
   ChatSendResponse,
   Device,
+  EdgeDeviceDTO,
   FindObjectResultDTO,
+  InstrumentDTO,
+  LabSessionDTO,
   MemoryDTO,
   ModelDTO,
   PersonalityDTO,
+  ReadingDTO,
   ReminderCreateRequest,
   ReminderDTO,
   ServerStatus,
@@ -146,4 +150,24 @@ export const api = {
   devices: () => req<Device[]>(ENDPOINTS.devices),
   revokeDevice: (id: string) =>
     req<void>(ENDPOINTS.device(id), { method: 'DELETE' }),
+
+  // device fabric (v2)
+  fabricDevices: () => req<EdgeDeviceDTO[]>(ENDPOINTS.fabricDevices),
+  instruments: () => req<InstrumentDTO[]>(ENDPOINTS.instruments),
+  instrumentRead: (id: string) =>
+    req<ReadingDTO>(ENDPOINTS.instrumentRead(id)),
+
+  // lab sessions
+  labSessions: () => req<LabSessionDTO[]>(ENDPOINTS.labSessions),
+  labSession: (id: number) => req<LabSessionDTO>(ENDPOINTS.labSession(id)),
+  createLabSession: (body: { title: string; objective: string }) =>
+    req<LabSessionDTO>(ENDPOINTS.labSessions, json(body)),
+  updateLabSession: (
+    id: number,
+    patch: Partial<Pick<LabSessionDTO, 'status'>>,
+  ) =>
+    req<LabSessionDTO>(ENDPOINTS.labSession(id), {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
 };

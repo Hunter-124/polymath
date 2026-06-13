@@ -75,6 +75,9 @@ add_subdirectory(src/agent)
 add_subdirectory(src/personality)
 add_subdirectory(src/app)
 add_subdirectory(src/ui)
+# Device fabric (edge cameras/mics/instruments/panels -> EventBus + schema).
+# Depends only on pm_core + Qt; linked into pm_gateway.
+add_subdirectory(src/fabric)
 # Mobile/web gateway (HTTP + WebSocket + relay tunnel). Depends only on pm_core +
 # Qt; linked into pm_app, which implements its IAssistantBridge seam.
 add_subdirectory(src/gateway)

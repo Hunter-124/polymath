@@ -10,6 +10,8 @@
 #include "memory_tools.h"
 #include "camera_tools.h"
 #include "queue_tool.h"
+#include "instrument_tool.h"
+#include "lab_session.h"
 
 #include "logging.h"
 
@@ -56,6 +58,16 @@ void registerBuiltinTools(ToolRegistry& reg) {
 
     // Deep-task queue (tasks table).
     reg.add(std::make_shared<QueueDeepTaskTool>());
+
+    // Lab instruments (instruments/measurements tables + fabric readings).
+    reg.add(std::make_shared<ReadInstrumentTool>());
+    reg.add(std::make_shared<RecordMeasurementTool>());
+
+    // Interactive guided lab sessions (lab_sessions/lab_session_steps state machine).
+    reg.add(std::make_shared<StartLabSessionTool>());
+    reg.add(std::make_shared<NextLabStepTool>());
+    reg.add(std::make_shared<VerifyLabStepTool>());
+    reg.add(std::make_shared<FinishLabSessionTool>());
 
     PM_INFO("registerBuiltinTools: {} tools registered", reg.names().size());
 }

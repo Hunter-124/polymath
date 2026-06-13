@@ -26,6 +26,9 @@ const TITLES: Record<string, string> = {
   '/personalities': 'Personalities',
   '/settings': 'Settings & Privacy',
   '/devices': 'Paired Devices',
+  '/fabric': 'Edge Devices',
+  '/instruments': 'Instruments',
+  '/lab': 'Lab Sessions',
 };
 
 export function Layout() {
@@ -35,7 +38,9 @@ export function Layout() {
   const remote = useApp((s) => s.remote);
 
   const isPrimary = TABS.some((t) => t.to === pathname);
-  const title = TITLES[pathname] ?? 'Hearth';
+  const title =
+    TITLES[pathname] ??
+    (pathname.startsWith('/clips/') ? 'Camera Clips' : 'Hearth');
 
   return (
     <div className="app-shell">

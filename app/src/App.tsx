@@ -22,6 +22,10 @@ import { MemoryScreen } from './screens/Memory';
 import { PersonalitiesScreen } from './screens/Personalities';
 import { SettingsScreen } from './screens/Settings';
 import { DevicesScreen } from './screens/Devices';
+import { FabricDevicesScreen } from './screens/FabricDevices';
+import { InstrumentsScreen } from './screens/Instruments';
+import { LabSessionScreen } from './screens/LabSession';
+import { CameraClipsScreen } from './screens/CameraClips';
 
 export function App() {
   const paired = useApp((s) => s.paired);
@@ -42,10 +46,12 @@ function PairedApp() {
   const setRemote = useApp((s) => s.setRemote);
   const pushToast = useApp((s) => s.pushToast);
 
-  // Global live wiring: connection state, notices → toasts, reminders, status.
+  // Global live wiring: connection state, notices → toasts, reminders, status,
+  // and device-fabric events (routed into store by socket.ts automatically).
   useEffect(() => {
     socket.start();
-    socket.subscribe(['notice', 'reminder', 'status', 'privacy']);
+    socket.subscribe(['notice', 'reminder', 'status', 'privacy',
+      'instrument_reading', 'device_presence', 'lab_step']);
 
     const offState = socket.onState(setOnline);
     const offEvent = socket.on((e) => {
@@ -86,6 +92,8 @@ function PairedApp() {
       <HashRouter>
         <Routes>
           <Route element={<Layout />}>
+            {/* Chat is the default/home tab */}
+            <Route index element={<Navigate to="/chat" replace />} />
             <Route path="/chat" element={<ChatScreen />} />
             <Route path="/cameras" element={<CamerasScreen />} />
             <Route path="/tasks" element={<TasksScreen />} />
@@ -97,6 +105,11 @@ function PairedApp() {
             <Route path="/personalities" element={<PersonalitiesScreen />} />
             <Route path="/settings" element={<SettingsScreen />} />
             <Route path="/devices" element={<DevicesScreen />} />
+            {/* Device fabric (v2) */}
+            <Route path="/fabric" element={<FabricDevicesScreen />} />
+            <Route path="/instruments" element={<InstrumentsScreen />} />
+            <Route path="/lab" element={<LabSessionScreen />} />
+            <Route path="/clips/:deviceId" element={<CameraClipsScreen />} />
             <Route path="*" element={<Navigate to="/chat" replace />} />
           </Route>
         </Routes>

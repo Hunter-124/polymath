@@ -40,11 +40,61 @@ JSON is snake_case and mirrors `src/core/types.h` / `src/core/schema.h`.
 | PATCH | `/settings/:key` | `{value}` | 204 |
 | GET | `/devices` | — | `Device[]` (owner) |
 | DELETE | `/devices/:id` | — | 204 (revoke) |
+| GET | `/fabric/devices` | `?kind=camera\|voice_sat\|instrument\|panel` | `EdgeDeviceDTO[]` |
+| GET | `/fabric/devices/:id` | — | `EdgeDeviceDTO` |
+| POST | `/fabric/devices/announce` | `DeviceAnnounce` (see below) | `{device_id}` 201 |
+| DELETE | `/fabric/devices/:id` | — | 204 |
+| GET | `/instruments` | — | `InstrumentDTO[]` |
+| GET | `/instruments/:id/read` | — | `ReadingDTO` (latest retained reading) |
+| GET | `/lab/sessions` | — | `LabSessionDTO[]` |
+| GET | `/lab/sessions/:id` | — | `LabSessionDTO` with `steps: LabStepDTO[]` |
+| POST | `/lab/sessions` | `{title, objective?}` | `LabSessionDTO` 201 |
+| POST | `/cameras/:id/events` | `CameraEventDTO` (see below) | `{event_id}` 201 — fabric ingest (§4) |
+| POST | `/cameras/:id/frame` | raw JPEG body | 204 — live UI tile push |
 
 > **Stream note:** live MJPEG (`multipart/x-mixed-replace`) is not tunnelled over
 > the relay's buffered request/response path; off-LAN the app polls
 > `/snapshot` (~2 s). On the LAN the gateway can serve true MJPEG. Live video is
 > better delivered as `frame` events on the WebSocket.
+
+### Fabric payload shapes
+
+**`DeviceAnnounce`** (POST `/fabric/devices/announce`):
+
+```jsonc
+{
+  "device_id": "hearth-cam-a1b2c3",
+  "kind": "camera",            // camera|voice_sat|instrument|panel
+  "name": "Front Door",
+  "location": "Entry",         // optional
+  "fw": "0.2.0",               // optional
+  "endpoint": "http://192.168.1.42",   // device's own HTTP base
+  "transport": "mqtt",         // mqtt|http|mjpeg|rtsp
+  "capabilities": { "stream": true, "clips": true },  // optional
+  "instruments": [             // only for kind=instrument
+    { "id": "hmm_a1b2_balance_mass_g", "device_id": "hearth-hmm-44ccbb",
+      "name": "Balance", "channel": 0, "unit": "g",
+      "device_class": "mass", "expected_min": 0, "expected_max": 500 }
+  ]
+}
+```
+
+**`CameraEventDTO`** (POST `/cameras/:id/events`):
+
+```jsonc
+{
+  "device_id": "hearth-cam-a1b2c3",   // optional; resolved from :id otherwise
+  "kind": "person",                    // motion|person|face
+  "confidence": 0.86,                  // optional
+  "thumb_b64": "<jpeg base64 ≤480px>", // optional
+  "clip_url": "http://192.168.1.42/clips/1718246542.mp4",  // optional
+  "ts": 0                              // optional; hub re-stamps on receipt
+}
+```
+
+The hub writes an `events` row (including the new `clip_url`, `confidence`, and
+`device_id` columns) and emits a `detection` WebSocket event. See
+[`docs/FABRIC.md`](FABRIC.md) §4 for the full camera event contract.
 
 ## WebSocket — `GET /api/v1/events?token=…`
 
@@ -53,7 +103,8 @@ One envelope; `type` discriminates the payload (mirrors the EventBus signals in
 
 ```jsonc
 { "type": "token" | "notice" | "utterance" | "detection" | "frame"
-        | "find_object" | "task" | "reminder" | "privacy" | "status" | "speak",
+        | "find_object" | "task" | "reminder" | "privacy" | "status" | "speak"
+        | "instrument_reading" | "device_presence" | "lab_step",
   "ts": 1733616000,
   "data": { /* per-type payload */ } }
 ```
@@ -61,7 +112,17 @@ One envelope; `type` discriminates the payload (mirrors the EventBus signals in
 Key payloads: `token {request_id, text, done}` (assistant streaming),
 `notice {level, source, message}`, `detection {camera_id, boxes[], user_id?, ts}`,
 `task {task_id, type, status, detail}`, `reminder {reminder_id, text}`,
-`find_object {query, answer, camera_id, ts}`, `speak {text, voice, request_id, audio_url?}`.
+`find_object {query, answer, camera_id, ts}`,
+`speak {text, voice, request_id, target?, audio_url?}` (`target` is a
+voice-satellite id when the hub routes TTS to a room; empty = local speaker).
+
+**v2 fabric event types:**
+
+| type | data shape | when |
+|---|---|---|
+| `instrument_reading` | `{instrument_id, device_id, value, unit, device_class, in_range, ts}` | `FabricService` receives a reading via MQTT or `POST /instruments/:id/read` |
+| `device_presence` | `{device_id, kind, name, online, ts}` | edge device comes online (MQTT birth) or goes offline (LWT / mDNS timeout) |
+| `lab_step` | `{session_id, step_no, prompt, status, measured_value, unit, verified}` | lab-session agent advances a step; `status` ∈ `ask\|verifying\|verified\|out_of_range\|done` |
 
 **Client → server control:**
 

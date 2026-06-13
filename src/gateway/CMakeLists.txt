@@ -35,6 +35,7 @@ set_target_properties(pm_gateway PROPERTIES AUTOMOC ON)
 target_link_libraries(pm_gateway
     PUBLIC
         pm_core
+        pm_fabric
         Qt6::Core
         Qt6::Network
         Qt6::HttpServer

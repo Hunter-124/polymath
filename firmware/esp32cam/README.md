@@ -1,72 +1,60 @@
-# ESP32-CAM firmware (Hearth)
+# esp32cam — Hearth Legacy cam (AI-Thinker ESP32-CAM)
 
-Turns an **AI-Thinker ESP32-CAM** into an MJPEG camera that Hearth consumes.
+The original dumb-MJPEG firmware, **upgraded** to a first-class (if motion-only)
+Hearth fabric device. It keeps the MJPEG stream and adds: stable `device_id`,
+SoftAP provisioning, MQTT announce/presence/event, SD clip-on-motion, OTA, and the
+full device HTTP API — reusing `firmware/common`.
 
-## What you need
-- AI-Thinker ESP32-CAM module (the common one with an OV2640 + PSRAM).
-- A USB-to-TTL (FTDI) adapter, **or** an ESP32-CAM-MB programmer shield.
-- Arduino IDE with the **esp32** boards package installed
-  (Boards Manager → "esp32 by Espressif").
+> **Detection tier:** AI-Thinker has no AI accelerator, so detection here is
+> **motion-only**. Events publish `kind:"motion"` and announce
+> `person_detect:"trigger"`. For reliable person detection use the **cam-esp32s3**
+> (Budget) or **cam-esp32s3-grove** (Standard) tiers.
+
+The pre-upgrade sketch is kept for reference as
+[`legacy_mjpeg.ino.reference`](legacy_mjpeg.ino.reference).
+
+## Hardware
+- AI-Thinker **ESP32-CAM** (OV2640 + PSRAM), 4 MB flash.
+- USB-to-TTL (FTDI) adapter **or** the ESP32-CAM-MB programmer shield.
+- Optional microSD (FAT32) for clips. SD uses **SD_MMC 1-bit** (shares the
+  GPIO4 flash-LED line). With no card, the device still streams + emits motion
+  events, just without a `clip_url`.
 
 ## Configure
-Edit [`config.h`](config.h): set `WIFI_SSID`, `WIFI_PASS`, and a unique
-`DEVICE_NAME` per camera (e.g. `polymath-cam1`, `polymath-cam2`).
+```
+cp config.example.h config.h    # done in-repo
+```
+Edit `config.h`: device name/location, `HEARTH_MQTT_HOST`, motion sensitivity.
+Wi-Fi creds are **no longer compiled in** — they are set at runtime via SoftAP
+provisioning (FABRIC.md §6).
 
-## Flash (Arduino IDE)
-1. **Tools → Board →** `AI Thinker ESP32-CAM`.
-2. **Tools → Partition Scheme →** `Huge APP (3MB No OTA)`.
-3. Wire the FTDI adapter: `5V→5V`, `GND→GND`, `U0T→RX`, `U0R→TX`.
-   For flashing, jumper **GPIO0 → GND**, then press the RST button.
-4. Select the COM port and click **Upload**.
-5. When it says "done uploading", **remove the GPIO0↔GND jumper** and press RST.
-6. Open Serial Monitor @ `115200` — it prints the stream URL, e.g.
-   `http://192.168.1.42/stream` (and `http://polymath-cam1.local/stream`).
+## Build / flash (PlatformIO)
+```
+pip install platformio
+pio run                              # compile
+# wire FTDI, jumper GPIO0->GND, press RST, then:
+pio run -t upload
+# remove the GPIO0 jumper, press RST
+pio device monitor
+```
+Board `esp32cam`, partitions `partitions.csv` (4 MB dual-app OTA).
 
-## Use in Hearth
-In the app's **Cameras** settings, add a camera with the stream URL
-(`http://<ip-or-mdns>/stream`). The VisionService auto-reconnects if the camera
-reboots.
+**Arduino IDE users:** copy `firmware/common/*` into a libraries folder (or use the
+PlatformIO flow above). Board = `AI Thinker ESP32-CAM`; the bundled
+`legacy_mjpeg.ino.reference` is the old, dependency-free MJPEG-only sketch if you
+just want the original behaviour.
 
-## End-to-end verification (real board, step by step)
-1. Flash the firmware (above) and confirm the Serial Monitor prints the stream URL.
-2. Open `http://<ip>/stream` in a browser — you should see a live MJPEG image.
-3. In Hearth → Cameras, add the camera with `http://<ip>/stream`.
-4. Walk in front of the camera. Expect, in order:
-   - a **live tile** for the camera in the dashboard (decoded frames),
-   - a **motion** event in the activity log (MOG2 motion gate), and
-   - once the YOLO model is loaded, a **person** event (and a **face** event if
-     face recognition is on and the person is enrolled).
-5. Power-cycle the board: the tile should drop to "offline", then return to
-   "online" within a few seconds (auto-reconnect with backoff).
+## First-boot pairing
+1. First boot → AP **`Hearth-Setup-<hex6>`**; join it, open `http://192.168.4.1/`,
+   submit SSID/password (`POST /provision`). Device persists + reboots into STA.
+2. Reachable at `http://hearth-cam-<hex6>.local/`. The status page renders the
+   pairing QR JSON; scan it in the Hearth app (FABRIC.md §6).
 
-## Simulated path (no board) — what CI / a dev box uses instead
-You don't need hardware to exercise the full ingest path. A software MJPEG server
-that streams a recorded clip in the **exact** framing this firmware emits
-(`multipart/x-mixed-replace; boundary=frame`, each part
-`Content-Type: image/jpeg` + `Content-Length` + JPEG bytes) is indistinguishable
-to Hearth's camera ingest from a real board.
+## Endpoints (port 80)
+`GET /` `GET /status` · `GET /snapshot`* · `GET /stream`* (MJPEG, the URL to
+register) · `GET /clips`* · `GET /clips/<f>`* · `POST /provision` · `POST /pair` ·
+`GET /config` · `POST /config`*  — *require the HMAC bearer.
 
-- The automated test `tests/test_j_phase2_e2e.cpp` stands up exactly such a server
-  in-process (a `QTcpServer` replaying frames from `tests/fixtures/vision/people_walking.avi`)
-  and drives a real `CameraWorker` against `http://127.0.0.1:<port>/stream`,
-  asserting the online → tile-frame → motion-event → DB-row path **and**
-  auto-reconnect (kill the stream → offline → restart → online). Run it with
-  `ctest --test-dir build/cpu -C Release -R j_phase2`.
-- To drive the actual app by hand, point a Cameras entry at any local MJPEG server
-  (e.g. a small PowerShell/Python script, or VLC's "stream to HTTP" of a clip)
-  serving the framing above, then follow steps 4–5 of the real-board flow.
-
-## Endpoints
-| Path | Purpose |
-|------|---------|
-| `/stream` | MJPEG (`multipart/x-mixed-replace`) — the URL to register |
-| `/snapshot` | single JPEG frame |
-| `/status` | JSON `{name, ip, rssi}` |
-
-## Tips
-- If the image is garbled or the board brown-outs, use a solid 5V/2A supply
-  (the camera draws spikes Wi-Fi can't tolerate on weak USB power).
-- Lower resolution / raise JPEG quality number in `esp32cam.ino` (`frame_size`,
-  `jpeg_quality`) if your Wi-Fi is congested.
-- The stream is plain HTTP MJPEG (no auth). Keep these cameras on a trusted LAN
-  or VLAN; do not port-forward `/stream` to the internet.
+## Power tips
+Use a solid 5V/2A supply; the camera draws spikes weak USB power can't tolerate
+(brown-outs garble the image). Keep these on a trusted LAN/VLAN.

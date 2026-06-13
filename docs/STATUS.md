@@ -1,5 +1,31 @@
 # Build status
 
+## v0.2 — device fabric + lab assistant (branch `feat/distributed-fabric`)
+
+The distributed expansion is in and **verified on the CPU build**:
+
+- **Schema v2** (`edge_devices`, `instruments`, `measurements`, `lab_sessions`, `lab_session_steps` +
+  edge-clip columns on `events`), migrated idempotently via guarded `ALTER`s.
+- **Device fabric** (`src/fabric`, `pm_fabric`) bridges edge devices onto the EventBus + schema; MQTT is
+  optional (`POLYMATH_USE_MQTT`, off by default) and the HTTP ingest plane works with no broker.
+- **Hub modules**: network (satellite) audio source, the `read_instrument`/`record_measurement` +
+  4 lab-session tools, an interactive **Lab Guide** persona, event/clip retention sweep, and a touch
+  **panel mode** (`Hearth.exe --panel`).
+- **Mobile app** (`app/`) builds clean (`npm run build`): chat-first home, direct-to-camera path, and new
+  Devices / Instruments / Lab-Session / clip-browser screens.
+- **Edge firmware** (`firmware/`): shared `common` lib + 5 camera tiers, voice satellite, and the HMM lab
+  module, all to the [`FABRIC.md`](FABRIC.md) contract (compiled per-board with PlatformIO/ESP-IDF/CanMV —
+  not built in CI here).
+- **`ctest`: 14/14 green** on the CPU build — the original 11 plus **fabric, instruments, lab_session**.
+  All 13 desktop QML views (incl. PanelMode) render in the offscreen `capture_views` harness.
+
+GPU/CUDA build of the v0.2 additions is unchanged in principle (no CUDA-path edits) but the CUDA re-verify
+of the new targets is the remaining gate before a v0.2 release.
+
+---
+
+## v0.1 baseline
+
 Both builds are verified: **they compile, link, run the tests, and launch.**
 
 - **CPU build** — `build/cpu` (Visual Studio 2022 generator). Reproduced by

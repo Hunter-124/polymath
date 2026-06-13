@@ -119,3 +119,41 @@ add_test(NAME j_phase2 COMMAND test_j_phase2_e2e)
 set_tests_properties(j_phase2 PROPERTIES
     TIMEOUT 240
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Wave 3 · Card K — device-fabric unit tests: FabricService ingest* paths +
+# DeviceRegistry CRUD. No MQTT, no network — all ingest* called directly.
+# Asserts edge_devices/cameras upsert (announce), measurements in_range flag,
+# events clip_url/confidence/device_id, Detection + InstrumentReading signals,
+# and DeviceRegistry list/get/inRange edge cases. Links pm_fabric (the new
+# fabric module) + pm_core (Database/EventBus) + Qt::Core (EventBus metatypes).
+add_executable(test_fabric test_fabric.cpp)
+target_link_libraries(test_fabric PRIVATE pm_fabric pm_core Qt6::Core)
+add_test(NAME fabric COMMAND test_fabric)
+set_tests_properties(fabric PROPERTIES
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Wave 3 · Card K — instrument tool unit tests: ReadInstrumentTool and
+# RecordMeasurementTool against a temp DB. Asserts missing-id/no-reading
+# failures, latest-reading retrieval, in-range vs out-of-range rows + ok flag,
+# and ad-hoc (no instrument row) always-in-range behaviour.
+# Links pm_agent (instrument_tool.cpp) + pm_core + Qt::Core.
+add_executable(test_instruments test_instruments.cpp)
+target_link_libraries(test_instruments PRIVATE pm_agent pm_core Qt6::Core)
+target_include_directories(test_instruments PRIVATE ${CMAKE_SOURCE_DIR}/src/agent/tools)
+add_test(NAME instruments COMMAND test_instruments)
+set_tests_properties(instruments PROPERTIES TIMEOUT 60)
+
+# Wave 3 · Card K — lab-session state-machine tests: drives the full lifecycle
+# start_lab_session -> next_lab_step -> verify_lab_step (in-range AND
+# out-of-range + retry) -> finish_lab_session. Asserts DB row transitions
+# (lab_sessions, lab_session_steps, measurements), LabStepEvent signals, and
+# the done/report_doc_id result from finish. Links pm_agent + pm_core + Qt::Core
+# (EventBus metatypes + DirectConnection signal delivery).
+add_executable(test_lab_session test_lab_session.cpp)
+target_link_libraries(test_lab_session PRIVATE pm_agent pm_core Qt6::Core)
+target_include_directories(test_lab_session PRIVATE ${CMAKE_SOURCE_DIR}/src/agent/tools)
+add_test(NAME lab_session COMMAND test_lab_session)
+set_tests_properties(lab_session PROPERTIES
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

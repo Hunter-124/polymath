@@ -22,7 +22,12 @@ type IconName =
   | 'qr'
   | 'search'
   | 'refresh'
-  | 'power';
+  | 'power'
+  | 'fabric'
+  | 'instrument'
+  | 'lab'
+  | 'clip'
+  | 'wifi';
 
 const P: Record<IconName, string> = {
   chat: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
@@ -52,6 +57,12 @@ const P: Record<IconName, string> = {
   search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.3-4.3',
   refresh: 'M23 4v6h-6 M1 20v-6h6 M3.5 9a9 9 0 0 1 14.8-3.4L23 10 M1 14l4.7 4.4A9 9 0 0 0 20.5 15',
   power: 'M18.4 6.6a9 9 0 1 1-12.8 0 M12 2v10',
+  // device fabric icons
+  fabric: 'M9 3H5a2 2 0 0 0-2 2v4 M19 3h-4 M21 9V5a2 2 0 0 0-2-2 M3 15v4a2 2 0 0 0 2 2h4 M19 21h2a2 2 0 0 0 2-2v-4 M12 7v10 M7 12h10',
+  instrument: 'M9 3v11a3 3 0 0 0 6 0V3 M9 3h6 M6 7h2 M16 7h2',
+  lab: 'M9 3h6 M8 3a1 1 0 0 0-1 1v6l-3 9a1 1 0 0 0 .95 1.35h14.1A1 1 0 0 0 20 19l-3-9V4a1 1 0 0 0-1-1 M6 14h12',
+  clip: 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M14 2v6h6 M10 13l3 2-3 2v-4z',
+  wifi: 'M5 12.5a9.9 9.9 0 0 1 14 0 M8.5 15.5a5 5 0 0 1 7 0 M12 19h.01',
 };
 
 export function Icon({

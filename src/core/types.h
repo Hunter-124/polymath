@@ -86,6 +86,7 @@ struct Utterance {
     std::optional<int64_t> speaker_id;
     bool                   is_ambient = false;   // continuous vs. post-wakeword
     float                  confidence = 0.0f;
+    std::string            source;               // "" = local mic; else satellite/room id
     TimePoint              ts;
 };
 

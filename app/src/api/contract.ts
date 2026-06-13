@@ -72,6 +72,91 @@ export interface Device {
   online: boolean;
 }
 
+// ─── Device fabric (v2) — edge cameras / voice / instruments / panels ───────
+
+export type EdgeDeviceKind = 'camera' | 'voice_sat' | 'instrument' | 'panel';
+
+/** A row in the edge-device registry (distinct from a paired phone `Device`). */
+export interface EdgeDeviceDTO {
+  device_id: string;
+  kind: EdgeDeviceKind;
+  name: string;
+  location: string;
+  transport: string; // mqtt|http|mjpeg|rtsp
+  endpoint: string; // the device's own HTTP base
+  capabilities: Record<string, unknown>;
+  fw_version: string;
+  last_seen: number;
+  enabled: boolean;
+  online: boolean;
+}
+
+/** Self-registration payload a device POSTs to /fabric/devices/announce. */
+export interface DeviceAnnounce {
+  device_id: string;
+  kind: EdgeDeviceKind;
+  name: string;
+  location?: string;
+  fw?: string;
+  endpoint?: string;
+  transport?: string;
+  capabilities?: Record<string, unknown>;
+  instruments?: InstrumentDTO[];
+}
+
+export interface InstrumentDTO {
+  id: string; // unique_id
+  device_id: string;
+  name: string;
+  channel: number;
+  unit: string;
+  device_class: string; // mass|temperature|pressure|ph|co2|...
+  expected_min: number | null;
+  expected_max: number | null;
+}
+
+export interface ReadingDTO {
+  instrument_id: string;
+  value: number;
+  unit: string;
+  in_range: boolean;
+  ts: number;
+}
+
+/** Edge-camera detection + clip metadata (POST /cameras/:id/events). */
+export interface CameraEventDTO {
+  device_id?: string;
+  kind: 'motion' | 'person' | 'face';
+  confidence?: number;
+  thumb_b64?: string;
+  clip_url?: string;
+  ts?: number;
+}
+
+export type LabSessionStatus = 'active' | 'paused' | 'done' | 'canceled';
+
+export interface LabSessionDTO {
+  id: number;
+  title: string;
+  objective: string;
+  status: LabSessionStatus;
+  report_doc_id: number | null;
+  started_at: number;
+  ended_at: number | null;
+  steps?: LabStepDTO[]; // present on GET /lab/sessions/:id
+}
+
+export interface LabStepDTO {
+  step_no: number;
+  prompt: string;
+  expected_kind: string; // temperature|mass|time|ph|...
+  expected_unit: string;
+  measured_value: number | null;
+  measured_unit: string;
+  verified: boolean;
+  verified_at: number | null;
+}
+
 // ─── System / status ───────────────────────────────────────────────────────
 
 export interface ServerStatus {
@@ -209,6 +294,8 @@ export interface TimelineEventDTO {
   user_id?: number;
   label: string;
   thumb_url?: string; // gateway-proxied thumbnail
+  clip_url?: string; // edge-recorded clip, served from the camera's own SD
+  confidence?: number; // on-device detector confidence (edge events)
   ts: number;
 }
 
@@ -271,7 +358,10 @@ export type ServerEventType =
   | 'reminder' // ReminderFired
   | 'privacy' // PrivacyChanged
   | 'status' // ServerStatus delta
-  | 'speak'; // SpeakRequest (so the app can play TTS)
+  | 'speak' // SpeakRequest (so the app can play TTS)
+  | 'instrument_reading' // ReadingDTO (lab instrument value)
+  | 'device_presence' // EdgeDevice online/offline
+  | 'lab_step'; // LabStepDTO progress in a guided lab session
 
 export interface ServerEvent<T = unknown> {
   type: ServerEventType;
@@ -293,7 +383,26 @@ export interface SpeakEvent {
   text: string;
   voice: string;
   request_id: string;
+  target?: string; // "" => local speaker; else a voice-satellite id to route to
   audio_url?: string; // gateway-rendered TTS, if available
+}
+
+export interface DevicePresenceEvent {
+  device_id: string;
+  kind: EdgeDeviceKind;
+  name: string;
+  online: boolean;
+  ts: number;
+}
+
+export interface LabStepEvent {
+  session_id: number;
+  step_no: number;
+  prompt: string;
+  status: string; // ask|verifying|verified|out_of_range|done
+  measured_value: number;
+  unit: string;
+  verified: boolean;
 }
 
 // Client → server WS control messages (subscriptions).
@@ -319,7 +428,18 @@ export const ENDPOINTS = {
   cameras: `${API_BASE}/cameras`,
   cameraSnapshot: (id: number) => `${API_BASE}/cameras/${id}/snapshot`,
   cameraStream: (id: number) => `${API_BASE}/cameras/${id}/stream`,
+  cameraEvents: (id: number) => `${API_BASE}/cameras/${id}/events`, // edge ingest (POST)
+  cameraFrame: (id: number) => `${API_BASE}/cameras/${id}/frame`, // live tile (POST)
   findObject: `${API_BASE}/find-object`,
+
+  // device fabric (v2)
+  fabricDevices: `${API_BASE}/fabric/devices`,
+  fabricDevice: (id: string) => `${API_BASE}/fabric/devices/${encodeURIComponent(id)}`,
+  fabricAnnounce: `${API_BASE}/fabric/devices/announce`,
+  instruments: `${API_BASE}/instruments`,
+  instrumentRead: (id: string) => `${API_BASE}/instruments/${encodeURIComponent(id)}/read`,
+  labSessions: `${API_BASE}/lab/sessions`,
+  labSession: (id: number) => `${API_BASE}/lab/sessions/${id}`,
 
   tasks: `${API_BASE}/tasks`,
   task: (id: number) => `${API_BASE}/tasks/${id}`,

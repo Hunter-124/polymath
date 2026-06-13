@@ -310,6 +310,9 @@ int main(int argc, char* argv[]) {
             }
             auto* win = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
             if (!win) { fprintf(stderr, "  not a window %s\n", qPrintable(qmlUrl)); return false; }
+            // A fullscreen ApplicationWindow (e.g. PanelMode) has no size offscreen;
+            // force it windowed so resize/grab produce a real framebuffer.
+            win->setVisibility(QWindow::Windowed);
             win->resize(1280, 820);
             win->show();
             const bool ok = grab(win, outPng);
@@ -345,18 +348,19 @@ int main(int argc, char* argv[]) {
 
     struct View { const char* file; const char* png; bool window; };
     const std::vector<View> views = {
-        {"Main.qml",              "01-main-shell",   true },
-        {"Dashboard.qml",         "02-dashboard",    false},
-        {"ChatView.qml",          "03-chat",         false},
-        {"CamerasView.qml",       "04-cameras",      false},
-        {"TaskQueueView.qml",     "05-tasks",        false},
-        {"TimelineView.qml",      "06-timeline",     false},
-        {"ShoppingView.qml",      "07-shopping",     false},
-        {"PersonalitiesView.qml", "08-personalities",false},
-        {"ModelManagerView.qml",  "09-models",       false},
-        {"PrivacyView.qml",       "10-privacy",      false},
-        {"MobileAccessView.qml",  "11-mobile-access",false},
-        {"SettingsView.qml",      "12-settings",     false},
+        {"Main.qml",              "01-main-shell",    true },
+        {"PanelMode.qml",         "02-panel-mode",    true },   // --panel kiosk root (ApplicationWindow)
+        {"Dashboard.qml",         "03-dashboard",     false},
+        {"ChatView.qml",          "04-chat",          false},
+        {"CamerasView.qml",       "05-cameras",       false},
+        {"TaskQueueView.qml",     "06-tasks",         false},
+        {"TimelineView.qml",      "07-timeline",      false},
+        {"ShoppingView.qml",      "08-shopping",      false},
+        {"PersonalitiesView.qml", "09-personalities", false},
+        {"ModelManagerView.qml",  "10-models",        false},
+        {"PrivacyView.qml",       "11-privacy",       false},
+        {"MobileAccessView.qml",  "12-mobile-access", false},
+        {"SettingsView.qml",      "13-settings",      false},
     };
 
     int failures = 0;

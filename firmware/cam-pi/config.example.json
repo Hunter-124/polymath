@@ -1,0 +1,14 @@
+{
+  "device_name": "Living Room",
+  "location": "Interior",
+  "mqtt_host": "hearth-hub.local",
+  "mqtt_port": 1883,
+  "camera": "/dev/video0",
+  "clips_dir": "/var/lib/hearth/clips",
+  "key_path": "/var/lib/hearth/devkey.bin",
+  "model_path": "/var/lib/hearth/models/yolov8n.onnx",
+  "person_threshold": 0.55,
+  "retention_days": 30,
+  "http_port": 80,
+  "edge_hub": false
+}
