@@ -17,10 +17,14 @@ The distributed expansion is in and **verified on the CPU build**:
   module, all to the [`FABRIC.md`](FABRIC.md) contract (compiled per-board with PlatformIO/ESP-IDF/CanMV —
   not built in CI here).
 - **`ctest`: 14/14 green** on the CPU build — the original 11 plus **fabric, instruments, lab_session**.
-  All 13 desktop QML views (incl. PanelMode) render in the offscreen `capture_views` harness.
-
-GPU/CUDA build of the v0.2 additions is unchanged in principle (no CUDA-path edits) but the CUDA re-verify
-of the new targets is the remaining gate before a v0.2 release.
+  All 14 desktop QML views (incl. PanelMode and the new Lab cockpit) render in the offscreen
+  `capture_views` harness, in both populated and `--empty` first-run states.
+- **Both builds link the new code:** the CPU build (VS generator) and the **CUDA build** (Ninja +
+  portable CUDA, through the `C:\pm` no-space junction) both compile `pm_fabric` + the gateway/lab/
+  instrument additions and link `Hearth.exe` (157/157, exit 0).
+- **Mobile app** verified in a browser preview: chat-first home, the new Edge Devices / Instruments /
+  Lab Session screens render coherent empty + graceful error states, and a React error boundary keeps a
+  screen crash from blanking the app.
 
 ---
 
