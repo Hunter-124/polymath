@@ -12,6 +12,8 @@
     "finish_lab_session",
     "read_instrument",
     "record_measurement",
+    "calculate",
+    "convert_units",
     "remember",
     "set_reminder",
     "generate_lab_report"

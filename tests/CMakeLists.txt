@@ -23,6 +23,9 @@ add_test(NAME audio COMMAND test_audio_e2e)
 # Fast model is on disk). Drives the registry, persona/grammar, and dispatch.
 add_executable(test_agent_e2e test_agent_e2e.cpp)
 target_link_libraries(test_agent_e2e PRIVATE pm_core pm_agent pm_inference pm_scheduler)
+# So the test can validate the shipped persona allow-lists against the registry.
+target_compile_definitions(test_agent_e2e PRIVATE
+    PM_PERSONA_DIR="${CMAKE_SOURCE_DIR}/assets/personalities")
 add_test(NAME agent COMMAND test_agent_e2e)
 # The LLM round-trip cold-loads a model on CPU and runs a multi-step tool loop.
 set_tests_properties(agent PROPERTIES TIMEOUT 600)

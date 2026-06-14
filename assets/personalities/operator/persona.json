@@ -16,7 +16,9 @@
     "remember",
     "recall",
     "set_reminder",
-    "queue_deep_task"
+    "queue_deep_task",
+    "calculate",
+    "convert_units"
   ],
   "avatar": { "style": "ring", "accent": "#ff7b00" }
 }

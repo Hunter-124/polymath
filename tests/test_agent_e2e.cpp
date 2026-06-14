@@ -36,6 +36,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <set>
 #include <string>
 
 using namespace polymath;
@@ -103,6 +105,39 @@ void testAllToolsDirect(const std::filesystem::path& root) {
                           "look_at_screen", "computer_click", "computer_type",
                           "computer_key", "computer_scroll", "calculate", "convert_units"})
         assert(reg.get(n) != nullptr && "missing builtin tool");
+
+    // Shipped persona allow-lists must reference only REAL tools. A typo or stale
+    // name in a persona's "tools" array silently makes that tool unavailable to
+    // the persona (ToolRegistry::specs filters by exact name), so pin every
+    // shipped bundle's allow-list against the live registry. (This is what would
+    // have caught the Lab Guide not being able to reach calculate/convert_units.)
+#ifdef PM_PERSONA_DIR
+    {
+        namespace fs = std::filesystem;
+        const std::set<std::string> registered(names.begin(), names.end());
+        int personasChecked = 0;
+        std::error_code ec;
+        for (auto& entry : fs::recursive_directory_iterator(PM_PERSONA_DIR, ec)) {
+            if (entry.path().filename() != "persona.json") continue;
+            std::ifstream in(entry.path());
+            nlohmann::json j;
+            in >> j;
+            ++personasChecked;
+            if (!j.contains("tools")) continue;
+            for (const auto& t : j["tools"]) {
+                const std::string tool = t.get<std::string>();
+                if (!registered.count(tool)) {
+                    std::fprintf(stderr, "  persona '%s' lists unknown tool '%s'\n",
+                                 entry.path().parent_path().filename().string().c_str(), tool.c_str());
+                    assert(false && "persona allow-list references an unregistered tool");
+                }
+            }
+        }
+        assert(personasChecked >= 4 && "expected to find the shipped persona bundles");
+        std::printf("  [ok] %d shipped personas: every allow-listed tool is registered\n",
+                    personasChecked);
+    }
+#endif
 
     ToolContext ctx;
     ctx.db = &db;
