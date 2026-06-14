@@ -8,7 +8,9 @@ namespace polymath {
 
 // v2 (2026-06): distributed device fabric — devices/instruments/measurements/
 // lab_sessions tables, edge-clip columns on events, device_id back-links.
-inline constexpr int kSchemaVersion = 2;
+// v3 (2026-06): local document RAG — knowledge_files/knowledge_chunks for the
+// "ask your documents" capability (offline embedding + brute-force cosine).
+inline constexpr int kSchemaVersion = 3;
 
 inline constexpr const char* kSchemaSQL = R"SQL(
 PRAGMA journal_mode = WAL;
@@ -215,6 +217,32 @@ CREATE TABLE IF NOT EXISTS lab_session_steps (
     note           TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_lab_steps_session ON lab_session_steps(session_id);
+
+-- =========================================================================
+-- v3: local document RAG ("ask your documents")
+-- =========================================================================
+
+-- Source files the user dropped into Paths::knowledge() for semantic search.
+CREATE TABLE IF NOT EXISTS knowledge_files (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    path        TEXT UNIQUE NOT NULL,       -- absolute path on disk
+    title       TEXT DEFAULT '',            -- filename (display)
+    mtime       INTEGER DEFAULT 0,          -- file mtime when last indexed (skip-if-unchanged)
+    chunk_count INTEGER DEFAULT 0,
+    indexed_at  INTEGER NOT NULL
+);
+
+-- One embedded passage of a knowledge file. embedding = base64 of the unit
+-- float32 vector; search is brute-force cosine (personal-scale corpora).
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id     INTEGER NOT NULL,
+    chunk_no    INTEGER NOT NULL,
+    text        TEXT NOT NULL,
+    embedding   TEXT DEFAULT '',            -- base64 little-endian float32[dim]
+    FOREIGN KEY(file_id) REFERENCES knowledge_files(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_file ON knowledge_chunks(file_id);
 )SQL";
 
 // Incremental column additions applied by Database::migrate() through a

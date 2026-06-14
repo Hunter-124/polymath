@@ -8,7 +8,8 @@ void Paths::setRoot(const std::filesystem::path& root) { root_ = root; }
 
 void Paths::ensureLayout() const {
     std::error_code ec;
-    for (const auto& d : { models(), personalities(), media(), vectors(), documents(), logs() })
+    for (const auto& d : { models(), personalities(), media(), vectors(),
+                           documents(), knowledge(), logs() })
         std::filesystem::create_directories(d, ec);
 }
 

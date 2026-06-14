@@ -83,18 +83,20 @@ void testAllToolsDirect(const std::filesystem::path& root) {
     ToolRegistry reg;
     registerBuiltinTools(reg);
 
-    // The registry must expose exactly the 23 builtin tools.
+    // The registry must expose exactly the 25 builtin tools.
     // (Wave 3 · Card J added browser_drive: 16 -> 17. v0.2 device fabric added
-    //  read_instrument, record_measurement, and the 4 lab-session tools: 17 -> 23.)
+    //  read_instrument, record_measurement, and the 4 lab-session tools: 17 -> 23.
+    //  v3 document RAG added search_documents + reindex_documents: 23 -> 25.)
     const auto names = reg.names();
-    assert(names.size() == 23 && "expected 23 builtin tools");
+    assert(names.size() == 25 && "expected 25 builtin tools");
     for (const char* n : {"shopping_add", "shopping_list", "shopping_remove",
                           "web_search", "fetch_page", "browser_drive", "draft_document",
                           "generate_lab_report", "print_document", "print_image",
                           "set_reminder", "remember", "recall", "search_memory",
                           "camera_snapshot", "who_is_home", "queue_deep_task",
                           "read_instrument", "record_measurement", "start_lab_session",
-                          "next_lab_step", "verify_lab_step", "finish_lab_session"})
+                          "next_lab_step", "verify_lab_step", "finish_lab_session",
+                          "search_documents", "reindex_documents"})
         assert(reg.get(n) != nullptr && "missing builtin tool");
 
     ToolContext ctx;

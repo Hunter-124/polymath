@@ -12,6 +12,7 @@
 #include "queue_tool.h"
 #include "instrument_tool.h"
 #include "lab_session.h"
+#include "doc_rag.h"
 
 #include "logging.h"
 
@@ -68,6 +69,10 @@ void registerBuiltinTools(ToolRegistry& reg) {
     reg.add(std::make_shared<NextLabStepTool>());
     reg.add(std::make_shared<VerifyLabStepTool>());
     reg.add(std::make_shared<FinishLabSessionTool>());
+
+    // Local document RAG (knowledge_files/knowledge_chunks; offline embeddings).
+    reg.add(std::make_shared<SearchDocumentsTool>());
+    reg.add(std::make_shared<ReindexDocumentsTool>());
 
     PM_INFO("registerBuiltinTools: {} tools registered", reg.names().size());
 }

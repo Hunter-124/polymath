@@ -108,10 +108,6 @@ size_t VramBudget::estimateModelMiB(const std::string& path, int n_ctx) {
 int VramBudget::planGpuLayers(size_t modelMiB, int n_layers_total,
                               size_t reserveMiB) const {
     if (n_layers_total <= 0) return 0;
-    // No GPU backend available -> keep everything on the CPU backend (don't hand
-    // llama a non-zero n_gpu_layers it would only ignore). Makes the single-binary
-    // CPU-fallback path honest in the logs.
-    if (!cuda_available_)    return 0;
     if (modelMiB == 0)       return n_layers_total;   // nothing to weigh
 
     const DeviceMemory dev = query();

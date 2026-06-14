@@ -21,9 +21,13 @@ and acts, entirely on your own hardware and GPU.
   search via a VLM, over the hub pipeline **and** autonomous edge cameras (below).
 - **Memory** — long-term semantic memory (vector recall over EmbeddingGemma), a daily summarizer, and
   per-category retention.
-- **Agent toolset** — 23 tools: web search/fetch, image analysis, document & lab-report drafting,
-  printing, shopping lists, reminders/tasks, camera/who's-home, Chrome automation, and the new
-  **instrument + lab-session** tools.
+- **🆕 Ask your documents (RAG)** — drop notes, manuals, or papers into Hearth's `knowledge/` folder; it
+  embeds them locally (EmbeddingGemma) and answers your questions from your own files — fully offline.
+  Just ask in chat ("what do my notes say about …"); the `search_documents` / `reindex_documents` tools
+  do the rest.
+- **Agent toolset** — 25 tools: web search/fetch, image analysis, document & lab-report drafting,
+  **local document search (RAG)**, printing, shopping lists, reminders/tasks, camera/who's-home, Chrome
+  automation, and the **instrument + lab-session** tools.
 - **🆕 Interactive lab assistant** — start a guided experiment by voice; Hearth walks each step, asks for
   (or **reads from instruments**) each measured value, **verifies it against expected ranges**, re-asks on
   anomalies, and renders a formal `.docx` lab report at the end. See [`docs/LAB.md`](docs/LAB.md).
@@ -133,7 +137,7 @@ src/scheduler/   deep-work task queue, idle detector, proactive engine
 src/audio/       capture, wake word, VAD, whisper ASR, Piper TTS, network (satellite) audio source
 src/vision/      camera workers, motion, YOLO, face recognition, visual memory / finder
 src/memory/      SQLite store, vector index, daily summarizer
-src/agent/       tool registry + 23 tools (web, docs, print, shopping, home, memory, browser, lab/instrument)
+src/agent/       tool registry + 25 tools (web, docs, print, shopping, home, memory, browser, lab/instrument, doc-RAG)
 src/fabric/      🆕 device fabric: edge devices → EventBus + schema (MQTT optional + HTTP ingest)
 src/gateway/     embedded HTTP + WebSocket gateway, device-token auth, relay tunnel
 src/personality/ hot-loadable persona bundle manager

@@ -157,3 +157,13 @@ add_test(NAME lab_session COMMAND test_lab_session)
 set_tests_properties(lab_session PROPERTIES
     TIMEOUT 120
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# v3 — local document RAG (DocRag): ingest themed text files into knowledge_files/
+# knowledge_chunks with real EmbeddingGemma embeddings, then assert semantic search
+# routes each query to the right file, that re-ingest is idempotent, and that a
+# deleted file is pruned. Skips cleanly without the embedding model on disk.
+add_executable(test_doc_rag test_doc_rag.cpp)
+target_link_libraries(test_doc_rag PRIVATE pm_agent pm_inference pm_core Qt6::Core)
+target_include_directories(test_doc_rag PRIVATE ${CMAKE_SOURCE_DIR}/src/agent/tools)
+add_test(NAME doc_rag COMMAND test_doc_rag)
+set_tests_properties(doc_rag PROPERTIES TIMEOUT 180)
