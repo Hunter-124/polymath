@@ -111,6 +111,8 @@ class StubApp : public QObject {
     Q_PROPERTY(QString activePersonality READ activePersonality NOTIFY changed)
     Q_PROPERTY(QVariantMap activePersona READ activePersona NOTIFY changed)
     Q_PROPERTY(bool speaking READ speaking NOTIFY changed)
+    Q_PROPERTY(bool controlling READ controlling NOTIFY changed)
+    Q_PROPERTY(QString controlAction READ controlAction NOTIFY changed)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY changed)
     Q_PROPERTY(bool hasModels READ hasModels NOTIFY changed)
     Q_PROPERTY(bool firstRun READ firstRun NOTIFY changed)
@@ -122,6 +124,8 @@ public:
     QString activePersonality() const { return "Marcus Aurelius"; }
     // Talking while populated so the captured Chat/Dashboard show the live state.
     bool speaking() const { return populated; }
+    bool controlling() const { return false; }            // overlay hidden in captures
+    QString controlAction() const { return QString(); }
     QVariantMap activePersona() const {
         QVariantMap m;
         m["name"]    = "Marcus Aurelius";
@@ -170,6 +174,7 @@ public:
     Q_INVOKABLE void pushToTalk(bool) {}
     Q_INVOKABLE void setPersonality(const QString&) {}
     Q_INVOKABLE void setPrivacy(const QString&, bool) {}
+    Q_INVOKABLE void stopControl() {}
     Q_INVOKABLE void findObject(const QString&) {}
     Q_INVOKABLE void addShoppingItem(const QString&) {}
     Q_INVOKABLE void refreshAll() {}

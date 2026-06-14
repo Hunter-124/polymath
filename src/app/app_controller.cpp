@@ -13,6 +13,7 @@
 #include "memory_service.h"
 #include "agent_runtime.h"
 #include "personality_manager.h"
+#include "desktop_controller.h"
 
 #include "chat_model.h"
 #include "shopping_model.h"
@@ -169,6 +170,21 @@ void AppController::wireEventBus() {
     connect(audio_.get(), &AudioService::speakingStateChanged, this, [this](bool on) {
         if (speaking_ == on) return;
         speaking_ = on; emit speakingChanged();
+    });
+
+    // Computer-use drive state -> the glowing overlay. Each action republishes
+    // active=true; we linger ~4s after the last one so the border doesn't flicker
+    // between consecutive steps, then auto-clear it.
+    control_linger_.setSingleShot(true);
+    control_linger_.setInterval(4000);
+    connect(&control_linger_, &QTimer::timeout, this, [this] {
+        if (!controlling_) return;
+        controlling_ = false; control_action_.clear(); emit controllingChanged();
+    });
+    connect(&bus, &EventBus::desktopControl, this, [this](bool active, const QString& action) {
+        if (!active) return;
+        controlling_ = true; control_action_ = action; emit controllingChanged();
+        control_linger_.start();
     });
 
     // Personality switch -> UI properties (display name + the avatar "face").
@@ -403,9 +419,17 @@ void AppController::sendChat(const QString& text) {
     submitChatTurn(text);
 }
 
+void AppController::stopControl() {
+    DesktopController::abort();          // halt any in-flight computer-use actions
+    control_linger_.stop();
+    if (controlling_) { controlling_ = false; control_action_.clear(); emit controllingChanged(); }
+    EventBus::instance().publishNotice({"warn", "computer", "Computer control stopped."});
+}
+
 QString AppController::submitChatTurn(const QString& text) {
     const QString t = text.trimmed();
     if (t.isEmpty()) return {};
+    DesktopController::clearAbort();     // a new user turn clears any prior panic-stop
     // Append the user turn to the chat model on the UI thread. AutoConnection:
     // direct when called from the UI/QML path, queued when the gateway worker
     // thread calls us (so the QAbstractListModel is only ever touched on its own

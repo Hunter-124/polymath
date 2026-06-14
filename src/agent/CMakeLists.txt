@@ -27,7 +27,8 @@ qt_add_library(pm_agent STATIC
     tools/instrument_tool.cpp
     tools/lab_session.cpp
     tools/doc_rag.cpp
+    tools/computer_tools.cpp
 )
 target_include_directories(pm_agent PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(pm_agent PUBLIC pm_core pm_inference pm_scheduler pm_memory
-    PRIVATE Qt6::Network Qt6::Gui Qt6::PrintSupport)   # Network: web tools; Gui/PrintSupport: print tools
+target_link_libraries(pm_agent PUBLIC pm_core pm_inference pm_scheduler pm_memory pm_desktop
+    PRIVATE Qt6::Network Qt6::Gui Qt6::PrintSupport)   # Network: web tools; Gui/PrintSupport: print tools; pm_desktop: computer-use

@@ -63,6 +63,11 @@ public:
     void publishInstrumentReading(const InstrumentReading& r) { emit instrumentReading(r); }
     void publishDevicePresence(const DevicePresence& p) { emit devicePresence(p); }
     void publishLabStep(const LabStepEvent& s)          { emit labStep(s); }
+    // The assistant is actively driving the mouse/keyboard (computer-use). Each
+    // action republishes active=true with a short human description; the UI shows a
+    // glowing border while active and an activity-log line. (bool+QString are
+    // built-in metatypes — no Q_DECLARE_METATYPE needed.)
+    void publishDesktopControl(bool active, const QString& action) { emit desktopControl(active, action); }
 
 signals:
     // --- audio ---
@@ -84,6 +89,8 @@ signals:
     void instrumentReading(const polymath::InstrumentReading&);
     void devicePresence(const polymath::DevicePresence&);
     void labStep(const polymath::LabStepEvent&);
+    // --- computer use (the assistant driving the desktop) ---
+    void desktopControl(bool active, QString action);
     // --- system ---
     void privacyChanged(const polymath::PrivacyChanged&);
     void notice(const polymath::Notice&);               // log/toast surface

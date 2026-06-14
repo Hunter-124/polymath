@@ -252,6 +252,9 @@ $vcpkgBin = "$vcpkg\installed\x64-windows\bin"
 foreach ($d in 'fmt.dll','spdlog.dll','libcrypto-3-x64.dll','libssl-3-x64.dll') {
   if (Test-Path "$vcpkgBin\$d") { Copy-Item "$vcpkgBin\$d" $bin -Force }
 }
+# ONNX Runtime (YOLO/face perception) — the app links it, so ship it beside the exe
+# (otherwise a standalone launch fails with a missing-DLL error before main()).
+if (Test-Path "$ortRoot\lib\onnxruntime.dll") { Copy-Item "$ortRoot\lib\onnxruntime.dll" $bin -Force }
 if ($Flavor -eq 'cuda') {
   Step "copying CUDA runtime DLLs (cudart / cublas / cublasLt)"
   $cudaRoot = Split-Path (Split-Path $nvcc)

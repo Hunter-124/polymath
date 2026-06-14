@@ -374,6 +374,43 @@ ApplicationWindow {
         y: 96
     }
 
+    // --- Computer use: glowing screen border (separate click-through window) +
+    //     an in-window panic-stop banner so the user can always halt it. ---
+    ControlOverlay { }
+
+    Rectangle {
+        visible: app.controlling
+        z: 1000
+        anchors { top: parent.top; horizontalCenter: parent.horizontalCenter; topMargin: 14 }
+        radius: Style.radiusSm
+        color: Style.surface3
+        border.width: 1; border.color: Style.warn
+        implicitWidth: ctlRow.implicitWidth + 24
+        implicitHeight: 40
+        RowLayout {
+            id: ctlRow
+            anchors.centerIn: parent
+            spacing: 10
+            Rectangle {
+                width: 9; height: 9; radius: 4.5; color: Style.warn
+                Layout.alignment: Qt.AlignVCenter
+                SequentialAnimation on opacity {
+                    running: app.controlling; loops: Animation.Infinite
+                    NumberAnimation { to: 0.3; duration: 500 }
+                    NumberAnimation { to: 1.0; duration: 500 }
+                }
+            }
+            Label {
+                text: (app.controlAction && app.controlAction.length)
+                      ? ("Controlling: " + app.controlAction)
+                      : "Hearth is controlling the computer"
+                color: Style.text; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
+                elide: Text.ElideRight; Layout.maximumWidth: 360
+            }
+            PmButton { text: "Stop"; onClicked: app.stopControl() }
+        }
+    }
+
     // --- Toasts: stacked, dismissible, auto-expiring ---
     function pushToast(level, source, message) {
         if (toastModel.count >= 4) toastModel.remove(0)

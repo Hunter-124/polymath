@@ -13,6 +13,7 @@
 #include "instrument_tool.h"
 #include "lab_session.h"
 #include "doc_rag.h"
+#include "computer_tools.h"
 
 #include "logging.h"
 
@@ -73,6 +74,13 @@ void registerBuiltinTools(ToolRegistry& reg) {
     // Local document RAG (knowledge_files/knowledge_chunks; offline embeddings).
     reg.add(std::make_shared<SearchDocumentsTool>());
     reg.add(std::make_shared<ReindexDocumentsTool>());
+
+    // Computer use — drive the desktop (screen capture + UI Automation + VLM + input).
+    reg.add(std::make_shared<ScreenLookTool>());
+    reg.add(std::make_shared<ComputerClickTool>());
+    reg.add(std::make_shared<ComputerTypeTool>());
+    reg.add(std::make_shared<ComputerKeyTool>());
+    reg.add(std::make_shared<ComputerScrollTool>());
 
     PM_INFO("registerBuiltinTools: {} tools registered", reg.names().size());
 }

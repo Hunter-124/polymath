@@ -11,6 +11,7 @@
 #include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QTimer>
 #include <memory>
 #include <vector>
 
@@ -50,6 +51,10 @@ class AppController : public QObject {
     // the animated PersonalityAvatar. `speaking` is true while TTS is playing.
     Q_PROPERTY(QVariantMap activePersona READ activePersona NOTIFY activePersonaChanged)
     Q_PROPERTY(bool speaking READ speaking NOTIFY speakingChanged)
+    // Computer use: true while the assistant is actively driving the mouse/keyboard
+    // (powers the glowing on-screen border). controlAction is the current step label.
+    Q_PROPERTY(bool controlling READ controlling NOTIFY controllingChanged)
+    Q_PROPERTY(QString controlAction READ controlAction NOTIFY controllingChanged)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY modelStatusChanged)
     // First-run / cold-start affordances. hasModels = at least one usable model
     // is registered on disk; firstRun = no usable model AND the first-run flow has
@@ -89,6 +94,8 @@ public:
     QString activePersonality() const { return active_personality_; }
     QVariantMap activePersona() const { return active_persona_; }
     bool    speaking() const { return speaking_; }
+    bool    controlling() const { return controlling_; }
+    QString controlAction() const { return control_action_; }
     QString modelStatus() const { return model_status_; }
     bool    hasModels() const;
     bool    firstRun() const;
@@ -109,6 +116,8 @@ public:
     Q_INVOKABLE QStringList personalities() const;
     Q_INVOKABLE void setPrivacy(const QString& key, bool enabled);
     Q_INVOKABLE bool privacy(const QString& key) const;
+    // Panic-stop: abort any in-flight computer-use actions and clear the overlay.
+    Q_INVOKABLE void stopControl();
     Q_INVOKABLE void findObject(const QString& query);
     Q_INVOKABLE void addShoppingItem(const QString& item);
 
@@ -157,6 +166,7 @@ signals:
     void activePersonalityChanged();
     void activePersonaChanged();   // the active persona's avatar/name map changed
     void speakingChanged();        // TTS playback started/stopped
+    void controllingChanged();     // computer-use drive state / current-action label
     void modelStatusChanged();
     void modelsChanged();      // model registry changed (add/role/load-state)
     void firstRunChanged();    // first-run state changed (model added / acknowledged)
@@ -213,6 +223,9 @@ private:
 
     bool    listening_ = false;
     bool    speaking_  = false;
+    bool    controlling_ = false;
+    QString control_action_;
+    QTimer  control_linger_;        // keeps the overlay lit briefly after the last action
     QString active_personality_ = "Assistant";
     QVariantMap active_persona_;          // { name, style, accent, idle, talking }
     QString model_status_ = "no model loaded";

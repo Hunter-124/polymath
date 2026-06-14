@@ -25,9 +25,15 @@ and acts, entirely on your own hardware and GPU.
   embeds them locally (EmbeddingGemma) and answers your questions from your own files — fully offline.
   Just ask in chat ("what do my notes say about …"); the `search_documents` / `reindex_documents` tools
   do the rest.
-- **Agent toolset** — 25 tools: web search/fetch, image analysis, document & lab-report drafting,
-  **local document search (RAG)**, printing, shopping lists, reminders/tasks, camera/who's-home, Chrome
-  automation, and the **instrument + lab-session** tools.
+- **🆕 Computer use** — on command (or when a task needs it) Hearth drives the desktop itself: it sees
+  the screen with the local vision model, locates UI elements via Windows accessibility (with a
+  vision-model fallback), and moves/clicks/types/scrolls. A **glowing border** shows whenever it's in
+  control, with a one-click **Stop**; a strict observe→act→verify operating protocol (stop before
+  anything risky, never touch credentials/payments) is baked into the system prompt. There's a dedicated
+  **Operator** persona for hands-on tasks.
+- **Agent toolset** — 30 tools: web search/fetch, image analysis, document & lab-report drafting,
+  local document search (RAG), **computer use (see screen + mouse/keyboard)**, printing, shopping lists,
+  reminders/tasks, camera/who's-home, Chrome automation, and the **instrument + lab-session** tools.
 - **🆕 Interactive lab assistant** — start a guided experiment by voice; Hearth walks each step, asks for
   (or **reads from instruments**) each measured value, **verifies it against expected ranges**, re-asks on
   anomalies, and renders a formal `.docx` lab report at the end. See [`docs/LAB.md`](docs/LAB.md).
@@ -136,7 +142,8 @@ src/scheduler/   deep-work task queue, idle detector, proactive engine
 src/audio/       capture, wake word, VAD, whisper ASR, Piper TTS, network (satellite) audio source
 src/vision/      camera workers, motion, YOLO, face recognition, visual memory / finder
 src/memory/      SQLite store, vector index, daily summarizer
-src/agent/       tool registry + 25 tools (web, docs, print, shopping, home, memory, browser, lab/instrument, doc-RAG)
+src/agent/       tool registry + 30 tools (web, docs, print, shopping, home, memory, browser, lab/instrument, doc-RAG, computer-use)
+src/desktop/     🆕 computer use: screen capture (BitBlt) + input injection (SendInput) + UI Automation + VLM targeting
 src/fabric/      🆕 device fabric: edge devices → EventBus + schema (MQTT optional + HTTP ingest)
 src/gateway/     embedded HTTP + WebSocket gateway, device-token auth, relay tunnel
 src/personality/ hot-loadable persona bundle manager

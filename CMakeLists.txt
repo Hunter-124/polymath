@@ -77,6 +77,9 @@ add_subdirectory(src/scheduler)
 add_subdirectory(src/audio)
 add_subdirectory(src/vision)
 add_subdirectory(src/memory)
+# Computer use (screen capture + input injection + UI Automation + VLM targeting).
+# Before src/agent: the computer tools link pm_desktop.
+add_subdirectory(src/desktop)
 add_subdirectory(src/agent)
 add_subdirectory(src/personality)
 add_subdirectory(src/app)
