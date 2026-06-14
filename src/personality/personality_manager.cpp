@@ -128,6 +128,24 @@ void PersonalityManager::scanBundles() {
                     const auto avatar = entry.path() / fname;
                     if (fsn::exists(avatar)) { p.avatar_path = avatar.string(); break; }
                 }
+                // Visual-avatar config (optional `avatar` object). Procedural orb
+                // tinted by the theme accent unless a style / accent / image is set.
+                p.avatar_style = "orb";
+                if (j.contains("avatar") && j["avatar"].is_object()) {
+                    const auto& a = j["avatar"];
+                    p.avatar_style  = a.value("style", std::string{"orb"});
+                    p.avatar_accent = a.value("accent", std::string{});
+                    auto resolve = [&](const std::string& rel) -> std::string {
+                        if (rel.empty()) return {};
+                        const auto pth = entry.path() / rel;
+                        return fsn::exists(pth) ? pth.string() : std::string{};
+                    };
+                    p.avatar_idle    = resolve(a.value("idle", std::string{}));
+                    p.avatar_talking = resolve(a.value("talking", std::string{}));
+                }
+                // A bundled avatar.png serves as the idle frame when none is named.
+                if (p.avatar_idle.empty() && !p.avatar_path.empty())
+                    p.avatar_idle = p.avatar_path;
                 loaded.push_back(std::move(p));
             } catch (const std::exception& e) {
                 PM_WARN("personality: bad bundle {}: {}", file.string(), e.what());

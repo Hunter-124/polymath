@@ -39,10 +39,35 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
-            Label {
-                text: "Chat"; color: Style.text
-                font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
+            spacing: 10
+            PersonalityAvatar {
+                Layout.preferredWidth: 40; Layout.preferredHeight: 40
+                Layout.alignment: Qt.AlignVCenter
+                displayName: app.activePersona.name || app.activePersonality
+                avatarStyle: app.activePersona.style || "orb"
+                accent: (app.activePersona.accent && app.activePersona.accent.length)
+                        ? app.activePersona.accent : Style.accent
+                idleSource: app.activePersona.idle || ""
+                talkingSource: app.activePersona.talking || ""
+                // Comes alive while the assistant is speaking aloud *or* composing.
+                speaking: app.speaking || root.awaitingReply
+            }
+            ColumnLayout {
+                spacing: 0
+                Layout.alignment: Qt.AlignVCenter
+                Label {
+                    text: app.activePersona.name || app.activePersonality
+                    color: Style.text
+                    font.family: Style.fontFamily; font.pixelSize: Style.fsHeading; font.bold: true
+                }
+                Label {
+                    text: app.speaking ? "Speaking…"
+                        : root.awaitingReply ? "Thinking…"
+                        : app.listening ? "Listening" : "Ready to chat"
+                    color: app.speaking ? Style.accent
+                         : app.listening ? Style.good : Style.textFaint
+                    font.family: Style.fontFamily; font.pixelSize: Style.fsTiny
+                }
             }
             Item { Layout.fillWidth: true }
             PmIconButton {
@@ -79,6 +104,19 @@ Item {
                 onMovementEnded: stickToBottom = atYEnd
                 onCountChanged: if (stickToBottom) Qt.callLater(positionViewAtEnd)
                 onContentHeightChanged: if (stickToBottom) Qt.callLater(positionViewAtEnd)
+
+                // New messages pop in (only on model insert — not on delegate
+                // recycle), and the rest slide to make room.
+                add: Transition {
+                    NumberAnimation { property: "opacity"; from: 0; to: 1
+                        duration: Style.durMed; easing.type: Style.easeStandard }
+                    NumberAnimation { property: "scale"; from: 0.96; to: 1
+                        duration: Style.durMed; easing.type: Style.easeStandard }
+                }
+                displaced: Transition {
+                    NumberAnimation { properties: "x,y"
+                        duration: Style.durFast; easing.type: Style.easeStandard }
+                }
 
                 delegate: Item {
                     id: bubbleRow

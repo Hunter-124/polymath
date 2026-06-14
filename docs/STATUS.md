@@ -26,6 +26,27 @@ The distributed expansion is in and **verified on the CPU build**:
   Lab Session screens render coherent empty + graceful error states, and a React error boundary keeps a
   screen crash from blanking the app.
 
+### Single auto-detecting binary (replaces the split CPU/CUDA builds)
+
+The two build trees (`build/cpu`, `build/cuda`) collapse into **one** `Hearth.exe` that picks the
+GPU or CPU **at runtime**:
+
+- **`POLYMATH_BACKEND_DL`** turns on ggml's `GGML_BACKEND_DL`: the backends build as runtime-loadable
+  libraries — `ggml-base.dll` + `ggml.dll`, **ten per-ISA `ggml-cpu-*.dll` variants** (sse42 →
+  alderlake, the best one auto-loaded for the running CPU), and, when a CUDA toolkit is present at
+  build time, `ggml-cuda.dll`. `llama.dll`/`whisper.dll` ship beside the exe.
+- **`src/inference/vram_budget.cpp`** now detects the GPU through ggml's **device registry**
+  (`ggml_backend_dev_*`) instead of `cudaMemGetInfo`, so the binary has **no hard CUDA dependency** —
+  it uses the GPU when an NVIDIA device + `ggml-cuda.dll` are present and falls back to CPU otherwise.
+- **One script, `scripts/build.ps1`** (auto / `-Flavor cpu` / `-Flavor cuda`) configures, builds and
+  deploys it; `nvcc`'s no-space-path constraint only affects the optional CUDA-backend DLL.
+- **Verified (CPU flavor):** `build.ps1 -Flavor cpu` builds + deploys the single binary; run headless it
+  loads the runtime backends, logs `VramBudget: no GPU backend detected; running on CPU`, and brings the
+  **Fast model resident on the CPU backend** — no crash, no cudart needed. The CUDA flavor (adds
+  `ggml-cuda.dll`) builds via the same script through the `C:\pm` junction; GPU-offload re-verify on the
+  3080 Ti is the remaining gate, exactly as for the legacy CUDA build.
+- The legacy `build-cpu.ps1` / `build-gpu.ps1` remain for the old two-tree layout during the transition.
+
 ---
 
 ## v0.1 baseline

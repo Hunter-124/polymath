@@ -5,5 +5,6 @@
   "preferred_model": "fast",
   "wake_phrase": "Marcus",
   "sampling": { "temperature": 0.7, "top_p": 0.9 },
-  "tools": []
+  "tools": [],
+  "avatar": { "style": "orb", "accent": "#7aa2f7" }
 }

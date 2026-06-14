@@ -12,6 +12,12 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 option(POLYMATH_USE_CUDA "Build llama.cpp / whisper.cpp with CUDA acceleration" ON)
+# Single-binary mode: build ggml's backends as runtime-loadable libraries so ONE
+# Hearth.exe ships ggml-cpu.dll always and ggml-cuda.dll when a toolkit is present,
+# and picks the best at startup (GPU auto-detected, CPU fallback). Off by default
+# so the legacy split CPU/CUDA builds are unaffected; the unified build.ps1 turns
+# it on. Composes with POLYMATH_USE_CUDA (which decides whether ggml-cuda is built).
+option(POLYMATH_BACKEND_DL "Build ggml backends as runtime-loadable libraries (single auto-detecting binary)" OFF)
 option(POLYMATH_BUILD_TESTS "Build unit/integration tests" ON)
 
 if(MSVC)

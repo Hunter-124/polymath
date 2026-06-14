@@ -15,5 +15,6 @@
     "remember",
     "set_reminder",
     "generate_lab_report"
-  ]
+  ],
+  "avatar": { "style": "ring", "accent": "#9ece6a" }
 }

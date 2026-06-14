@@ -10,6 +10,7 @@
 #include <QObject>
 #include <QStringList>
 #include <QVariantList>
+#include <QVariantMap>
 #include <memory>
 #include <vector>
 
@@ -45,6 +46,10 @@ class AppController : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool listening READ listening NOTIFY listeningChanged)
     Q_PROPERTY(QString activePersonality READ activePersonality NOTIFY activePersonalityChanged)
+    // The active persona's "face": { name, style, accent, idle, talking } — drives
+    // the animated PersonalityAvatar. `speaking` is true while TTS is playing.
+    Q_PROPERTY(QVariantMap activePersona READ activePersona NOTIFY activePersonaChanged)
+    Q_PROPERTY(bool speaking READ speaking NOTIFY speakingChanged)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY modelStatusChanged)
     // First-run / cold-start affordances. hasModels = at least one usable model
     // is registered on disk; firstRun = no usable model AND the first-run flow has
@@ -82,6 +87,8 @@ public:
 
     bool    listening() const { return listening_; }
     QString activePersonality() const { return active_personality_; }
+    QVariantMap activePersona() const { return active_persona_; }
+    bool    speaking() const { return speaking_; }
     QString modelStatus() const { return model_status_; }
     bool    hasModels() const;
     bool    firstRun() const;
@@ -148,6 +155,8 @@ public:
 signals:
     void listeningChanged();
     void activePersonalityChanged();
+    void activePersonaChanged();   // the active persona's avatar/name map changed
+    void speakingChanged();        // TTS playback started/stopped
     void modelStatusChanged();
     void modelsChanged();      // model registry changed (add/role/load-state)
     void firstRunChanged();    // first-run state changed (model added / acknowledged)
@@ -159,6 +168,9 @@ private:
     void wireEventBus();
     void buildModels();      // construct the UI models + image provider
     void wireModels();       // connect EventBus -> models (queued onto UI thread)
+    // Rebuild active_persona_ from the PersonalityManager's active bundle (name +
+    // avatar style/accent/idle/talking as file URLs) and notify QML.
+    void updateActivePersona();
 
     Database db_;
 
@@ -200,7 +212,9 @@ private:
     std::vector<QThread*> threads_;
 
     bool    listening_ = false;
+    bool    speaking_  = false;
     QString active_personality_ = "Assistant";
+    QVariantMap active_persona_;          // { name, style, accent, idle, talking }
     QString model_status_ = "no model loaded";
 };
 

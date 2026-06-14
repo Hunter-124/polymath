@@ -52,8 +52,14 @@ QtObject {
     readonly property int   railWidthCollapsed: 64
 
     // --- motion ---------------------------------------------------------------
+    // Durations (ms) + shared easing curves so transitions feel consistent across
+    // views.  easeStandard is the workhorse; easeEmphasized adds a little spring
+    // for entrances/affordances.  (Easing.* are ints, so they store as tokens.)
     readonly property int   durFast: 90
     readonly property int   durMed:  160
+    readonly property int   durSlow: 300
+    readonly property int   easeStandard:   Easing.OutCubic
+    readonly property int   easeEmphasized: Easing.OutBack
 
     // --- type ---------------------------------------------------------------
     // Set by Main.qml's FontLoader once Inter is registered; falls back to the

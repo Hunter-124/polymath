@@ -96,6 +96,7 @@ bool AppController::initialize() {
     threads_.push_back(runOnThread(vision_.get(), vision_.get()));
     threads_.push_back(runOnThread(audio_.get(), audio_.get()));
     personality_->start();   // lightweight: stays on the UI thread
+    updateActivePersona();   // seed the avatar/name map before the first switch
 
     // --- mobile/web gateway (LAN HTTP+WS, optional relay tunnel) ---
     // The bridge forwards the narrow IAssistantBridge surface to this controller.
@@ -115,6 +116,26 @@ bool AppController::initialize() {
 }
 
 QObject* AppController::gateway() const { return gateway_.get(); }
+
+void AppController::updateActivePersona() {
+    const Personality& p = personality_->active();
+    active_personality_ = QString::fromStdString(p.name);
+
+    auto fileUrl = [](const std::string& s) -> QString {
+        return s.empty() ? QString()
+                         : QUrl::fromLocalFile(QString::fromStdString(s)).toString();
+    };
+    QVariantMap m;
+    m["name"]    = active_personality_;
+    m["style"]   = QString::fromStdString(p.avatar_style.empty() ? "orb" : p.avatar_style);
+    m["accent"]  = QString::fromStdString(p.avatar_accent);   // "" -> QML uses theme accent
+    m["idle"]    = fileUrl(p.avatar_idle);
+    m["talking"] = fileUrl(p.avatar_talking);
+    active_persona_ = m;
+
+    emit activePersonalityChanged();
+    emit activePersonaChanged();
+}
 
 void AppController::wireEventBus() {
     auto& bus = EventBus::instance();
@@ -144,11 +165,15 @@ void AppController::wireEventBus() {
         listening_ = on; emit listeningChanged();
     });
 
-    // Personality switch -> UI property
+    // TTS playback state -> UI property (drives the talking-avatar animation).
+    connect(audio_.get(), &AudioService::speakingStateChanged, this, [this](bool on) {
+        if (speaking_ == on) return;
+        speaking_ = on; emit speakingChanged();
+    });
+
+    // Personality switch -> UI properties (display name + the avatar "face").
     connect(personality_.get(), &PersonalityManager::activeChanged, this,
-            [this](const QString& name, const QString&) {
-                active_personality_ = name; emit activePersonalityChanged();
-            });
+            [this](const QString&, const QString&) { updateActivePersona(); });
 
     // Model status -> UI property. A load/unload also means the registry-derived
     // hasModels/firstRun state may have changed (e.g. the Fast model became

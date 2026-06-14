@@ -57,6 +57,7 @@ qt_add_qml_module(pm_ui
         qml/controls/PmIcon.qml
         qml/controls/PmIconButton.qml
         qml/controls/EmptyState.qml
+        qml/controls/PersonalityAvatar.qml
     # Bundle the Inter (SIL OFL) UI font so QFontDatabase always finds a family
     # and the app renders identically headless and on any machine.
     RESOURCES

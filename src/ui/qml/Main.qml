@@ -349,6 +349,19 @@ ApplicationWindow {
                     source: modelData.src
                     active: everActive || stack.currentIndex === index
                     onActiveChanged: if (active) everActive = true
+
+                    // Soft entrance when a page becomes current: fade up + rise a
+                    // few px into place.  StackLayout shows only the current item,
+                    // so this reads as a gentle cross-cut rather than a hard swap.
+                    opacity: StackLayout.isCurrentItem ? 1 : 0
+                    Behavior on opacity {
+                        NumberAnimation { duration: Style.durMed; easing.type: Style.easeStandard }
+                    }
+                    property real slide: StackLayout.isCurrentItem ? 0 : 10
+                    Behavior on slide {
+                        NumberAnimation { duration: Style.durMed; easing.type: Style.easeStandard }
+                    }
+                    transform: Translate { y: slide }
                 }
             }
         }

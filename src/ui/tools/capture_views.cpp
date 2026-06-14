@@ -109,6 +109,8 @@ class StubApp : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool listening READ listening NOTIFY changed)
     Q_PROPERTY(QString activePersonality READ activePersonality NOTIFY changed)
+    Q_PROPERTY(QVariantMap activePersona READ activePersona NOTIFY changed)
+    Q_PROPERTY(bool speaking READ speaking NOTIFY changed)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY changed)
     Q_PROPERTY(bool hasModels READ hasModels NOTIFY changed)
     Q_PROPERTY(bool firstRun READ firstRun NOTIFY changed)
@@ -118,6 +120,17 @@ public:
 
     bool listening() const { return populated; }
     QString activePersonality() const { return "Marcus Aurelius"; }
+    // Talking while populated so the captured Chat/Dashboard show the live state.
+    bool speaking() const { return populated; }
+    QVariantMap activePersona() const {
+        QVariantMap m;
+        m["name"]    = "Marcus Aurelius";
+        m["style"]   = "orb";
+        m["accent"]  = "#7aa2f7";
+        m["idle"]    = "";
+        m["talking"] = "";
+        return m;
+    }
     QString modelStatus() const {
         return populated ? "fast: gemma-3n-E4B-it-Q4_K_M" : "no model loaded";
     }
@@ -450,6 +463,62 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "%s  %s\n", ok ? "OK  " : "FAIL", qPrintable(out));
         if (!ok) ++failures;
     }
+    // Avatar gallery — a dedicated showcase of the procedural PersonalityAvatar
+    // across styles and idle/speaking states (rendered once, on the populated run).
+    if (!empty) {
+        const QString galleryQml =
+            "import QtQuick\n"
+            "import Polymath\n"
+            "Window {\n"
+            "  width: 980; height: 360; visible: true; color: Style.bg\n"
+            "  Column {\n"
+            "    anchors.centerIn: parent; spacing: 24\n"
+            "    Row {\n"
+            "      spacing: 50\n"
+            "      Repeater {\n"
+            "        model: [\n"
+            "          { n: 'Marcus Aurelius', s: 'orb',  a: '#7aa2f7', sp: false, cap: 'orb \\u00b7 idle' },\n"
+            "          { n: 'Marcus Aurelius', s: 'orb',  a: '#7aa2f7', sp: true,  cap: 'orb \\u00b7 speaking' },\n"
+            "          { n: 'Ada Lovelace',    s: 'bars', a: '#bb9af7', sp: true,  cap: 'bars \\u00b7 speaking' },\n"
+            "          { n: 'Lab Guide',       s: 'ring', a: '#9ece6a', sp: true,  cap: 'ring \\u00b7 speaking' }\n"
+            "        ]\n"
+            "        delegate: Column {\n"
+            "          required property var modelData\n"
+            "          spacing: 12\n"
+            "          PersonalityAvatar {\n"
+            "            anchors.horizontalCenter: parent.horizontalCenter\n"
+            "            width: 96; height: 96\n"
+            "            displayName: modelData.n; avatarStyle: modelData.s\n"
+            "            accent: modelData.a; speaking: modelData.sp\n"
+            "          }\n"
+            "          Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.cap\n"
+            "            color: Style.textDim; font.family: Style.fontFamily; font.pixelSize: 13 }\n"
+            "        }\n"
+            "      }\n"
+            "    }\n"
+            "    Text { anchors.horizontalCenter: parent.horizontalCenter\n"
+            "      text: 'PersonalityAvatar \\u2014 procedural, theme-tinted, alive while speaking'\n"
+            "      color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: 12 }\n"
+            "  }\n"
+            "}\n";
+        QQmlApplicationEngine gengine;
+        gengine.rootContext()->setContextProperty("app", &stub);
+        QQmlComponent comp(&gengine);
+        comp.setData(galleryQml.toUtf8(), QUrl("qrc:/avatar_gallery.qml"));
+        QObject* obj = comp.create(gengine.rootContext());
+        bool ok = false;
+        if (!obj) {
+            fprintf(stderr, "  avatar gallery failed: %s\n", qPrintable(comp.errorString()));
+        } else if (auto* win = qobject_cast<QQuickWindow*>(obj)) {
+            win->show();
+            ok = grab(win, outDir + "/15-avatars.png");
+            win->close();
+        }
+        delete obj;
+        fprintf(stderr, "%s  %s\n", ok ? "OK  " : "FAIL", qPrintable(outDir + "/15-avatars.png"));
+        if (!ok) ++failures;
+    }
+
     fprintf(stderr, "captured %d / %d views%s\n",
             int(views.size()) - failures, int(views.size()),
             empty ? " (empty/first-run states)" : "");

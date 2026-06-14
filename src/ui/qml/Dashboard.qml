@@ -106,22 +106,34 @@ Item {
             }
 
             Card {
-                ColumnLayout {
-                    anchors.fill: parent; anchors.margins: 16; spacing: 4
-                    Label { text: "Assistant"; color: Style.accent; font.family: Style.fontFamily; font.bold: true; font.pixelSize: Style.fsSmall }
-                    RowLayout {
-                        spacing: 8
-                        Rectangle {
-                            width: 10; height: 10; radius: 5
-                            color: app.listening ? Style.good : Style.textFaint
-                            Layout.alignment: Qt.AlignVCenter
+                RowLayout {
+                    anchors.fill: parent; anchors.margins: 16; spacing: 12
+                    PersonalityAvatar {
+                        Layout.preferredWidth: 48; Layout.preferredHeight: 48
+                        Layout.alignment: Qt.AlignVCenter
+                        displayName: app.activePersona.name || app.activePersonality
+                        avatarStyle: app.activePersona.style || "orb"
+                        accent: (app.activePersona.accent && app.activePersona.accent.length)
+                                ? app.activePersona.accent : Style.accent
+                        idleSource: app.activePersona.idle || ""
+                        talkingSource: app.activePersona.talking || ""
+                        speaking: app.speaking
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Label { text: "Assistant"; color: Style.accent; font.family: Style.fontFamily; font.bold: true; font.pixelSize: Style.fsSmall }
+                        Label {
+                            text: app.speaking ? "Speaking" : app.listening ? "Listening" : "Idle"
+                            color: app.speaking ? Style.accent : Style.text
+                            font.family: Style.fontFamily; font.pixelSize: 20
                         }
                         Label {
-                            text: app.listening ? "Listening" : "Idle"; color: Style.text
-                            font.family: Style.fontFamily; font.pixelSize: 21
+                            text: app.activePersona.name || app.activePersonality
+                            color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
+                            elide: Text.ElideRight; Layout.fillWidth: true
                         }
                     }
-                    Label { text: app.activePersonality; color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall }
                 }
             }
             Card {

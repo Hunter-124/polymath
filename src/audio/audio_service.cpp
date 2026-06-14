@@ -373,10 +373,12 @@ void AudioService::speak(const QString& text, const QString& voice) {
     // Pause capture-driven ASR for the duration of playback (barge-in guard).
     d_->speaking.store(true, std::memory_order_release);
     emit listeningStateChanged(false);
+    emit speakingStateChanged(true);    // -> UI talking avatar comes alive
     d_->tts.speak(t, v);
     d_->capture.ring().clear();
     d_->net_ring.clear();   // discard satellite audio captured during our own TTS
     d_->speaking.store(false, std::memory_order_release);
+    emit speakingStateChanged(false);
 }
 
 void AudioService::setMicEnabled(bool on) {

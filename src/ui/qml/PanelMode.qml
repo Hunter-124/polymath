@@ -114,12 +114,13 @@ ApplicationWindow {
 
                 Item { Layout.fillWidth: true }
 
-                // Listening status pill.
+                // Listening status pill — fronted by the active persona's face.
                 Rectangle {
                     radius: height / 2
                     color: Style.surface2
                     border.width: 1
-                    border.color: app.listening ? Style.good : Style.border
+                    border.color: app.speaking ? Style.accent : app.listening ? Style.good : Style.border
+                    Behavior on border.color { ColorAnimation { duration: Style.durMed } }
                     implicitWidth: statusRow.implicitWidth + 24
                     implicitHeight: 44
 
@@ -128,20 +129,22 @@ ApplicationWindow {
                         anchors.centerIn: parent
                         spacing: 10
 
-                        Rectangle {
-                            width: 10; height: 10; radius: 5
-                            color: app.listening ? Style.good : Style.textFaint
-                            SequentialAnimation on opacity {
-                                running: app.listening; loops: Animation.Infinite
-                                NumberAnimation { to: 0.3; duration: 700; easing.type: Easing.InOutQuad }
-                                NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
-                            }
+                        PersonalityAvatar {
+                            Layout.preferredWidth: 30; Layout.preferredHeight: 30
+                            Layout.alignment: Qt.AlignVCenter
+                            displayName: app.activePersona.name || app.activePersonality
+                            avatarStyle: app.activePersona.style || "orb"
+                            accent: (app.activePersona.accent && app.activePersona.accent.length)
+                                    ? app.activePersona.accent : Style.accent
+                            idleSource: app.activePersona.idle || ""
+                            talkingSource: app.activePersona.talking || ""
+                            speaking: app.speaking || panelWindow.awaitingReply
                         }
                         ColumnLayout {
                             spacing: 1
                             Label {
-                                text: app.listening ? "Listening" : "Idle"
-                                color: app.listening ? Style.good : Style.textDim
+                                text: app.speaking ? "Speaking" : app.listening ? "Listening" : "Idle"
+                                color: app.speaking ? Style.accent : app.listening ? Style.good : Style.textDim
                                 font.family: Style.fontFamily; font.pixelSize: 15; font.bold: true
                             }
                             Label {

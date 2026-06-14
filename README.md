@@ -83,25 +83,34 @@ GGUF/ONNX.
 
 Windows 10/11, MSVC 2022, CMake ≥ 3.25. Native engines (llama.cpp, whisper.cpp, SQLCipher, …) are
 vendored and built from source; Qt 6.6, OpenCV, ONNX Runtime and the small vcpkg libs come from
-`build/deps` + vcpkg. Full detail in [`docs/BUILD.md`](docs/BUILD.md).
+`build/deps` + vcpkg.
+
+**One build, one binary.** `scripts/build.ps1` produces a single `Hearth.exe` that ships ggml's CPU
+backend (as per-ISA DLLs picked at runtime) plus — when a CUDA toolkit is present at build time — a
+`ggml-cuda.dll`. At startup it detects an NVIDIA GPU and uses it, falling back to CPU automatically.
+No separate CPU/CUDA trees.
 
 ```powershell
-# CPU build (no GPU needed) — configures, builds, runs ctest, deploys runtime DLLs
-pwsh scripts/build-cpu.ps1
+# THE build — auto: builds the CUDA backend if a toolkit is found, else CPU-only.
+pwsh scripts/build.ps1                    # -> build/dist/bin/Release/Hearth.exe
+#   -Flavor cpu    force a CPU-only binary (no CUDA backend, no toolkit needed)
+#   -Flavor cuda   require the CUDA toolkit and build ggml-cuda.dll
 
-# Fetch the default local models into build/cpu/bin/Release/data/models
+# Fetch the default local models
 pwsh scripts/fetch-models.ps1            # add -Minimal to skip the big optional ones
 
-# GPU / CUDA build (NVIDIA, sm_86+). Assumes the CPU prereqs above exist.
-pwsh scripts/build-gpu.ps1               # -> build/cuda/bin/Hearth.exe
-
 # Run (hub) — or add --panel for the in-wall kiosk dashboard
-build/cuda/bin/Hearth.exe
+build/dist/bin/Release/Hearth.exe
 ```
 
-Run the test suite: `ctest --test-dir build/cpu -C Release` (**14 suites**: core, tools, audio, agent,
-vision, inference, memory, privacy, integration, ui, phase2, **fabric, instruments, lab_session**).
-CI entry point: `scripts/ci.ps1`.
+This is powered by `POLYMATH_BACKEND_DL` (ggml's `GGML_BACKEND_DL`): the backends build as
+runtime-loadable libraries and the runtime GPU/CPU choice lives in `src/inference/vram_budget.cpp`,
+which queries ggml's device registry — so the binary has **no hard CUDA dependency**. The older
+split `scripts/build-cpu.ps1` / `scripts/build-gpu.ps1` remain for the legacy two-tree layout.
+
+Run the test suite from a tests-enabled tree (`scripts/build-cpu.ps1` configures one):
+`ctest --test-dir build/cpu -C Release` (**14 suites**: core, tools, audio, agent, vision, inference,
+memory, privacy, integration, ui, phase2, **fabric, instruments, lab_session**). CI: `scripts/ci.ps1`.
 
 The **mobile app** (`app/`) builds with `npm ci && npm run build`; the **edge firmware** (`firmware/*`)
 builds per-project with PlatformIO / ESP-IDF / CanMV — see each project's README.
