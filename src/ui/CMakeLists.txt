@@ -28,6 +28,7 @@ qt_add_qml_module(pm_ui
         qml/Main.qml
         qml/PanelMode.qml
         qml/ControlOverlay.qml
+        qml/QuickAsk.qml
         qml/Dashboard.qml
         qml/ChatView.qml
         qml/CamerasView.qml

@@ -8,6 +8,7 @@ qt_add_library(pm_desktop STATIC
     input_injector.cpp
     ui_automation.cpp
     desktop_controller.cpp
+    global_hotkey.cpp
 )
 # No Qt Designer .ui files here — turn off AUTOUIC so it doesn't misread the
 # `ui_automation.h` include as a generated `ui_*.h` and hunt for `automation.ui`.

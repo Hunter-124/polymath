@@ -14,6 +14,7 @@
 #include "agent_runtime.h"
 #include "personality_manager.h"
 #include "desktop_controller.h"
+#include "global_hotkey.h"
 
 #include "chat_model.h"
 #include "shopping_model.h"
@@ -111,6 +112,41 @@ bool AppController::initialize() {
     bridge_  = std::make_unique<AppBridge>(*this);
     gateway_ = std::make_unique<GatewayService>(*bridge_, db_, *config_);
     gateway_->start();
+
+    // --- global quick-ask hotkey ---
+    // System-wide pop-over: hit the chord from any app and an ask box appears.
+    // Created on the GUI thread so its native event filter sees WM_HOTKEY. We try
+    // a few chords in order and use the first the OS grants — Ctrl+Alt+Space is
+    // commonly free but not guaranteed, so we fall back rather than silently lose
+    // the feature. All-taken is non-fatal (the in-app affordances still work).
+    hotkey_ = std::make_unique<GlobalHotkey>(this);
+    connect(hotkey_.get(), &GlobalHotkey::triggered, this, &AppController::toggleQuickAsk);
+    constexpr unsigned int kVkSpace = 0x20;   // Win32 VK_SPACE / 'H' (avoids windows.h here)
+    constexpr unsigned int kVkH     = 0x48;
+    struct Chord { unsigned int mods; unsigned int vk; const char* label; };
+    const Chord chords[] = {
+        { GlobalHotkey::Control | GlobalHotkey::Alt,   kVkSpace, "Ctrl+Alt+Space"   },
+        { GlobalHotkey::Control | GlobalHotkey::Shift, kVkSpace, "Ctrl+Shift+Space" },
+        { GlobalHotkey::Control | GlobalHotkey::Alt,   kVkH,     "Ctrl+Alt+H"       },
+        { GlobalHotkey::Control | GlobalHotkey::Shift, kVkH,     "Ctrl+Shift+H"     },
+    };
+    const char* active = nullptr;
+    int idx = 0;
+    for (const auto& c : chords) {
+        if (hotkey_->registerHotkey(c.mods, c.vk)) { active = c.label; break; }
+        ++idx;
+    }
+    if (active) {
+        PM_INFO("AppController: quick-ask hotkey registered ({})", active);
+        // Tell the user only when we had to fall back off the documented default.
+        if (idx != 0)
+            EventBus::instance().publishNotice({"info", "Quick ask",
+                QStringLiteral("Ctrl+Alt+Space was taken — quick-ask is %1.")
+                    .arg(QLatin1String(active))});
+    } else {
+        PM_WARN("AppController: no quick-ask hotkey could be registered "
+                "(all candidate chords are taken)");
+    }
 
     PM_INFO("AppController initialized");
     return true;
@@ -314,6 +350,9 @@ void AppController::shutdown() {
     disconnect(&bus, &EventBus::frameReady, this, nullptr);
     image_provider_ = nullptr;   // ownership belongs to the QML engine
 
+    // Unregister the global hotkey before the event loop winds down.
+    hotkey_.reset();
+
     // Stop the gateway first (it lives on this UI thread): close its listener and
     // relay so no mobile request is handled while the workers it bridges to are
     // being torn down below.
@@ -424,6 +463,29 @@ void AppController::stopControl() {
     control_linger_.stop();
     if (controlling_) { controlling_ = false; control_action_.clear(); emit controllingChanged(); }
     EventBus::instance().publishNotice({"warn", "computer", "Computer control stopped."});
+}
+
+void AppController::showQuickAsk() {
+    if (quick_ask_visible_) return;
+    quick_ask_visible_ = true;
+    emit quickAskVisibleChanged();
+}
+
+void AppController::hideQuickAsk() {
+    if (!quick_ask_visible_) return;
+    quick_ask_visible_ = false;
+    emit quickAskVisibleChanged();
+}
+
+void AppController::toggleQuickAsk() {
+    quick_ask_visible_ = !quick_ask_visible_;
+    emit quickAskVisibleChanged();
+}
+
+QString AppController::quickAsk(const QString& text) {
+    // Reuse the normal chat path: the question + streamed reply also land in the
+    // chat history, and the pop-over correlates the reply by the returned rid.
+    return submitChatTurn(text);
 }
 
 QString AppController::submitChatTurn(const QString& text) {

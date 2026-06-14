@@ -113,6 +113,7 @@ class StubApp : public QObject {
     Q_PROPERTY(bool speaking READ speaking NOTIFY changed)
     Q_PROPERTY(bool controlling READ controlling NOTIFY changed)
     Q_PROPERTY(QString controlAction READ controlAction NOTIFY changed)
+    Q_PROPERTY(bool quickAskVisible READ quickAskVisible NOTIFY changed)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY changed)
     Q_PROPERTY(bool hasModels READ hasModels NOTIFY changed)
     Q_PROPERTY(bool firstRun READ firstRun NOTIFY changed)
@@ -126,6 +127,7 @@ public:
     bool speaking() const { return populated; }
     bool controlling() const { return false; }            // overlay hidden in captures
     QString controlAction() const { return QString(); }
+    bool quickAskVisible() const { return false; }         // pop-over hidden in captures
     QVariantMap activePersona() const {
         QVariantMap m;
         m["name"]    = "Marcus Aurelius";
@@ -175,6 +177,10 @@ public:
     Q_INVOKABLE void setPersonality(const QString&) {}
     Q_INVOKABLE void setPrivacy(const QString&, bool) {}
     Q_INVOKABLE void stopControl() {}
+    Q_INVOKABLE void showQuickAsk() {}
+    Q_INVOKABLE void hideQuickAsk() {}
+    Q_INVOKABLE void toggleQuickAsk() {}
+    Q_INVOKABLE QString quickAsk(const QString&) { return QString(); }
     Q_INVOKABLE void findObject(const QString&) {}
     Q_INVOKABLE void addShoppingItem(const QString&) {}
     Q_INVOKABLE void refreshAll() {}

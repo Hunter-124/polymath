@@ -343,12 +343,21 @@ ApplicationWindow {
             Repeater {
                 model: window.pages
                 delegate: Loader {
+                    id: pageLoader
                     required property var modelData
                     required property int index
                     property bool everActive: false
                     source: modelData.src
-                    active: everActive || stack.currentIndex === index
-                    onActiveChanged: if (active) everActive = true
+                    // Bind `active` to the latch only -> no binding loop.  The latch
+                    // is set imperatively the first time this page becomes current
+                    // (below), then never clears, so the page stays warm.
+                    active: everActive
+                    function latchIfCurrent() { if (stack.currentIndex === index) everActive = true }
+                    Component.onCompleted: latchIfCurrent()
+                    Connections {
+                        target: stack
+                        function onCurrentIndexChanged() { pageLoader.latchIfCurrent() }
+                    }
 
                     // Soft entrance when a page becomes current: fade up + rise a
                     // few px into place.  StackLayout shows only the current item,
@@ -377,6 +386,10 @@ ApplicationWindow {
     // --- Computer use: glowing screen border (separate click-through window) +
     //     an in-window panic-stop banner so the user can always halt it. ---
     ControlOverlay { }
+
+    // --- Global quick-ask pop-over (Ctrl+Alt+Space), a separate focusable
+    //     top-level window so it can float over any app. ---
+    QuickAsk { }
 
     Rectangle {
         visible: app.controlling

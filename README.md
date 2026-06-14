@@ -27,6 +27,9 @@ and acts, entirely on your own hardware and GPU.
   embeds them locally (EmbeddingGemma) and answers your questions from your own files — fully offline.
   Just ask in chat ("what do my notes say about …"); the `search_documents` / `reindex_documents` tools
   do the rest.
+- **🆕 Quick ask (global hotkey)** — press **Ctrl+Alt+Space** from any app and a focusable ask box floats
+  in; type a question and the reply streams in place (Esc or click-away dismisses). It runs through the
+  normal chat path, so the exchange is also kept in your history. No window-switching to reach the assistant.
 - **🆕 Computer use** — on command (or when a task needs it) Hearth drives the desktop itself: it sees
   the screen with the local vision model, locates UI elements via Windows accessibility (with a
   vision-model fallback), and moves/clicks/types/scrolls. A **glowing border** shows whenever it's in
