@@ -167,3 +167,12 @@ target_link_libraries(test_doc_rag PRIVATE pm_agent pm_inference pm_core Qt6::Co
 target_include_directories(test_doc_rag PRIVATE ${CMAKE_SOURCE_DIR}/src/agent/tools)
 add_test(NAME doc_rag COMMAND test_doc_rag)
 set_tests_properties(doc_rag PROPERTIES TIMEOUT 180)
+
+# Computer use — pure-logic unit tests for the desktop control helpers
+# (DesktopController::parseCoordJson VLM-coordinate parsing + InputInjector::
+# parseButton). No screen capture / SendInput, so it's safe + deterministic in
+# CI; the live click loop is inherently human-verified. Links pm_desktop.
+add_executable(test_desktop test_desktop.cpp)
+target_link_libraries(test_desktop PRIVATE pm_desktop pm_core Qt6::Core)
+add_test(NAME desktop COMMAND test_desktop)
+set_tests_properties(desktop PROPERTIES TIMEOUT 60)

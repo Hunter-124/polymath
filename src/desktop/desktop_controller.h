@@ -39,6 +39,14 @@ public:
     static void abort();        // panic-stop (set from the UI / overlay)
     static void clearAbort();
     static bool aborted();
+
+    // Parse the Vision model's coordinate reply: pulls the first {...} object out
+    // of `reply` (small models often wrap the JSON in prose), reads {found,x,y},
+    // and normalizes x/y to 0..1 (accepts either 0..1 fractions or 0..100 %).
+    // Returns false on no/!found/malformed/negative coordinates. Pure logic —
+    // exposed for tests (no screen capture, no input). See locate().
+    static bool parseCoordJson(const std::string& reply, bool& found,
+                               double& nx, double& ny);
 };
 
 } // namespace polymath

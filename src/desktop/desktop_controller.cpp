@@ -30,9 +30,13 @@ void logWarn(const std::string& msg) {
     PM_WARN("computer: {}", msg);
 }
 
+} // namespace
+
 // Pull the first {...} object out of the model's reply and parse it. The VLM is
-// asked for pure JSON but small models sometimes wrap it in prose.
-bool parseCoordJson(const std::string& reply, bool& found, double& nx, double& ny) {
+// asked for pure JSON but small models sometimes wrap it in prose. Public static
+// (declared in the header) so it can be unit-tested without the screen/input.
+bool DesktopController::parseCoordJson(const std::string& reply, bool& found,
+                                       double& nx, double& ny) {
     const size_t a = reply.find('{');
     const size_t b = reply.rfind('}');
     if (a == std::string::npos || b == std::string::npos || b <= a) return false;
@@ -50,8 +54,6 @@ bool parseCoordJson(const std::string& reply, bool& found, double& nx, double& n
         return false;
     }
 }
-
-} // namespace
 
 DesktopController::Located DesktopController::locate(const std::string& target,
                                                     InferenceManager& inf) {
