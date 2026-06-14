@@ -144,9 +144,14 @@ if ($Flavor -eq 'cpu') {
     -DVCPKG_MANIFEST_MODE=OFF -DVCPKG_TARGET_TRIPLET=x64-windows `
     -DCMAKE_PREFIX_PATH="$qtDir" -DOpenCV_DIR="$cvCfg" `
     -DPOLYMATH_ONNXRUNTIME_ROOT="$ortRoot"
+  # Native exes don't throw on failure (even under ErrorActionPreference=Stop), so
+  # gate on $LASTEXITCODE — otherwise a failed compile silently falls through to
+  # deploy/ctest with a stale exe and the whole run reports a FALSE green.
+  if ($LASTEXITCODE -ne 0) { throw "configure failed ($LASTEXITCODE)" }
   Step "build"
   if ($Tests) { cmake --build $buildDir --config Release -j 6 }
   else        { cmake --build $buildDir --config Release --target Hearth -j 6 }
+  if ($LASTEXITCODE -ne 0) { throw "build failed ($LASTEXITCODE)" }
   $bin = "$buildDir\bin\Release"
 }
 else {
@@ -243,6 +248,7 @@ if ($SkipDeploy) { return }
 # --- 3. Deploy the rest of the runtime --------------------------------------
 Step "windeployqt + runtime DLLs"
 & "$qtDir\bin\windeployqt.exe" --qmldir "$repo\src\ui\qml" --no-translations "$bin\Hearth.exe" | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "windeployqt failed ($LASTEXITCODE)" }
 New-Item -ItemType Directory -Force "$bin\platforms" | Out-Null
 Copy-Item "$qtDir\plugins\platforms\qoffscreen.dll" "$bin\platforms\" -Force -ErrorAction SilentlyContinue
 Get-ChildItem "$deps\opencv\build\x64\vc16\bin\opencv_world*.dll",
