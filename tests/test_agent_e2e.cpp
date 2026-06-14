@@ -285,6 +285,42 @@ void testAllToolsDirect(const std::filesystem::path& root) {
         std::puts("  [ok] camera_snapshot / who_is_home (vision stub)");
     }
 
+    // --- describe_camera (live camera Q&A; VisionService stubbed on the bus) --
+    {
+        int64_t frontDoor = -1;
+        db.query("SELECT id FROM cameras WHERE name='Front Door'", {},
+                 [&](const Row& r) { frontDoor = r.i64(0); });
+        assert(frontDoor >= 0 && "expected the seeded 'Front Door' camera");
+
+        // Stand in for VisionService: answer any cameraQuery on the bus, echoing
+        // the request id (so the tool's correlation matches) with a canned reply.
+        // Same-thread (direct) connections make this round-trip synchronous, so
+        // the tool's wait loop returns at once.
+        QObject visionStub;
+        QString seenQuestion;
+        int     seenCam = -999;
+        QObject::connect(&EventBus::instance(), &EventBus::cameraQuery, &visionStub,
+            [&](const QString& rid, const QString& question, int cam) {
+                seenQuestion = question;
+                seenCam = cam;
+                EventBus::instance().publishCameraAnswer(
+                    rid, QStringLiteral("A person is standing near the door."), cam, true);
+            });
+
+        auto desc = reg.get("describe_camera")->invoke(
+            {{"camera", "Front Door"}, {"question", "is anyone there?"}}, ctx);
+        assert(desc.ok && "describe_camera should succeed when the bus answers");
+        assert(desc.content.value("answer", std::string{}).find("person") != std::string::npos
+               && "describe_camera should surface the VLM answer from the bus");
+        assert(seenQuestion == "is anyone there?" && "question must reach VisionService verbatim");
+        assert(seenCam == static_cast<int>(frontDoor) && "resolved camera id must be forwarded");
+
+        // Unknown camera => clean failure, no bus round-trip needed.
+        auto descBad = reg.get("describe_camera")->invoke({{"camera", "Nope"}}, ctx);
+        assert(!descBad.ok && "describe_camera should fail on an unknown camera");
+        std::puts("  [ok] describe_camera (live Q&A; bus round-trip)");
+    }
+
     // --- queue_deep_task -> tasks queue -------------------------------------
     {
         auto q = reg.get("queue_deep_task")->invoke(
