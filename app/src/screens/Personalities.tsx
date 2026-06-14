@@ -44,19 +44,21 @@ export function PersonalitiesScreen() {
           hint="Drop persona bundles into the desktop's personalities folder."
         />
       ) : (
-        items.map((p) => {
+        <div className="stack">
+        {items.map((p) => {
           const active = p.active || p.name === activeName;
           return (
             <div
-              className="row"
+              className={`row${active ? ' selected' : ''}`}
               key={p.name}
               role="button"
+              tabIndex={0}
               onClick={() => choose(p.name)}
-              style={{ borderColor: active ? 'var(--accent)' : 'var(--line)' }}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && choose(p.name)}
             >
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600 }}>{p.name}</div>
-                <div className="faint">
+                <div className="row-title">{p.name}</div>
+                <div className="row-subtitle">
                   {[p.voice && `voice: ${p.voice}`, p.wake_phrase && `“${p.wake_phrase}”`]
                     .filter(Boolean)
                     .join(' · ')}
@@ -70,6 +72,8 @@ export function PersonalitiesScreen() {
             </div>
           );
         })
+        }
+        </div>
       )}
     </div>
   );

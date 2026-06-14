@@ -77,12 +77,12 @@ export function TimelineScreen() {
 
   return (
     <div className="app-content">
-      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', marginBottom: 14 }}>
+      <div className="chip-row">
         {FILTERS.map((f) => (
           <button
             key={f}
-            className={`pill${filter === f ? ' good' : ''}`}
-            style={{ border: 'none', cursor: 'pointer', textTransform: 'capitalize' }}
+            className={`pill chip${filter === f ? ' active' : ''}`}
+            style={{ textTransform: 'capitalize' }}
             onClick={() => setFilter(f)}
           >
             {f}
@@ -99,7 +99,8 @@ export function TimelineScreen() {
           hint="Motion, people, and sounds the assistant notices will appear here."
         />
       ) : (
-        shown.map((ev) => (
+        <div className="stack">
+        {shown.map((ev) => (
           <div className="row" key={ev.id}>
             {ev.thumb_url ? (
               <Thumb url={ev.thumb_url} />
@@ -109,17 +110,18 @@ export function TimelineScreen() {
               </span>
             )}
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>
+              <div className="row-title" style={{ textTransform: 'capitalize' }}>
                 {ev.label || ev.kind}
               </div>
-              <div className="faint">
+              <div className="row-subtitle">
                 {ev.kind}
                 {ev.camera_id != null ? ` · cam ${ev.camera_id}` : ''}
               </div>
             </div>
             <span className="faint">{relativeTime(ev.ts)}</span>
           </div>
-        ))
+        ))}
+        </div>
       )}
     </div>
   );

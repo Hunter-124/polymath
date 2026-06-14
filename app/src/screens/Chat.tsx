@@ -126,28 +126,17 @@ export function ChatScreen() {
         <div ref={bottomRef} />
       </div>
 
-      <div
-        style={{
-          position: 'sticky',
-          bottom: 0,
-          display: 'flex',
-          gap: 8,
-          padding: 12,
-          paddingBottom: 'calc(12px + var(--safe-bottom))',
-          background: 'var(--bg)',
-          borderTop: '1px solid var(--line)',
-        }}
-      >
+      <div className="chat-composer">
         <input
           className="input"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()}
           placeholder="Message Hearth…"
+          aria-label="Message Hearth"
         />
         <button
-          className="btn"
-          style={{ padding: '0 14px' }}
+          className="btn icon"
           onClick={send}
           disabled={sending || !draft.trim()}
           aria-label="Send"

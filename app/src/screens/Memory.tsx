@@ -42,22 +42,23 @@ export function MemoryScreen() {
 
   return (
     <div className="app-content">
-      <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card form-card">
         <div className="section-label" style={{ margin: '0 0 8px' }}>
           Remember something
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="inline-form" style={{ marginBottom: 0 }}>
           <input
             className="input"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && remember()}
             placeholder="e.g. The spare key is under the third pot"
+            aria-label="Memory note"
           />
           <button
-            className="btn"
-            style={{ padding: '0 14px' }}
+            className="btn icon"
             onClick={remember}
+            disabled={!note.trim()}
             aria-label="Save note"
           >
             <Icon name="plus" size={20} />
@@ -65,18 +66,19 @@ export function MemoryScreen() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div className="inline-form">
         <input
           className="input"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && search()}
           placeholder="Search memory…"
+          aria-label="Search memory"
         />
         <button
-          className="btn secondary"
-          style={{ padding: '0 14px' }}
+          className="btn secondary icon"
           onClick={search}
+          disabled={searching || !q.trim()}
           aria-label="Search memory"
         >
           <Icon name="search" size={20} />
@@ -96,11 +98,12 @@ export function MemoryScreen() {
       ) : results.length === 0 ? (
         <EmptyState title="No matches" />
       ) : (
-        results.map((m) => (
+        <div className="stack">
+        {results.map((m) => (
           <div className="row" key={m.id} style={{ alignItems: 'flex-start' }}>
             <div style={{ flex: 1 }}>
               <div>{m.text}</div>
-              <div className="faint" style={{ marginTop: 4 }}>
+              <div className="row-subtitle">
                 {m.kind}
                 {m.source ? ` · ${m.source}` : ''} · {relativeTime(m.ts)}
               </div>
@@ -109,7 +112,8 @@ export function MemoryScreen() {
               <span className="pill">{Math.round(m.score * 100)}%</span>
             )}
           </div>
-        ))
+        ))}
+        </div>
       )}
     </div>
   );

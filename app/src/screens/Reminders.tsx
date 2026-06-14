@@ -59,22 +59,22 @@ export function RemindersScreen() {
 
   return (
     <div className="app-content">
-      <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card form-card">
         <input
           className="input"
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Remind me to…"
-          style={{ marginBottom: 8 }}
+          aria-label="Reminder text"
         />
         <input
           className="input"
           type="datetime-local"
           value={when}
           onChange={(e) => setWhen(e.target.value)}
-          style={{ marginBottom: 8 }}
+          aria-label="Reminder time"
         />
-        <Button block onClick={add}>
+        <Button block onClick={add} disabled={!text.trim()}>
           <Icon name="plus" size={18} /> Add reminder
         </Button>
       </div>
@@ -88,11 +88,12 @@ export function RemindersScreen() {
           hint="Time-based or condition-based — ask the assistant or add one here."
         />
       ) : (
-        items.map((r) => (
+        <div className="stack">
+        {items.map((r) => (
           <div className="row" key={r.id}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600 }}>{r.text}</div>
-              <div className="faint">
+              <div className="row-title">{r.text}</div>
+              <div className="row-subtitle">
                 {r.due_at
                   ? fmtDue(r.due_at)
                   : r.condition
@@ -103,15 +104,15 @@ export function RemindersScreen() {
             </div>
             {r.fired && <span className="pill">done</span>}
             <button
-              className="btn ghost"
-              style={{ minHeight: 'auto', padding: 4 }}
+              className="btn ghost icon"
               onClick={() => remove(r.id)}
               aria-label="Delete reminder"
             >
               <Icon name="trash" size={18} />
             </button>
           </div>
-        ))
+        ))}
+        </div>
       )}
     </div>
   );

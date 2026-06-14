@@ -26,6 +26,7 @@ const TITLES: Record<string, string> = {
   '/memory': 'Memory',
   '/personalities': 'Personalities',
   '/settings': 'Settings & Privacy',
+  '/models': 'Models',
   '/devices': 'Paired Devices',
   '/fabric': 'Edge Devices',
   '/instruments': 'Instruments',
@@ -48,8 +49,7 @@ export function Layout() {
       <header className="app-header">
         {!isPrimary && (
           <button
-            className="btn ghost"
-            style={{ padding: 4, minHeight: 'auto' }}
+            className="btn ghost icon"
             onClick={() => navigate(-1)}
             aria-label="Back"
           >
@@ -59,13 +59,9 @@ export function Layout() {
         <h1>{title}</h1>
         {remote && <span className="pill">relay</span>}
         <span
+          className={`dot${online ? ' good' : ''}`}
           title={online ? 'connected' : 'offline'}
-          style={{
-            width: 9,
-            height: 9,
-            borderRadius: '50%',
-            background: online ? 'var(--good)' : 'var(--text-faint)',
-          }}
+          aria-label={online ? 'Connected' : 'Offline'}
         />
       </header>
 

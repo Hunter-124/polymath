@@ -24,7 +24,7 @@ function InRangePill({ inRange }: { inRange: boolean | undefined }) {
       style={
         inRange
           ? {}
-          : { background: 'var(--danger, #e53e3e)', color: '#fff', borderColor: 'transparent' }
+          : { background: 'var(--bad-soft)', color: 'var(--bad)', borderColor: 'transparent' }
       }
     >
       {inRange ? 'in range' : 'out of range'}
@@ -69,10 +69,8 @@ export function InstrumentsScreen() {
 
   return (
     <div className="app-content">
-      <div
-        style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}
-      >
-        <button className="btn ghost" style={{ padding: '0 12px', minHeight: 36 }} onClick={load}>
+      <div className="toolbar">
+        <button className="btn ghost icon" onClick={load} aria-label="Refresh instruments">
           <Icon name="refresh" size={16} />
         </button>
       </div>
@@ -86,7 +84,8 @@ export function InstrumentsScreen() {
           hint="Lab instruments announce themselves when connected to the hub."
         />
       ) : (
-        instruments.map((ins) => {
+        <div className="stack">
+        {instruments.map((ins) => {
           const r = readings[ins.id];
           return (
             <div key={ins.id} className="row" style={{ alignItems: 'flex-start' }}>
@@ -120,7 +119,7 @@ export function InstrumentsScreen() {
                   color: r
                     ? r.in_range
                       ? 'var(--good)'
-                      : 'var(--danger, #e53e3e)'
+                      : 'var(--bad)'
                     : 'var(--text-faint)',
                   textAlign: 'right',
                   minWidth: 80,
@@ -130,7 +129,8 @@ export function InstrumentsScreen() {
               </div>
             </div>
           );
-        })
+        })}
+        </div>
       )}
     </div>
   );

@@ -43,20 +43,15 @@ export function DevicesScreen() {
       ) : devices.length === 0 ? (
         <EmptyState icon={<Icon name="devices" size={34} />} title="No devices paired" />
       ) : (
-        devices.map((d) => (
+        <div className="stack">
+        {devices.map((d) => (
           <div className="row" key={d.device_id} style={{ alignItems: 'flex-start' }}>
             <span
-              style={{
-                width: 9,
-                height: 9,
-                borderRadius: '50%',
-                marginTop: 7,
-                flex: '0 0 auto',
-                background: d.online ? 'var(--good)' : 'var(--text-faint)',
-              }}
+              className={`dot${d.online ? ' good' : ''}`}
+              style={{ marginTop: 7 }}
             />
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600 }}>
+              <div className="row-title">
                 {d.name}
                 {d.role === 'owner' && (
                   <span className="pill" style={{ marginLeft: 6 }}>
@@ -64,7 +59,7 @@ export function DevicesScreen() {
                   </span>
                 )}
               </div>
-              <div className="faint">
+              <div className="row-subtitle">
                 {d.platform} · seen {relativeTime(d.last_seen)}
               </div>
             </div>
@@ -76,7 +71,8 @@ export function DevicesScreen() {
               Revoke
             </Button>
           </div>
-        ))
+        ))}
+        </div>
       )}
     </div>
   );

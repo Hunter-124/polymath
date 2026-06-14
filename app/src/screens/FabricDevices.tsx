@@ -22,13 +22,9 @@ const KIND_LABEL: Record<string, string> = {
 function OnlineDot({ online }: { online: boolean }) {
   return (
     <span
+      className={`dot${online ? ' good' : ''}`}
       style={{
-        width: 9,
-        height: 9,
-        borderRadius: '50%',
-        flex: '0 0 auto',
         marginTop: 6,
-        background: online ? 'var(--good)' : 'var(--text-faint)',
       }}
     />
   );
@@ -73,14 +69,8 @@ export function FabricDevicesScreen() {
 
   return (
     <div className="app-content">
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'flex-end',
-          marginBottom: 10,
-        }}
-      >
-        <button className="btn ghost" style={{ padding: '0 12px', minHeight: 36 }} onClick={load}>
+      <div className="toolbar">
+        <button className="btn ghost icon" onClick={load} aria-label="Refresh devices">
           <Icon name="refresh" size={16} />
         </button>
       </div>
@@ -92,27 +82,32 @@ export function FabricDevicesScreen() {
           hint="Devices announce themselves automatically when they come online."
         />
       ) : (
-        sorted.map((d) => (
+        <div className="stack">
+        {sorted.map((d) => {
+          const openClips = () => navigate(`/clips/${encodeURIComponent(d.device_id)}`);
+          return (
           <div
             key={d.device_id}
             className="row"
             role={d.kind === 'camera' ? 'button' : undefined}
-            style={{ alignItems: 'flex-start', cursor: d.kind === 'camera' ? 'pointer' : 'default' }}
-            onClick={
+            tabIndex={d.kind === 'camera' ? 0 : undefined}
+            style={{ alignItems: 'flex-start' }}
+            onClick={d.kind === 'camera' ? openClips : undefined}
+            onKeyDown={
               d.kind === 'camera'
-                ? () => navigate(`/clips/${encodeURIComponent(d.device_id)}`)
+                ? (e) => (e.key === 'Enter' || e.key === ' ') && openClips()
                 : undefined
             }
           >
             <OnlineDot online={d.online} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, display: 'flex', gap: 6, alignItems: 'center' }}>
+              <div className="row-title" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 {d.name}
                 <span className="pill" style={{ fontWeight: 400 }}>
                   {KIND_LABEL[d.kind] ?? d.kind}
                 </span>
               </div>
-              <div className="faint">
+              <div className="row-subtitle">
                 {d.location ? `${d.location} · ` : ''}
                 {d.fw_version ? `fw ${d.fw_version} · ` : ''}
                 seen {relativeTime(d.last_seen)}
@@ -129,7 +124,9 @@ export function FabricDevicesScreen() {
               </span>
             )}
           </div>
-        ))
+        );
+        })}
+        </div>
       )}
     </div>
   );

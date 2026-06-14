@@ -52,7 +52,11 @@ export function SettingsScreen() {
       {privacyKeys.map((k) => (
         <div className="row" key={k}>
           <span style={{ flex: 1 }}>{PRIVACY_LABELS[k]}</span>
-          <Toggle checked={get(k) === 'true'} onChange={(v) => save(k, String(v))} />
+          <Toggle
+            checked={get(k) === 'true'}
+            onChange={(v) => save(k, String(v))}
+            label={PRIVACY_LABELS[k]}
+          />
         </div>
       ))}
 
@@ -62,6 +66,7 @@ export function SettingsScreen() {
         <input
           className="input"
           type="number"
+          min={0}
           style={{ width: 90 }}
           value={get('retention.ambient_days', '7')}
           onChange={(e) => setLocal('retention.ambient_days', e.target.value)}
@@ -73,6 +78,7 @@ export function SettingsScreen() {
         <input
           className="input"
           type="number"
+          min={0}
           style={{ width: 90 }}
           value={get('retention.events_days', '30')}
           onChange={(e) => setLocal('retention.events_days', e.target.value)}
@@ -85,6 +91,7 @@ export function SettingsScreen() {
         <span style={{ flex: 1 }}>Quiet hours start</span>
         <input
           className="input"
+          type="time"
           style={{ width: 110 }}
           value={get('behavior.quiet_start', '22:00')}
           onChange={(e) => setLocal('behavior.quiet_start', e.target.value)}
@@ -95,6 +102,7 @@ export function SettingsScreen() {
         <span style={{ flex: 1 }}>Quiet hours end</span>
         <input
           className="input"
+          type="time"
           style={{ width: 110 }}
           value={get('behavior.quiet_end', '07:00')}
           onChange={(e) => setLocal('behavior.quiet_end', e.target.value)}
