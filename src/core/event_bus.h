@@ -68,6 +68,14 @@ public:
     // glowing border while active and an activity-log line. (bool+QString are
     // built-in metatypes — no Q_DECLARE_METATYPE needed.)
     void publishDesktopControl(bool active, const QString& action) { emit desktopControl(active, action); }
+    // Camera vision Q&A: an agent tool asks a free-form question about a camera's
+    // CURRENT view; VisionService answers from the latest buffered frame via the
+    // VLM and replies on cameraAnswer, correlated by request_id (camera_id<0 =
+    // "most recently active camera"). (QString/int/bool are built-in metatypes.)
+    void publishCameraQuery(const QString& request_id, const QString& question, int camera_id)
+        { emit cameraQuery(request_id, question, camera_id); }
+    void publishCameraAnswer(const QString& request_id, const QString& answer, int camera_id, bool ok)
+        { emit cameraAnswer(request_id, answer, camera_id, ok); }
 
 signals:
     // --- audio ---
@@ -91,6 +99,9 @@ signals:
     void labStep(const polymath::LabStepEvent&);
     // --- computer use (the assistant driving the desktop) ---
     void desktopControl(bool active, QString action);
+    // --- camera vision Q&A (request -> VisionService -> answer) ---
+    void cameraQuery(QString request_id, QString question, int camera_id);
+    void cameraAnswer(QString request_id, QString answer, int camera_id, bool ok);
     // --- system ---
     void privacyChanged(const polymath::PrivacyChanged&);
     void notice(const polymath::Notice&);               // log/toast surface

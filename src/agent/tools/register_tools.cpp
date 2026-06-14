@@ -57,6 +57,8 @@ void registerBuiltinTools(ToolRegistry& reg) {
     // Home / cameras (events table + EventBus).
     reg.add(std::make_shared<CameraSnapshotTool>());
     reg.add(std::make_shared<WhoIsHomeTool>());
+    // Live camera vision Q&A (VLM on the current frame, via VisionService).
+    reg.add(std::make_shared<DescribeCameraTool>());
 
     // Deep-task queue (tasks table).
     reg.add(std::make_shared<QueueDeepTaskTool>());
