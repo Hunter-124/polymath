@@ -88,9 +88,10 @@ void testAllToolsDirect(const std::filesystem::path& root) {
     //  read_instrument, record_measurement, and the 4 lab-session tools: 17 -> 23.
     //  v3 document RAG added search_documents + reindex_documents: 23 -> 25.
     //  Computer-use added look_at_screen + computer_click/type/key/scroll: 25 -> 30.
-    //  Camera vision Q&A added describe_camera: 30 -> 31. calculate: 31 -> 32.)
+    //  Camera vision Q&A added describe_camera: 30 -> 31. calculate: 31 -> 32.
+    //  convert_units: 32 -> 33.)
     const auto names = reg.names();
-    assert(names.size() == 32 && "expected 32 builtin tools");
+    assert(names.size() == 33 && "expected 33 builtin tools");
     for (const char* n : {"shopping_add", "shopping_list", "shopping_remove",
                           "web_search", "fetch_page", "browser_drive", "draft_document",
                           "generate_lab_report", "print_document", "print_image",
@@ -100,7 +101,7 @@ void testAllToolsDirect(const std::filesystem::path& root) {
                           "next_lab_step", "verify_lab_step", "finish_lab_session",
                           "search_documents", "reindex_documents",
                           "look_at_screen", "computer_click", "computer_type",
-                          "computer_key", "computer_scroll", "calculate"})
+                          "computer_key", "computer_scroll", "calculate", "convert_units"})
         assert(reg.get(n) != nullptr && "missing builtin tool");
 
     ToolContext ctx;
@@ -346,6 +347,30 @@ void testAllToolsDirect(const std::filesystem::path& root) {
         assert(!calc("1 / 0").ok        && "division by zero (non-finite) rejected");
         assert(!calc("frobnicate(2)").ok && "unknown function rejected");
         std::puts("  [ok] calculate (precedence / functions / errors)");
+    }
+
+    // --- convert_units (exact conversion; cross-category guard) --------------
+    {
+        auto conv = [&](double v, const char* from, const char* to) {
+            return reg.get("convert_units")->invoke(
+                {{"value", v}, {"from", from}, {"to", to}}, ctx);
+        };
+        auto approx = [](double a, double b) { double d = a - b; return d < 1e-6 && d > -1e-6; };
+        auto val = [&](double v, const char* from, const char* to) {
+            auto r = conv(v, from, to);
+            assert(r.ok && "convert_units should succeed for same-category units");
+            return r.content["result"].get<double>();
+        };
+
+        assert(approx(val(1, "kg", "g"), 1000.0)   && "mass kg->g");
+        assert(approx(val(100, "C", "F"), 212.0)   && "temperature C->F (offset)");
+        assert(approx(val(0, "C", "K"), 273.15)    && "temperature C->K (offset)");
+        assert(approx(val(1, "mi", "km"), 1.609344) && "length mi->km");
+        assert(approx(val(2, "L", "ml"), 2000.0)   && "volume L->mL");
+
+        assert(!conv(1, "kg", "L").ok  && "cross-category (mass vs volume) rejected");
+        assert(!conv(1, "foo", "g").ok && "unknown unit rejected");
+        std::puts("  [ok] convert_units (mass/temp/length/volume + guards)");
     }
 
     // --- queue_deep_task -> tasks queue -------------------------------------

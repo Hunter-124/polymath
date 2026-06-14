@@ -15,6 +15,7 @@
 #include "doc_rag.h"
 #include "computer_tools.h"
 #include "calc_tool.h"
+#include "convert_tool.h"
 
 #include "logging.h"
 
@@ -61,8 +62,9 @@ void registerBuiltinTools(ToolRegistry& reg) {
     // Live camera vision Q&A (VLM on the current frame, via VisionService).
     reg.add(std::make_shared<DescribeCameraTool>());
 
-    // Deterministic math (LLMs fumble arithmetic; lab/home calcs need exact results).
+    // Deterministic math + units (LLMs fumble arithmetic; lab/home calcs need exact results).
     reg.add(std::make_shared<CalculateTool>());
+    reg.add(std::make_shared<ConvertUnitsTool>());
 
     // Deep-task queue (tasks table).
     reg.add(std::make_shared<QueueDeepTaskTool>());
