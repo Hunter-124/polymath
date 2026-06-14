@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 
 // whisper.cpp is gated by POLYMATH_HAVE_WHISPER (set by CMake when the
 // third_party/whisper.cpp submodule is present). Without it the module still
@@ -14,6 +15,7 @@
 // older release, whisper_init_from_file (no params) is the fallback.
 #if defined(POLYMATH_HAVE_WHISPER)
 #  include "whisper.h"
+#  include <ggml-backend.h>   // ggml_backend_load_all() — register runtime backend DLLs
 #endif
 
 namespace polymath::audio {
@@ -41,6 +43,14 @@ bool AsrWhisper::load(const std::filesystem::path& model_path, Mode mode) {
         return false;
     }
 #if defined(POLYMATH_HAVE_WHISPER)
+    // A GGML_BACKEND_DL build ships ggml's backends as separate DLLs that must be
+    // registered before ANY ggml engine (llama OR whisper) is used. The inference
+    // module also does this, but ASR can initialise first — and the audio test links
+    // no inference module — so ensure it once here. Idempotent; a harmless no-op when
+    // the backends are statically linked.
+    static std::once_flag s_ggmlBackends;
+    std::call_once(s_ggmlBackends, [] { ggml_backend_load_all(); });
+
     whisper_context_params cparams = whisper_context_default_params();
     // GPU offload helps the larger command model; ambient/tiny is fine on CPU.
     cparams.use_gpu = (mode == Mode::Command);

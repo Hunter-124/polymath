@@ -4,6 +4,7 @@
 #include "bridge.h"
 #include "config.h"
 #include "database.h"
+#include "fabric_service.h"
 #include "gateway_db.h"
 #include "json_map.h"
 #include "logging.h"
@@ -67,8 +68,9 @@ Response Response::noContent() {
 
 // ─── construction ───────────────────────────────────────────────────────────
 
-HttpRouter::HttpRouter(IAssistantBridge& bridge, Database& db, Config& cfg, Auth& auth)
-    : bridge_(bridge), db_(db), cfg_(cfg), auth_(auth) {
+HttpRouter::HttpRouter(IAssistantBridge& bridge, Database& db, Config& cfg, Auth& auth,
+                       FabricService* fabric)
+    : bridge_(bridge), db_(db), cfg_(cfg), auth_(auth), fabric_(fabric) {
     start_unix_ = jm::nowUnix();
 }
 
@@ -184,6 +186,11 @@ Response HttpRouter::handle(const QString& method,
     if (resource == QLatin1String("models"))        return routeModels(req);
     if (resource == QLatin1String("settings"))      return routeSettings(req, p);
     if (resource == QLatin1String("devices"))       return routeDevices(req, p);
+
+    // --- device fabric (v2) ----------------------------------------------
+    if (resource == QLatin1String("fabric"))      return routeFabric(req, p);
+    if (resource == QLatin1String("instruments")) return routeInstruments(req, p);
+    if (resource == QLatin1String("lab"))         return routeLab(req, p);
 
     // /events is the WebSocket upgrade path, handled by http_server, not here.
     if (resource == QLatin1String("events"))
@@ -312,10 +319,14 @@ Response HttpRouter::routeChatHistory(const Request& req, const Parsed& p) {
 
 Response HttpRouter::routeCameras(const Request& req, const Parsed& p, const QString& /*token*/) {
     // /cameras                       -> list
-    // /cameras/:id/snapshot|stream   -> media proxy
+    // /cameras/:id/snapshot|stream   -> media proxy (GET)
+    // /cameras/:id/events            -> edge detection+clip ingest (POST, fabric)
+    // /cameras/:id/frame             -> live UI tile push (POST, fabric)
     if (p.segments.size() >= 5) {
         const int cameraId = p.segments[3].toInt();
-        const QString kind = p.segments[4];   // "snapshot" | "stream"
+        const QString kind = p.segments[4];
+        if (kind == QLatin1String("events")) return routeCameraEvents(req, cameraId);
+        if (kind == QLatin1String("frame"))  return routeCameraFrame(req, cameraId);
         if (req.method != QLatin1String("GET"))
             return Response::error(405, "method_not_allowed", "use GET");
         return routeCameraMedia(req, cameraId, kind);
@@ -556,12 +567,12 @@ Response HttpRouter::routeTimeline(const Request& req, const Parsed& p) {
     json arr = json::array();
     if (hasBefore) {
         db_.query(
-            "SELECT id,kind,camera_id,user_id,label,thumb_path,ts FROM events "
+            "SELECT id,kind,camera_id,user_id,label,thumb_path,ts,clip_url,confidence FROM events "
             "WHERE ts < ?1 ORDER BY ts DESC LIMIT ?2",
             {before, limit}, [&](const Row& r) { arr.push_back(jm::timelineEventFromRow(r)); });
     } else {
         db_.query(
-            "SELECT id,kind,camera_id,user_id,label,thumb_path,ts FROM events "
+            "SELECT id,kind,camera_id,user_id,label,thumb_path,ts,clip_url,confidence FROM events "
             "ORDER BY ts DESC LIMIT ?1",
             {limit}, [&](const Row& r) { arr.push_back(jm::timelineEventFromRow(r)); });
     }
@@ -743,6 +754,163 @@ Response HttpRouter::routeDevices(const Request& req, const Parsed& p) {
     }
 
     return Response::error(405, "method_not_allowed", "use GET or DELETE");
+}
+
+// ─── device fabric (v2) ──────────────────────────────────────────────────────
+
+// GET  /fabric/devices            -> edge-device registry (optional ?kind=)
+// GET  /fabric/devices/:id        -> one device
+// POST /fabric/devices/announce   -> device self-registration (docs/FABRIC.md §3)
+// DELETE /fabric/devices/:id      -> forget a device
+Response HttpRouter::routeFabric(const Request& req, const Parsed& p) {
+    if (!fabric_) return Response::error(503, "fabric_unavailable", "device fabric not running");
+    // p.segments: api, v1, fabric, <sub>, <id-or-action>
+    const QString sub = p.segments.size() > 3 ? p.segments[3] : QString();
+    if (sub != QLatin1String("devices"))
+        return Response::error(404, "not_found", "unknown fabric resource");
+
+    const QString tail = p.segments.size() > 4 ? p.segments[4] : QString();
+
+    if (tail == QLatin1String("announce") && req.method == QLatin1String("POST")) {
+        json b; Response err;
+        if (!parseBody(req.body, b, err)) return err;
+        const std::string id = fabric_->ingestAnnounce(b);
+        if (id.empty()) return Response::error(400, "bad_announce", "device_id required");
+        return Response::json(201, json{{"device_id", id}}.dump());
+    }
+
+    if (tail.isEmpty() && req.method == QLatin1String("GET")) {
+        const std::string kind = p.query.value(QStringLiteral("kind")).toStdString();
+        json arr = json::array();
+        for (const auto& d : fabric_->registry().list(kind))
+            arr.push_back(jm::edgeDeviceToJson(d));
+        return Response::json(200, arr.dump());
+    }
+
+    if (!tail.isEmpty() && req.method == QLatin1String("GET")) {
+        auto d = fabric_->registry().get(tail.toStdString());
+        if (!d) return Response::error(404, "not_found", "device not found");
+        return Response::json(200, jm::edgeDeviceToJson(*d).dump());
+    }
+
+    if (!tail.isEmpty() && req.method == QLatin1String("DELETE")) {
+        db_.exec("DELETE FROM edge_devices WHERE id=?1", {tail.toStdString()});
+        return Response::noContent();
+    }
+
+    return Response::error(405, "method_not_allowed", "unsupported method for /fabric/devices");
+}
+
+// GET /instruments              -> all instruments + their latest reading
+// GET /instruments/:id/read     -> latest reading for one instrument
+Response HttpRouter::routeInstruments(const Request& req, const Parsed& p) {
+    if (req.method != QLatin1String("GET"))
+        return Response::error(405, "method_not_allowed", "use GET");
+
+    const bool hasId = p.segments.size() >= 4;
+    const std::string id = hasId ? p.segments[3].toStdString() : std::string();
+    const bool readLatest = p.segments.size() >= 5 && p.segments[4] == QLatin1String("read");
+
+    if (hasId && readLatest) {
+        json out = json::value_t::null;
+        db_.query("SELECT value,unit,in_range,ts FROM measurements WHERE instrument_id=?1 "
+                  "ORDER BY ts DESC LIMIT 1", {id}, [&](const Row& r) {
+                      out = json{{"instrument_id", id}, {"value", r.dbl(0)},
+                                 {"unit", r.text(1)}, {"in_range", r.i64(2) != 0},
+                                 {"ts", r.i64(3)}};
+                  });
+        if (out.is_null()) return Response::error(404, "no_reading", "no reading yet");
+        return Response::json(200, out.dump());
+    }
+
+    json arr = json::array();
+    db_.query("SELECT id,device_id,name,channel,unit,device_class,expected_min,expected_max "
+              "FROM instruments ORDER BY device_class, name", {},
+              [&](const Row& r) { arr.push_back(jm::instrumentFromRow(r)); });
+    return Response::json(200, arr.dump());
+}
+
+// GET  /lab/sessions        -> recent sessions
+// GET  /lab/sessions/:id     -> one session + its steps
+// POST /lab/sessions         -> create a session { title, objective? }
+Response HttpRouter::routeLab(const Request& req, const Parsed& p) {
+    // p.segments: api, v1, lab, sessions, :id
+    const QString sub = p.segments.size() > 3 ? p.segments[3] : QString();
+    if (sub != QLatin1String("sessions"))
+        return Response::error(404, "not_found", "unknown lab resource");
+    const bool hasId = p.segments.size() >= 5;
+    const int64_t id = hasId ? p.segments[4].toLongLong() : 0;
+
+    if (!hasId && req.method == QLatin1String("GET")) {
+        json arr = json::array();
+        db_.query("SELECT id,title,objective,status,report_doc_id,started_at,ended_at "
+                  "FROM lab_sessions ORDER BY started_at DESC LIMIT 200", {},
+                  [&](const Row& r) { arr.push_back(jm::labSessionFromRow(r)); });
+        return Response::json(200, arr.dump());
+    }
+
+    if (!hasId && req.method == QLatin1String("POST")) {
+        json b; Response err;
+        if (!parseBody(req.body, b, err)) return err;
+        const std::string title = b.value("title", std::string());
+        if (title.empty()) return Response::error(400, "missing_title", "title is required");
+        const std::string objective = b.value("objective", std::string());
+        const int64_t now = jm::nowUnix();
+        const int64_t newId = db_.exec(
+            "INSERT INTO lab_sessions(title,objective,status,started_at) "
+            "VALUES(?1,?2,'active',?3)", {title, objective, now});
+        json created;
+        db_.query("SELECT id,title,objective,status,report_doc_id,started_at,ended_at "
+                  "FROM lab_sessions WHERE id=?1", {newId},
+                  [&](const Row& r) { created = jm::labSessionFromRow(r); });
+        return Response::json(201, created.dump());
+    }
+
+    if (hasId && req.method == QLatin1String("GET")) {
+        json session = json::value_t::null;
+        db_.query("SELECT id,title,objective,status,report_doc_id,started_at,ended_at "
+                  "FROM lab_sessions WHERE id=?1", {id},
+                  [&](const Row& r) { session = jm::labSessionFromRow(r); });
+        if (session.is_null()) return Response::error(404, "not_found", "session not found");
+        json steps = json::array();
+        db_.query("SELECT step_no,prompt,expected_kind,expected_unit,measured_value,"
+                  "measured_unit,verified,verified_at FROM lab_session_steps "
+                  "WHERE session_id=?1 ORDER BY step_no ASC", {id},
+                  [&](const Row& r) {
+                      steps.push_back(json{
+                          {"step_no", r.i64(0)}, {"prompt", r.text(1)},
+                          {"expected_kind", r.text(2)}, {"expected_unit", r.text(3)},
+                          {"measured_value", r.isNull(4) ? json(nullptr) : json(r.dbl(4))},
+                          {"measured_unit", r.text(5)}, {"verified", r.i64(6) != 0},
+                          {"verified_at", r.isNull(7) ? json(nullptr) : json(r.i64(7))}});
+                  });
+        session["steps"] = steps;
+        return Response::json(200, session.dump());
+    }
+
+    return Response::error(405, "method_not_allowed", "unsupported method for /lab/sessions");
+}
+
+// POST /cameras/:id/events  -> edge camera detection + clip metadata (FABRIC.md §4)
+Response HttpRouter::routeCameraEvents(const Request& req, int cameraId) {
+    if (!fabric_) return Response::error(503, "fabric_unavailable", "device fabric not running");
+    if (req.method != QLatin1String("POST"))
+        return Response::error(405, "method_not_allowed", "use POST");
+    json b; Response err;
+    if (!parseBody(req.body, b, err)) return err;
+    const int64_t eventId = fabric_->ingestCameraEvent(cameraId, b);
+    if (eventId < 0) return Response::error(400, "bad_event", "could not record event");
+    return Response::json(201, json{{"event_id", eventId}}.dump());
+}
+
+// POST /cameras/:id/frame  -> raw JPEG body, pushed as a live UI tile.
+Response HttpRouter::routeCameraFrame(const Request& req, int cameraId) {
+    if (!fabric_) return Response::error(503, "fabric_unavailable", "device fabric not running");
+    if (req.method != QLatin1String("POST"))
+        return Response::error(405, "method_not_allowed", "use POST");
+    if (req.body.isEmpty()) return Response::error(400, "empty_body", "JPEG body required");
+    fabric_->ingestFrame(cameraId, req.body);
+    return Response::noContent();
 }
 
 // ─── media file serving ─────────────────────────────────────────────────────

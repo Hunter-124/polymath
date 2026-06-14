@@ -13,12 +13,16 @@
 #include "memory_service.h"
 #include "agent_runtime.h"
 #include "personality_manager.h"
+#include "desktop_controller.h"
+#include "global_hotkey.h"
 
 #include "chat_model.h"
 #include "shopping_model.h"
 #include "camera_model.h"
 #include "task_model.h"
 #include "timeline_model.h"
+#include "lab_model.h"
+#include "instrument_model.h"
 #include "camera_image_provider.h"
 
 #include "app_bridge.h"
@@ -94,6 +98,7 @@ bool AppController::initialize() {
     threads_.push_back(runOnThread(vision_.get(), vision_.get()));
     threads_.push_back(runOnThread(audio_.get(), audio_.get()));
     personality_->start();   // lightweight: stays on the UI thread
+    updateActivePersona();   // seed the avatar/name map before the first switch
 
     // --- mobile/web gateway (LAN HTTP+WS, optional relay tunnel) ---
     // The bridge forwards the narrow IAssistantBridge surface to this controller.
@@ -108,11 +113,66 @@ bool AppController::initialize() {
     gateway_ = std::make_unique<GatewayService>(*bridge_, db_, *config_);
     gateway_->start();
 
+    // --- global quick-ask hotkey ---
+    // System-wide pop-over: hit the chord from any app and an ask box appears.
+    // Created on the GUI thread so its native event filter sees WM_HOTKEY. We try
+    // a few chords in order and use the first the OS grants — Ctrl+Alt+Space is
+    // commonly free but not guaranteed, so we fall back rather than silently lose
+    // the feature. All-taken is non-fatal (the in-app affordances still work).
+    hotkey_ = std::make_unique<GlobalHotkey>(this);
+    connect(hotkey_.get(), &GlobalHotkey::triggered, this, &AppController::toggleQuickAsk);
+    constexpr unsigned int kVkSpace = 0x20;   // Win32 VK_SPACE / 'H' (avoids windows.h here)
+    constexpr unsigned int kVkH     = 0x48;
+    struct Chord { unsigned int mods; unsigned int vk; const char* label; };
+    const Chord chords[] = {
+        { GlobalHotkey::Control | GlobalHotkey::Alt,   kVkSpace, "Ctrl+Alt+Space"   },
+        { GlobalHotkey::Control | GlobalHotkey::Shift, kVkSpace, "Ctrl+Shift+Space" },
+        { GlobalHotkey::Control | GlobalHotkey::Alt,   kVkH,     "Ctrl+Alt+H"       },
+        { GlobalHotkey::Control | GlobalHotkey::Shift, kVkH,     "Ctrl+Shift+H"     },
+    };
+    const char* active = nullptr;
+    int idx = 0;
+    for (const auto& c : chords) {
+        if (hotkey_->registerHotkey(c.mods, c.vk)) { active = c.label; break; }
+        ++idx;
+    }
+    if (active) {
+        PM_INFO("AppController: quick-ask hotkey registered ({})", active);
+        // Tell the user only when we had to fall back off the documented default.
+        if (idx != 0)
+            EventBus::instance().publishNotice({"info", "Quick ask",
+                QStringLiteral("Ctrl+Alt+Space was taken — quick-ask is %1.")
+                    .arg(QLatin1String(active))});
+    } else {
+        PM_WARN("AppController: no quick-ask hotkey could be registered "
+                "(all candidate chords are taken)");
+    }
+
     PM_INFO("AppController initialized");
     return true;
 }
 
 QObject* AppController::gateway() const { return gateway_.get(); }
+
+void AppController::updateActivePersona() {
+    const Personality& p = personality_->active();
+    active_personality_ = QString::fromStdString(p.name);
+
+    auto fileUrl = [](const std::string& s) -> QString {
+        return s.empty() ? QString()
+                         : QUrl::fromLocalFile(QString::fromStdString(s)).toString();
+    };
+    QVariantMap m;
+    m["name"]    = active_personality_;
+    m["style"]   = QString::fromStdString(p.avatar_style.empty() ? "orb" : p.avatar_style);
+    m["accent"]  = QString::fromStdString(p.avatar_accent);   // "" -> QML uses theme accent
+    m["idle"]    = fileUrl(p.avatar_idle);
+    m["talking"] = fileUrl(p.avatar_talking);
+    active_persona_ = m;
+
+    emit activePersonalityChanged();
+    emit activePersonaChanged();
+}
 
 void AppController::wireEventBus() {
     auto& bus = EventBus::instance();
@@ -142,11 +202,30 @@ void AppController::wireEventBus() {
         listening_ = on; emit listeningChanged();
     });
 
-    // Personality switch -> UI property
+    // TTS playback state -> UI property (drives the talking-avatar animation).
+    connect(audio_.get(), &AudioService::speakingStateChanged, this, [this](bool on) {
+        if (speaking_ == on) return;
+        speaking_ = on; emit speakingChanged();
+    });
+
+    // Computer-use drive state -> the glowing overlay. Each action republishes
+    // active=true; we linger ~4s after the last one so the border doesn't flicker
+    // between consecutive steps, then auto-clear it.
+    control_linger_.setSingleShot(true);
+    control_linger_.setInterval(4000);
+    connect(&control_linger_, &QTimer::timeout, this, [this] {
+        if (!controlling_) return;
+        controlling_ = false; control_action_.clear(); emit controllingChanged();
+    });
+    connect(&bus, &EventBus::desktopControl, this, [this](bool active, const QString& action) {
+        if (!active) return;
+        controlling_ = true; control_action_ = action; emit controllingChanged();
+        control_linger_.start();
+    });
+
+    // Personality switch -> UI properties (display name + the avatar "face").
     connect(personality_.get(), &PersonalityManager::activeChanged, this,
-            [this](const QString& name, const QString&) {
-                active_personality_ = name; emit activePersonalityChanged();
-            });
+            [this](const QString&, const QString&) { updateActivePersona(); });
 
     // Model status -> UI property. A load/unload also means the registry-derived
     // hasModels/firstRun state may have changed (e.g. the Fast model became
@@ -168,6 +247,8 @@ void AppController::buildModels() {
     camera_model_   = std::make_unique<CameraModel>(db_, this);
     task_model_     = std::make_unique<TaskModel>(db_, this);
     timeline_model_ = std::make_unique<TimelineModel>(db_, this);
+    lab_model_        = std::make_unique<LabModel>(db_, this);
+    instrument_model_ = std::make_unique<InstrumentModel>(db_, this);
     image_provider_ = new CameraImageProvider();   // engine takes ownership later
 
     // Initial population from SQLite (tables are the source of truth).
@@ -175,6 +256,8 @@ void AppController::buildModels() {
     camera_model_->refresh();
     task_model_->refresh();
     timeline_model_->refresh();
+    lab_model_->refresh();
+    instrument_model_->refresh();
 }
 
 void AppController::wireModels() {
@@ -214,6 +297,12 @@ void AppController::wireModels() {
     connect(&bus, &EventBus::notice, timeline_model_.get(), [this](const Notice& n) {
         if (n.source == QLatin1String("memory")) timeline_model_->refresh();
     });
+
+    // Device fabric (v0.2): the guided lab agent's step progress -> LabModel, and
+    // pushed instrument readings -> InstrumentModel (queued from the agent / fabric).
+    connect(&bus, &EventBus::labStep, lab_model_.get(), &LabModel::onLabStep);
+    connect(&bus, &EventBus::instrumentReading, instrument_model_.get(),
+            &InstrumentModel::onReading);
 }
 
 void AppController::registerWithEngine(QQmlApplicationEngine& engine) {
@@ -229,6 +318,8 @@ void AppController::registerWithEngine(QQmlApplicationEngine& engine) {
     ctx->setContextProperty("cameraModel",   camera_model_.get());
     ctx->setContextProperty("taskModel",     task_model_.get());
     ctx->setContextProperty("timelineModel", timeline_model_.get());
+    ctx->setContextProperty("labModel",        lab_model_.get());
+    ctx->setContextProperty("instrumentModel", instrument_model_.get());
     // Mobile gateway pairing helpers for Settings ▸ Mobile Access (remote toggle,
     // pairing payload/QR, connected-device count). Its Q_INVOKABLEs are
     // thread-safe (auth pair-code store is mutex-guarded; the relay toggle
@@ -241,6 +332,8 @@ QObject* AppController::shoppingModel() const { return shopping_model_.get(); }
 QObject* AppController::cameraModel() const   { return camera_model_.get(); }
 QObject* AppController::taskModel() const     { return task_model_.get(); }
 QObject* AppController::timelineModel() const { return timeline_model_.get(); }
+QObject* AppController::labModel() const        { return lab_model_.get(); }
+QObject* AppController::instrumentModel() const { return instrument_model_.get(); }
 
 void AppController::shutdown() {
     // Stop feeding the (engine-owned) image provider and detach the bus from the
@@ -251,9 +344,14 @@ void AppController::shutdown() {
     if (camera_model_)   disconnect(&bus, nullptr, camera_model_.get(),   nullptr);
     if (task_model_)     disconnect(&bus, nullptr, task_model_.get(),     nullptr);
     if (timeline_model_) disconnect(&bus, nullptr, timeline_model_.get(), nullptr);
+    if (lab_model_)        disconnect(&bus, nullptr, lab_model_.get(),        nullptr);
+    if (instrument_model_) disconnect(&bus, nullptr, instrument_model_.get(), nullptr);
     // The frame-feed lambda is owned by `this` as the connection context.
     disconnect(&bus, &EventBus::frameReady, this, nullptr);
     image_provider_ = nullptr;   // ownership belongs to the QML engine
+
+    // Unregister the global hotkey before the event loop winds down.
+    hotkey_.reset();
 
     // Stop the gateway first (it lives on this UI thread): close its listener and
     // relay so no mobile request is handled while the workers it bridges to are
@@ -266,6 +364,7 @@ void AppController::shutdown() {
     // Drop the UI models (parented to this, but reset explicitly for order).
     chat_model_.reset(); shopping_model_.reset(); camera_model_.reset();
     task_model_.reset(); timeline_model_.reset();
+    lab_model_.reset(); instrument_model_.reset();
 
     // Gateway first (its thread is already joined above): it holds refs to the
     // bridge, db_ and config_, so it must die before them.
@@ -343,20 +442,56 @@ void AppController::refreshAll() {
     refreshCameras();
     refreshTasks();
     refreshTimeline();
+    refreshLab();
 }
 
 void AppController::refreshShopping() { if (shopping_model_) shopping_model_->refresh(); }
 void AppController::refreshCameras()  { if (camera_model_)   camera_model_->refresh(); }
 void AppController::refreshTasks()    { if (task_model_)     task_model_->refresh(); }
 void AppController::refreshTimeline() { if (timeline_model_) timeline_model_->refresh(); }
+void AppController::refreshLab() {
+    if (lab_model_)        lab_model_->refresh();
+    if (instrument_model_) instrument_model_->refresh();
+}
 
 void AppController::sendChat(const QString& text) {
     submitChatTurn(text);
 }
 
+void AppController::stopControl() {
+    DesktopController::abort();          // halt any in-flight computer-use actions
+    control_linger_.stop();
+    if (controlling_) { controlling_ = false; control_action_.clear(); emit controllingChanged(); }
+    EventBus::instance().publishNotice({"warn", "computer", "Computer control stopped."});
+}
+
+void AppController::showQuickAsk() {
+    if (quick_ask_visible_) return;
+    quick_ask_visible_ = true;
+    emit quickAskVisibleChanged();
+}
+
+void AppController::hideQuickAsk() {
+    if (!quick_ask_visible_) return;
+    quick_ask_visible_ = false;
+    emit quickAskVisibleChanged();
+}
+
+void AppController::toggleQuickAsk() {
+    quick_ask_visible_ = !quick_ask_visible_;
+    emit quickAskVisibleChanged();
+}
+
+QString AppController::quickAsk(const QString& text) {
+    // Reuse the normal chat path: the question + streamed reply also land in the
+    // chat history, and the pop-over correlates the reply by the returned rid.
+    return submitChatTurn(text);
+}
+
 QString AppController::submitChatTurn(const QString& text) {
     const QString t = text.trimmed();
     if (t.isEmpty()) return {};
+    DesktopController::clearAbort();     // a new user turn clears any prior panic-stop
     // Append the user turn to the chat model on the UI thread. AutoConnection:
     // direct when called from the UI/QML path, queued when the gateway worker
     // thread calls us (so the QAbstractListModel is only ever touched on its own

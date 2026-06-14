@@ -36,6 +36,8 @@ public slots:
 signals:
     void listeningStateChanged(bool listening);
     void wakeWordHeard();
+    // TTS playback started/finished — drives the UI's talking-avatar animation.
+    void speakingStateChanged(bool speaking);
 
 private:
     struct Impl;                       // pimpl: capture/wakeword/vad/asr/tts

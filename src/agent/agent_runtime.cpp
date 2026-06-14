@@ -168,6 +168,37 @@ void AgentRuntime::persistTranscript(const std::string& text, bool assistant) co
              {text, speaker, to_unix(Clock::now())});
 }
 
+namespace {
+// Injected into the system prompt whenever the desktop-control tools are offered,
+// so EVERY persona that can drive the computer does it under the same strict
+// do / stop-conditions / avoid rules — not only the dedicated Operator persona.
+const char* const kComputerUseProtocol =
+R"(=== COMPUTER CONTROL PROTOCOL (you can operate this Windows PC) ===
+You can see the screen and control the mouse and keyboard with look_at_screen,
+computer_click, computer_type, computer_key and computer_scroll. Operate in a tight
+observe-act-verify loop:
+1. Call look_at_screen FIRST to see the current state before doing anything.
+2. Decide the SINGLE next action and briefly tell the user what you are about to do.
+3. Take exactly ONE action (one click / type / key / scroll). Prefer naming the
+   element for computer_click (e.g. "the Save button") over raw coordinates.
+4. Call look_at_screen again to CONFIRM the result before the next action.
+5. Repeat until the task is done, then give a short summary of what you did.
+
+STOP and ask the user (do NOT proceed) when: the task is complete; you are unsure, or
+the same step fails twice; a login / password / 2FA / payment / credentials screen
+appears; a Windows UAC, security, or permission dialog appears; or an action would be
+destructive or hard to undo (deleting files, sending money, purchasing, sending or
+posting messages publicly, uninstalling software, changing system or security settings).
+
+NEVER: enter the user's passwords, 2FA codes, or financial details unless they
+explicitly provided them for THIS task; make purchases, send emails/messages, or post to
+social media without explicit confirmation; disable antivirus/firewall or change
+security/privacy settings; delete user data; click ads or pop-ups; or act outside the
+scope of what the user asked. When in doubt whether an action is safe or reversible,
+STOP and ask first.
+=== END COMPUTER CONTROL PROTOCOL ===)";
+} // namespace
+
 std::string AgentRuntime::buildSystemPrompt(const Persona& persona,
                                             const nlohmann::json& tool_specs) const {
     std::ostringstream sys;
@@ -178,6 +209,10 @@ std::string AgentRuntime::buildSystemPrompt(const Persona& persona,
            "Call one tool at a time. After you have everything you need, call the "
            "\"" << kFinalAnswerTool << "\" tool with your complete reply in its "
            "\"answer\" argument. Do not invent tools or arguments outside the catalog.\n\n";
+    // When the desktop-control tools are offered this turn, prepend the strict
+    // operating protocol so the model always has its do/stop/avoid rules to hand.
+    if (tool_specs.dump().find("computer_click") != std::string::npos)
+        sys << kComputerUseProtocol << "\n\n";
     sys << "Available tools:\n" << renderCatalog(tool_specs);
     return sys.str();
 }

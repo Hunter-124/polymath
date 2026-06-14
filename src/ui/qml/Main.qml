@@ -36,6 +36,7 @@ ApplicationWindow {
         { name: "Tasks",     icon: "tasks",    src: "TaskQueueView.qml" },
         { name: "Timeline",  icon: "clock",    src: "TimelineView.qml" },
         { name: "Shopping",  icon: "cart",     src: "ShoppingView.qml" },
+        { name: "Lab",       icon: "flask",    src: "LabView.qml" },
         { name: "Settings",  icon: "settings", src: "SettingsView.qml" }
     ]
 
@@ -342,12 +343,34 @@ ApplicationWindow {
             Repeater {
                 model: window.pages
                 delegate: Loader {
+                    id: pageLoader
                     required property var modelData
                     required property int index
                     property bool everActive: false
                     source: modelData.src
-                    active: everActive || stack.currentIndex === index
-                    onActiveChanged: if (active) everActive = true
+                    // Bind `active` to the latch only -> no binding loop.  The latch
+                    // is set imperatively the first time this page becomes current
+                    // (below), then never clears, so the page stays warm.
+                    active: everActive
+                    function latchIfCurrent() { if (stack.currentIndex === index) everActive = true }
+                    Component.onCompleted: latchIfCurrent()
+                    Connections {
+                        target: stack
+                        function onCurrentIndexChanged() { pageLoader.latchIfCurrent() }
+                    }
+
+                    // Soft entrance when a page becomes current: fade up + rise a
+                    // few px into place.  StackLayout shows only the current item,
+                    // so this reads as a gentle cross-cut rather than a hard swap.
+                    opacity: StackLayout.isCurrentItem ? 1 : 0
+                    Behavior on opacity {
+                        NumberAnimation { duration: Style.durMed; easing.type: Style.easeStandard }
+                    }
+                    property real slide: StackLayout.isCurrentItem ? 0 : 10
+                    Behavior on slide {
+                        NumberAnimation { duration: Style.durMed; easing.type: Style.easeStandard }
+                    }
+                    transform: Translate { y: slide }
                 }
             }
         }
@@ -358,6 +381,47 @@ ApplicationWindow {
         anchors.centerIn: undefined
         x: Math.round((window.width - width) / 2)
         y: 96
+    }
+
+    // --- Computer use: glowing screen border (separate click-through window) +
+    //     an in-window panic-stop banner so the user can always halt it. ---
+    ControlOverlay { }
+
+    // --- Global quick-ask pop-over (Ctrl+Alt+Space), a separate focusable
+    //     top-level window so it can float over any app. ---
+    QuickAsk { }
+
+    Rectangle {
+        visible: app.controlling
+        z: 1000
+        anchors { top: parent.top; horizontalCenter: parent.horizontalCenter; topMargin: 14 }
+        radius: Style.radiusSm
+        color: Style.surface3
+        border.width: 1; border.color: Style.warn
+        implicitWidth: ctlRow.implicitWidth + 24
+        implicitHeight: 40
+        RowLayout {
+            id: ctlRow
+            anchors.centerIn: parent
+            spacing: 10
+            Rectangle {
+                width: 9; height: 9; radius: 4.5; color: Style.warn
+                Layout.alignment: Qt.AlignVCenter
+                SequentialAnimation on opacity {
+                    running: app.controlling; loops: Animation.Infinite
+                    NumberAnimation { to: 0.3; duration: 500 }
+                    NumberAnimation { to: 1.0; duration: 500 }
+                }
+            }
+            Label {
+                text: (app.controlAction && app.controlAction.length)
+                      ? ("Controlling: " + app.controlAction)
+                      : "Hearth is controlling the computer"
+                color: Style.text; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
+                elide: Text.ElideRight; Layout.maximumWidth: 360
+            }
+            PmButton { text: "Stop"; onClicked: app.stopControl() }
+        }
     }
 
     // --- Toasts: stacked, dismissible, auto-expiring ---

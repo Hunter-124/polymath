@@ -2,6 +2,11 @@
 // Chat with streaming replies. We POST the turn, then stitch the assistant's
 // answer together from `token` WS events correlated by request_id.
 //
+// Voice: the /voice endpoint is reserved (see ENDPOINTS.voice / contract.ts).
+// Browser MediaRecorder capture → POST blob → server returns request_id for the
+// same token-stream path. Wired in as a TODO below; enable once server-side
+// voice transcription is confirmed in capabilities.
+//
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/icons';
 import { EmptyState } from '../components/ui';

@@ -22,6 +22,7 @@ namespace polymath {
 
 class Database;
 class Row;
+struct EdgeDeviceRow;   // device fabric (src/fabric/device_registry.h)
 
 namespace json_map {
 
@@ -49,6 +50,11 @@ json personalityFromRow(const Row& r);    // PersonalityDTO
 json modelFromRow(const Row& r);          // ModelDTO
 json deviceFromRow(const Row& r, bool online); // Device (auth/devices table)
 
+// --- device fabric (v2) ----------------------------------------------------
+json edgeDeviceToJson(const EdgeDeviceRow& d);  // DeviceDTO (edge_devices)
+json instrumentFromRow(const Row& r);           // InstrumentDTO
+json labSessionFromRow(const Row& r);           // LabSessionDTO (no steps)
+
 // A QVariantMap as produced by AppController::models() -> ModelDTO.  Lets the
 // /models route reuse the bridge instead of re-querying the DB.
 json modelFromVariant(const QVariant& v);
@@ -65,6 +71,9 @@ json taskEvent(const TaskEvent& t);              // TaskDTO-lite (id/type/status
 json reminderEvent(const ReminderFired& r);      // { id, text }
 json privacyEvent(const PrivacyChanged& p);      // { key, enabled }
 json frameEvent(const Frame& f);                 // { camera_id, ts, width, height, jpeg_b64 }
+json instrumentReadingEvent(const InstrumentReading& r); // InstrumentReading payload
+json devicePresenceEvent(const DevicePresence& p);       // device_presence payload
+json labStepEvent(const LabStepEvent& s);                // lab_step payload
 
 // ─── envelope ───────────────────────────────────────────────────────────────
 //

@@ -5,8 +5,11 @@
 #include <filesystem>
 #include <numeric>
 
-#ifdef POLYMATH_USE_CUDA
-#  include <cuda_runtime.h>
+// GPU memory is queried through ggml's backend device registry rather than
+// cudart directly, so ONE binary behaves correctly whether the CUDA backend is
+// statically linked, loaded at runtime as ggml-cuda.dll, or absent entirely.
+#ifdef POLYMATH_HAVE_LLAMA
+#  include <ggml-backend.h>
 #endif
 
 namespace polymath {
@@ -22,35 +25,57 @@ constexpr size_t kSafetyMarginMiB = 768;
 // Rough per-1k-token KV-cache cost for a mid-size model with GQA, fp16 cache.
 // Deliberately generous so we under-offload rather than OOM.
 constexpr size_t kKvMiBPer1kCtx = 128;
+
+#ifdef POLYMATH_HAVE_LLAMA
+// The first discrete-GPU device ggml knows about (after backends are loaded),
+// or null on a CPU-only machine. ggml-cuda contributes a GPU device only when a
+// usable NVIDIA GPU + driver are present, so this is our runtime "is there a GPU"
+// gate — no compile-time CUDA switch involved.
+ggml_backend_dev_t firstGpuDevice() {
+    const size_t n = ggml_backend_dev_count();
+    for (size_t i = 0; i < n; ++i) {
+        ggml_backend_dev_t d = ggml_backend_dev_get(i);
+        if (ggml_backend_dev_type(d) == GGML_BACKEND_DEVICE_TYPE_GPU) return d;
+    }
+    return nullptr;
+}
+#endif
 } // namespace
 
 VramBudget::VramBudget(size_t budgetMiB) : budget_mib_(budgetMiB) {
-#ifdef POLYMATH_USE_CUDA
-    size_t freeB = 0, totalB = 0;
-    cudaError_t err = cudaMemGetInfo(&freeB, &totalB);
-    if (err == cudaSuccess && totalB > 0) {
-        cuda_available_    = true;
-        fallback_total_mib_ = totalB / kMiB;
-        // Never let the configured budget exceed the physical device total.
-        budget_mib_ = std::min<size_t>(budget_mib_, fallback_total_mib_);
-        PM_INFO("VramBudget: CUDA device {} MiB total, {} MiB free, budget {} MiB",
-                totalB / kMiB, freeB / kMiB, budget_mib_);
-    } else {
-        PM_WARN("VramBudget: cudaMemGetInfo failed ({}); using fallback budget",
-                static_cast<int>(err));
+#ifdef POLYMATH_HAVE_LLAMA
+    // Register any runtime backend libraries (ggml-cpu / ggml-cuda DLLs sitting
+    // next to the exe). A harmless no-op when backends are statically linked.
+    ggml_backend_load_all();
+
+    if (ggml_backend_dev_t gpu = firstGpuDevice()) {
+        size_t freeB = 0, totalB = 0;
+        ggml_backend_dev_memory(gpu, &freeB, &totalB);
+        if (totalB > 0) {
+            cuda_available_     = true;            // a usable GPU backend is present
+            fallback_total_mib_ = totalB / kMiB;
+            // Never let the configured budget exceed the physical device total.
+            budget_mib_ = std::min<size_t>(budget_mib_, fallback_total_mib_);
+            PM_INFO("VramBudget: GPU backend present — {} MiB total, {} MiB free, budget {} MiB",
+                    totalB / kMiB, freeB / kMiB, budget_mib_);
+        }
     }
+    if (!cuda_available_)
+        PM_INFO("VramBudget: no GPU backend detected; running on CPU with a {} MiB budget",
+                budget_mib_);
 #else
-    PM_INFO("VramBudget: built without CUDA; using conservative {} MiB budget",
+    PM_INFO("VramBudget: built without the llama/ggml backend; using {} MiB budget",
             budget_mib_);
 #endif
 }
 
 VramBudget::DeviceMemory VramBudget::query() const {
-#ifdef POLYMATH_USE_CUDA
+#ifdef POLYMATH_HAVE_LLAMA
     if (cuda_available_) {
-        size_t freeB = 0, totalB = 0;
-        if (cudaMemGetInfo(&freeB, &totalB) == cudaSuccess) {
-            return {freeB / kMiB, totalB / kMiB};
+        if (ggml_backend_dev_t gpu = firstGpuDevice()) {
+            size_t freeB = 0, totalB = 0;
+            ggml_backend_dev_memory(gpu, &freeB, &totalB);
+            if (totalB > 0) return {freeB / kMiB, totalB / kMiB};
         }
     }
 #endif

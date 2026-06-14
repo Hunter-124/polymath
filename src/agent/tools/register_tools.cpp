@@ -10,6 +10,12 @@
 #include "memory_tools.h"
 #include "camera_tools.h"
 #include "queue_tool.h"
+#include "instrument_tool.h"
+#include "lab_session.h"
+#include "doc_rag.h"
+#include "computer_tools.h"
+#include "calc_tool.h"
+#include "convert_tool.h"
 
 #include "logging.h"
 
@@ -53,9 +59,36 @@ void registerBuiltinTools(ToolRegistry& reg) {
     // Home / cameras (events table + EventBus).
     reg.add(std::make_shared<CameraSnapshotTool>());
     reg.add(std::make_shared<WhoIsHomeTool>());
+    // Live camera vision Q&A (VLM on the current frame, via VisionService).
+    reg.add(std::make_shared<DescribeCameraTool>());
+
+    // Deterministic math + units (LLMs fumble arithmetic; lab/home calcs need exact results).
+    reg.add(std::make_shared<CalculateTool>());
+    reg.add(std::make_shared<ConvertUnitsTool>());
 
     // Deep-task queue (tasks table).
     reg.add(std::make_shared<QueueDeepTaskTool>());
+
+    // Lab instruments (instruments/measurements tables + fabric readings).
+    reg.add(std::make_shared<ReadInstrumentTool>());
+    reg.add(std::make_shared<RecordMeasurementTool>());
+
+    // Interactive guided lab sessions (lab_sessions/lab_session_steps state machine).
+    reg.add(std::make_shared<StartLabSessionTool>());
+    reg.add(std::make_shared<NextLabStepTool>());
+    reg.add(std::make_shared<VerifyLabStepTool>());
+    reg.add(std::make_shared<FinishLabSessionTool>());
+
+    // Local document RAG (knowledge_files/knowledge_chunks; offline embeddings).
+    reg.add(std::make_shared<SearchDocumentsTool>());
+    reg.add(std::make_shared<ReindexDocumentsTool>());
+
+    // Computer use — drive the desktop (screen capture + UI Automation + VLM + input).
+    reg.add(std::make_shared<ScreenLookTool>());
+    reg.add(std::make_shared<ComputerClickTool>());
+    reg.add(std::make_shared<ComputerTypeTool>());
+    reg.add(std::make_shared<ComputerKeyTool>());
+    reg.add(std::make_shared<ComputerScrollTool>());
 
     PM_INFO("registerBuiltinTools: {} tools registered", reg.names().size());
 }

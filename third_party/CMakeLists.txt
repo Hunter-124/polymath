@@ -2,6 +2,25 @@
 # We forward the CUDA option down and build them as static/shared libs that the
 # inference/audio modules link against.
 
+# Single-binary mode (POLYMATH_BACKEND_DL): build ggml's backends as runtime-
+# loadable libraries (ggml-cpu / ggml-cuda DLLs) selected at startup, so one
+# Hearth.exe runs on GPU or CPU. This requires the engines to be SHARED so the
+# backend modules register against a shared ggml-base. Scoped to this directory:
+# `set(BUILD_SHARED_LIBS ...)` here does NOT leak to src/* (added by the parent
+# after this subdirectory returns), so the pm_* libs stay static as declared.
+if(POLYMATH_BACKEND_DL)
+  set(BUILD_SHARED_LIBS ON)
+  set(GGML_BACKEND_DL ON CACHE BOOL "" FORCE)
+  set(GGML_CPU        ON CACHE BOOL "" FORCE)
+  # GGML_BACKEND_DL forbids GGML_NATIVE (-march=native bakes in THIS machine's CPU
+  # features, defeating a portable binary). GGML_CPU_ALL_VARIANTS instead builds a
+  # ggml-cpu DLL per ISA tier (SSE4.2 / AVX2 / AVX512 / …) and loads the best one
+  # the running CPU supports — so one binary is both portable AND fast.
+  set(GGML_NATIVE           OFF CACHE BOOL "" FORCE)
+  set(GGML_CPU_ALL_VARIANTS ON  CACHE BOOL "" FORCE)
+  message(STATUS "polymath: GGML_BACKEND_DL ON — ggml backends build as runtime-loadable DLLs (portable CPU variants)")
+endif()
+
 # ---- llama.cpp (LLM + VLM + embeddings) -----------------------------------
 set(LLAMA_BUILD_TESTS   OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)

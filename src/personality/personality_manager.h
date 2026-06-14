@@ -28,7 +28,17 @@ struct Personality {
     std::string wake_phrase;
     SamplingParams sampling;
     std::vector<std::string> tools;   // allow-list ("" -> all)
-    std::string avatar_path;
+    std::string avatar_path;          // auto-discovered avatar.png/jpg (legacy)
+
+    // --- visual avatar ("the face" shown + animated in the UI; all optional) ---
+    // Driven by an optional `avatar` object in persona.json:
+    //   "avatar": { "style": "orb|bars|ring|image", "accent": "#7aa2f7",
+    //               "idle": "idle.gif", "talking": "talking.gif" }
+    // With nothing set, the UI draws a procedural orb tinted by the theme accent.
+    std::string avatar_style;         // "orb" (default) | "bars" | "ring" | "image"
+    std::string avatar_accent;        // hex tint ("" -> theme accent)
+    std::string avatar_idle;          // resolved path to an idle image/GIF ("" -> procedural)
+    std::string avatar_talking;       // resolved path to a talking image/GIF
 };
 
 class PersonalityManager : public QObject, public IService {

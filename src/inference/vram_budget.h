@@ -4,9 +4,10 @@
 // (~8 GB target) and decides how many transformer layers a model may offload so
 // the resident set fits.
 //
-// On CUDA builds (POLYMATH_USE_CUDA) it queries the driver via cudaMemGetInfo;
-// otherwise it falls back to a conservative fixed budget so the rest of the
-// engine still behaves deterministically on CPU-only machines.
+// It detects the GPU at RUNTIME through ggml's backend device registry (so the
+// same binary uses the GPU when an ggml-cuda backend + NVIDIA device are present
+// and falls back to a conservative fixed budget on CPU-only machines) — there is
+// no compile-time CUDA switch in this class.
 //
 // All sizes are MiB. The class is cheap and lock-free for reads; bookkeeping of
 // per-backend footprints is guarded by an internal mutex so it can be poked from

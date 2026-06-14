@@ -12,6 +12,12 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 option(POLYMATH_USE_CUDA "Build llama.cpp / whisper.cpp with CUDA acceleration" ON)
+# Single-binary mode: build ggml's backends as runtime-loadable libraries so ONE
+# Hearth.exe ships ggml-cpu.dll always and ggml-cuda.dll when a toolkit is present,
+# and picks the best at startup (GPU auto-detected, CPU fallback). Off by default
+# so the legacy split CPU/CUDA builds are unaffected; the unified build.ps1 turns
+# it on. Composes with POLYMATH_USE_CUDA (which decides whether ggml-cuda is built).
+option(POLYMATH_BACKEND_DL "Build ggml backends as runtime-loadable libraries (single auto-detecting binary)" OFF)
 option(POLYMATH_BUILD_TESTS "Build unit/integration tests" ON)
 
 if(MSVC)
@@ -71,10 +77,16 @@ add_subdirectory(src/scheduler)
 add_subdirectory(src/audio)
 add_subdirectory(src/vision)
 add_subdirectory(src/memory)
+# Computer use (screen capture + input injection + UI Automation + VLM targeting).
+# Before src/agent: the computer tools link pm_desktop.
+add_subdirectory(src/desktop)
 add_subdirectory(src/agent)
 add_subdirectory(src/personality)
 add_subdirectory(src/app)
 add_subdirectory(src/ui)
+# Device fabric (edge cameras/mics/instruments/panels -> EventBus + schema).
+# Depends only on pm_core + Qt; linked into pm_gateway.
+add_subdirectory(src/fabric)
 # Mobile/web gateway (HTTP + WebSocket + relay tunnel). Depends only on pm_core +
 # Qt; linked into pm_app, which implements its IAssistantBridge seam.
 add_subdirectory(src/gateway)

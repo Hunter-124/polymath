@@ -23,6 +23,9 @@ add_test(NAME audio COMMAND test_audio_e2e)
 # Fast model is on disk). Drives the registry, persona/grammar, and dispatch.
 add_executable(test_agent_e2e test_agent_e2e.cpp)
 target_link_libraries(test_agent_e2e PRIVATE pm_core pm_agent pm_inference pm_scheduler)
+# So the test can validate the shipped persona allow-lists against the registry.
+target_compile_definitions(test_agent_e2e PRIVATE
+    PM_PERSONA_DIR="${CMAKE_SOURCE_DIR}/assets/personalities")
 add_test(NAME agent COMMAND test_agent_e2e)
 # The LLM round-trip cold-loads a model on CPU and runs a multi-step tool loop.
 set_tests_properties(agent PROPERTIES TIMEOUT 600)
@@ -119,3 +122,60 @@ add_test(NAME j_phase2 COMMAND test_j_phase2_e2e)
 set_tests_properties(j_phase2 PROPERTIES
     TIMEOUT 240
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Wave 3 · Card K — device-fabric unit tests: FabricService ingest* paths +
+# DeviceRegistry CRUD. No MQTT, no network — all ingest* called directly.
+# Asserts edge_devices/cameras upsert (announce), measurements in_range flag,
+# events clip_url/confidence/device_id, Detection + InstrumentReading signals,
+# and DeviceRegistry list/get/inRange edge cases. Links pm_fabric (the new
+# fabric module) + pm_core (Database/EventBus) + Qt::Core (EventBus metatypes).
+add_executable(test_fabric test_fabric.cpp)
+target_link_libraries(test_fabric PRIVATE pm_fabric pm_core Qt6::Core)
+add_test(NAME fabric COMMAND test_fabric)
+set_tests_properties(fabric PROPERTIES
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Wave 3 · Card K — instrument tool unit tests: ReadInstrumentTool and
+# RecordMeasurementTool against a temp DB. Asserts missing-id/no-reading
+# failures, latest-reading retrieval, in-range vs out-of-range rows + ok flag,
+# and ad-hoc (no instrument row) always-in-range behaviour.
+# Links pm_agent (instrument_tool.cpp) + pm_core + Qt::Core.
+add_executable(test_instruments test_instruments.cpp)
+target_link_libraries(test_instruments PRIVATE pm_agent pm_core Qt6::Core)
+target_include_directories(test_instruments PRIVATE ${CMAKE_SOURCE_DIR}/src/agent/tools)
+add_test(NAME instruments COMMAND test_instruments)
+set_tests_properties(instruments PROPERTIES TIMEOUT 60)
+
+# Wave 3 · Card K — lab-session state-machine tests: drives the full lifecycle
+# start_lab_session -> next_lab_step -> verify_lab_step (in-range AND
+# out-of-range + retry) -> finish_lab_session. Asserts DB row transitions
+# (lab_sessions, lab_session_steps, measurements), LabStepEvent signals, and
+# the done/report_doc_id result from finish. Links pm_agent + pm_core + Qt::Core
+# (EventBus metatypes + DirectConnection signal delivery).
+add_executable(test_lab_session test_lab_session.cpp)
+target_link_libraries(test_lab_session PRIVATE pm_agent pm_core Qt6::Core)
+target_include_directories(test_lab_session PRIVATE ${CMAKE_SOURCE_DIR}/src/agent/tools)
+add_test(NAME lab_session COMMAND test_lab_session)
+set_tests_properties(lab_session PROPERTIES
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# v3 — local document RAG (DocRag): ingest themed text files into knowledge_files/
+# knowledge_chunks with real EmbeddingGemma embeddings, then assert semantic search
+# routes each query to the right file, that re-ingest is idempotent, and that a
+# deleted file is pruned. Skips cleanly without the embedding model on disk.
+add_executable(test_doc_rag test_doc_rag.cpp)
+target_link_libraries(test_doc_rag PRIVATE pm_agent pm_inference pm_core Qt6::Core)
+target_include_directories(test_doc_rag PRIVATE ${CMAKE_SOURCE_DIR}/src/agent/tools)
+add_test(NAME doc_rag COMMAND test_doc_rag)
+set_tests_properties(doc_rag PROPERTIES TIMEOUT 180)
+
+# Computer use — pure-logic unit tests for the desktop control helpers
+# (DesktopController::parseCoordJson VLM-coordinate parsing + InputInjector::
+# parseButton). No screen capture / SendInput, so it's safe + deterministic in
+# CI; the live click loop is inherently human-verified. Links pm_desktop.
+add_executable(test_desktop test_desktop.cpp)
+target_link_libraries(test_desktop PRIVATE pm_desktop pm_core Qt6::Core)
+add_test(NAME desktop COMMAND test_desktop)
+set_tests_properties(desktop PROPERTIES TIMEOUT 60)

@@ -36,6 +36,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <set>
 #include <string>
 
 using namespace polymath;
@@ -83,16 +85,59 @@ void testAllToolsDirect(const std::filesystem::path& root) {
     ToolRegistry reg;
     registerBuiltinTools(reg);
 
-    // The registry must expose exactly the 17 builtin tools.
-    // (Wave 3 · Card J added browser_drive; count bumped 16 -> 17.)
+    // The registry must expose exactly the 31 builtin tools.
+    // (Wave 3 · Card J added browser_drive: 16 -> 17. v0.2 device fabric added
+    //  read_instrument, record_measurement, and the 4 lab-session tools: 17 -> 23.
+    //  v3 document RAG added search_documents + reindex_documents: 23 -> 25.
+    //  Computer-use added look_at_screen + computer_click/type/key/scroll: 25 -> 30.
+    //  Camera vision Q&A added describe_camera: 30 -> 31. calculate: 31 -> 32.
+    //  convert_units: 32 -> 33.)
     const auto names = reg.names();
-    assert(names.size() == 17 && "expected 17 builtin tools");
+    assert(names.size() == 33 && "expected 33 builtin tools");
     for (const char* n : {"shopping_add", "shopping_list", "shopping_remove",
                           "web_search", "fetch_page", "browser_drive", "draft_document",
                           "generate_lab_report", "print_document", "print_image",
                           "set_reminder", "remember", "recall", "search_memory",
-                          "camera_snapshot", "who_is_home", "queue_deep_task"})
+                          "camera_snapshot", "who_is_home", "describe_camera", "queue_deep_task",
+                          "read_instrument", "record_measurement", "start_lab_session",
+                          "next_lab_step", "verify_lab_step", "finish_lab_session",
+                          "search_documents", "reindex_documents",
+                          "look_at_screen", "computer_click", "computer_type",
+                          "computer_key", "computer_scroll", "calculate", "convert_units"})
         assert(reg.get(n) != nullptr && "missing builtin tool");
+
+    // Shipped persona allow-lists must reference only REAL tools. A typo or stale
+    // name in a persona's "tools" array silently makes that tool unavailable to
+    // the persona (ToolRegistry::specs filters by exact name), so pin every
+    // shipped bundle's allow-list against the live registry. (This is what would
+    // have caught the Lab Guide not being able to reach calculate/convert_units.)
+#ifdef PM_PERSONA_DIR
+    {
+        namespace fs = std::filesystem;
+        const std::set<std::string> registered(names.begin(), names.end());
+        int personasChecked = 0;
+        std::error_code ec;
+        for (auto& entry : fs::recursive_directory_iterator(PM_PERSONA_DIR, ec)) {
+            if (entry.path().filename() != "persona.json") continue;
+            std::ifstream in(entry.path());
+            nlohmann::json j;
+            in >> j;
+            ++personasChecked;
+            if (!j.contains("tools")) continue;
+            for (const auto& t : j["tools"]) {
+                const std::string tool = t.get<std::string>();
+                if (!registered.count(tool)) {
+                    std::fprintf(stderr, "  persona '%s' lists unknown tool '%s'\n",
+                                 entry.path().parent_path().filename().string().c_str(), tool.c_str());
+                    assert(false && "persona allow-list references an unregistered tool");
+                }
+            }
+        }
+        assert(personasChecked >= 4 && "expected to find the shipped persona bundles");
+        std::printf("  [ok] %d shipped personas: every allow-listed tool is registered\n",
+                    personasChecked);
+    }
+#endif
 
     ToolContext ctx;
     ctx.db = &db;
@@ -274,6 +319,93 @@ void testAllToolsDirect(const std::filesystem::path& root) {
         assert(who.content["people"][0]["name"].get<std::string>() == "Erik");
         assert(who.content.value("unidentified_sightings", int64_t{0}) >= 1);
         std::puts("  [ok] camera_snapshot / who_is_home (vision stub)");
+    }
+
+    // --- describe_camera (live camera Q&A; VisionService stubbed on the bus) --
+    {
+        int64_t frontDoor = -1;
+        db.query("SELECT id FROM cameras WHERE name='Front Door'", {},
+                 [&](const Row& r) { frontDoor = r.i64(0); });
+        assert(frontDoor >= 0 && "expected the seeded 'Front Door' camera");
+
+        // Stand in for VisionService: answer any cameraQuery on the bus, echoing
+        // the request id (so the tool's correlation matches) with a canned reply.
+        // Same-thread (direct) connections make this round-trip synchronous, so
+        // the tool's wait loop returns at once.
+        QObject visionStub;
+        QString seenQuestion;
+        int     seenCam = -999;
+        QObject::connect(&EventBus::instance(), &EventBus::cameraQuery, &visionStub,
+            [&](const QString& rid, const QString& question, int cam) {
+                seenQuestion = question;
+                seenCam = cam;
+                EventBus::instance().publishCameraAnswer(
+                    rid, QStringLiteral("A person is standing near the door."), cam, true);
+            });
+
+        auto desc = reg.get("describe_camera")->invoke(
+            {{"camera", "Front Door"}, {"question", "is anyone there?"}}, ctx);
+        assert(desc.ok && "describe_camera should succeed when the bus answers");
+        assert(desc.content.value("answer", std::string{}).find("person") != std::string::npos
+               && "describe_camera should surface the VLM answer from the bus");
+        assert(seenQuestion == "is anyone there?" && "question must reach VisionService verbatim");
+        assert(seenCam == static_cast<int>(frontDoor) && "resolved camera id must be forwarded");
+
+        // Unknown camera => clean failure, no bus round-trip needed.
+        auto descBad = reg.get("describe_camera")->invoke({{"camera", "Nope"}}, ctx);
+        assert(!descBad.ok && "describe_camera should fail on an unknown camera");
+        std::puts("  [ok] describe_camera (live Q&A; bus round-trip)");
+    }
+
+    // --- calculate (deterministic math: precedence, functions, error paths) --
+    {
+        auto calc = [&](const char* expr) {
+            return reg.get("calculate")->invoke({{"expression", expr}}, ctx);
+        };
+        auto approx = [](double a, double b) { double d = a - b; return d < 1e-9 && d > -1e-9; };
+        auto val = [&](const char* expr) {
+            auto r = calc(expr);
+            assert(r.ok && "calculate should succeed on a valid expression");
+            return r.content["result"].get<double>();
+        };
+
+        assert(approx(val("2 + 2 * 3"), 8.0)             && "operator precedence");
+        assert(approx(val("(1 + 2) ^ 3"), 27.0)          && "parentheses + power");
+        assert(approx(val("sqrt(16)"), 4.0)              && "function call");
+        assert(approx(val("-2^2"), -4.0)                 && "unary minus looser than ^");
+        assert(approx(val("10 / 4"), 2.5)                && "division");
+        assert(approx(val("max(3, 7, 1)"), 7.0)          && "variadic max");
+        assert(approx(val("2 * pi"), 6.283185307179586)  && "pi constant");
+
+        // Malformed / non-finite -> clean ok=false, never a throw or crash.
+        assert(!calc("2 +").ok          && "trailing operator rejected");
+        assert(!calc("1 / 0").ok        && "division by zero (non-finite) rejected");
+        assert(!calc("frobnicate(2)").ok && "unknown function rejected");
+        std::puts("  [ok] calculate (precedence / functions / errors)");
+    }
+
+    // --- convert_units (exact conversion; cross-category guard) --------------
+    {
+        auto conv = [&](double v, const char* from, const char* to) {
+            return reg.get("convert_units")->invoke(
+                {{"value", v}, {"from", from}, {"to", to}}, ctx);
+        };
+        auto approx = [](double a, double b) { double d = a - b; return d < 1e-6 && d > -1e-6; };
+        auto val = [&](double v, const char* from, const char* to) {
+            auto r = conv(v, from, to);
+            assert(r.ok && "convert_units should succeed for same-category units");
+            return r.content["result"].get<double>();
+        };
+
+        assert(approx(val(1, "kg", "g"), 1000.0)   && "mass kg->g");
+        assert(approx(val(100, "C", "F"), 212.0)   && "temperature C->F (offset)");
+        assert(approx(val(0, "C", "K"), 273.15)    && "temperature C->K (offset)");
+        assert(approx(val(1, "mi", "km"), 1.609344) && "length mi->km");
+        assert(approx(val(2, "L", "ml"), 2000.0)   && "volume L->mL");
+
+        assert(!conv(1, "kg", "L").ok  && "cross-category (mass vs volume) rejected");
+        assert(!conv(1, "foo", "g").ok && "unknown unit rejected");
+        std::puts("  [ok] convert_units (mass/temp/length/volume + guards)");
     }
 
     // --- queue_deep_task -> tasks queue -------------------------------------

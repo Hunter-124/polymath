@@ -35,6 +35,7 @@ class HttpRouter;
 class HttpServer;
 class WsHub;
 class RelayClient;
+class FabricService;
 
 class GatewayService : public QObject, public IService {
     Q_OBJECT
@@ -78,11 +79,12 @@ private:
     Database&         db_;
     Config&           cfg_;
 
-    std::unique_ptr<Auth>        auth_;
-    std::unique_ptr<HttpRouter>  router_;
-    std::unique_ptr<WsHub>       hub_;
-    std::unique_ptr<HttpServer>  server_;
-    std::unique_ptr<RelayClient> relay_;
+    std::unique_ptr<Auth>          auth_;
+    std::unique_ptr<FabricService> fabric_;
+    std::unique_ptr<HttpRouter>    router_;
+    std::unique_ptr<WsHub>         hub_;
+    std::unique_ptr<HttpServer>    server_;
+    std::unique_ptr<RelayClient>   relay_;
 
     bool started_ = false;
 };

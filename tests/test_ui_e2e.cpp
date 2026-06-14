@@ -64,6 +64,7 @@ class StubApp : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool listening READ listening NOTIFY changed)
     Q_PROPERTY(QString activePersonality READ activePersonality NOTIFY changed)
+    Q_PROPERTY(bool quickAskVisible READ quickAskVisible NOTIFY changed)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY changed)
     Q_PROPERTY(bool hasModels READ hasModels NOTIFY changed)
     Q_PROPERTY(bool firstRun  READ firstRun  NOTIFY changed)
@@ -71,6 +72,7 @@ class StubApp : public QObject {
 public:
     bool listening() const { return true; }
     QString activePersonality() const { return "Assistant"; }
+    bool quickAskVisible() const { return false; }
     QString modelStatus() const { return "fast: gemma-3n"; }
     bool hasModels() const { return true; }
     bool firstRun() const { return false; }
@@ -88,6 +90,10 @@ public:
     Q_INVOKABLE void pushToTalk(bool) {}
     Q_INVOKABLE void setPersonality(const QString&) {}
     Q_INVOKABLE void setPrivacy(const QString&, bool) {}
+    Q_INVOKABLE void showQuickAsk() {}
+    Q_INVOKABLE void hideQuickAsk() {}
+    Q_INVOKABLE void toggleQuickAsk() {}
+    Q_INVOKABLE QString quickAsk(const QString&) { return QString(); }
     Q_INVOKABLE void findObject(const QString&) {}
     Q_INVOKABLE void addShoppingItem(const QString&) {}
     Q_INVOKABLE void refreshAll() {}

@@ -22,12 +22,19 @@ namespace keys {
     inline constexpr const char* CamerasEnabled        = "privacy.cameras_enabled";
     inline constexpr const char* EncryptAtRest         = "privacy.encrypt_at_rest";
     // Retention (days; 0 = keep forever).
-    inline constexpr const char* RetainAmbientDays     = "retention.ambient_days";
-    inline constexpr const char* RetainEventsDays      = "retention.events_days";
+    inline constexpr const char* RetainAmbientDays      = "retention.ambient_days";
+    inline constexpr const char* RetainEventsDays       = "retention.events_days";
+    // Measurements — defaults to 0 (keep forever). Set to a positive value to
+    // auto-purge old instrument/voice readings alongside vision events.
+    inline constexpr const char* RetainMeasurementsDays = "retention.measurements_days";
     // Behaviour.
     inline constexpr const char* QuietHoursStart       = "behavior.quiet_start"; // "22:00"
     inline constexpr const char* QuietHoursEnd         = "behavior.quiet_end";   // "07:00"
     inline constexpr const char* WakeWord              = "audio.wake_word";      // "hey_jarvis"
+    inline constexpr const char* NetworkMicsEnabled    = "audio.network_mics_enabled";  // Wi-Fi satellite input; default OFF
+    // Barge-in: while the assistant is speaking, keep listening for the wake word
+    // so the user can cut it off mid-sentence ("Hey Jarvis—stop"). Default ON.
+    inline constexpr const char* BargeIn               = "audio.barge_in";
     inline constexpr const char* SearchBackend         = "web.search_backend";   // searxng|brave|ddg
     inline constexpr const char* SearchApiKey          = "web.search_api_key";
     // First-run flow acknowledged ("1" once the user has been through setup).

@@ -22,6 +22,9 @@ public:
     std::filesystem::path media()         const { return root_ / "media"; }
     std::filesystem::path vectors()       const { return root_ / "vectors"; }
     std::filesystem::path documents()     const { return root_ / "documents"; }
+    // User-supplied files for local document Q&A (RAG). Distinct from documents()
+    // (which holds *generated* drafts/reports): the user drops notes/manuals here.
+    std::filesystem::path knowledge()     const { return root_ / "knowledge"; }
     std::filesystem::path logs()          const { return root_ / "logs"; }
 
     void ensureLayout() const;   // create the directory tree if missing

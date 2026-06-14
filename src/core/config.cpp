@@ -22,6 +22,7 @@ void Config::seedDefaults() {
         {keys::QuietHoursStart,      "22:00"},
         {keys::QuietHoursEnd,        "07:00"},
         {keys::WakeWord,             "hey_jarvis"},
+        {keys::BargeIn,              "1"},
         {keys::SearchBackend,        "ddg"},
         {keys::SearchApiKey,         ""},
     };

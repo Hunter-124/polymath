@@ -20,7 +20,8 @@ namespace polymath {
 
 // Payloads that need richer shape than types.h provides.
 struct WakeWordEvent     { QString phrase; int64_t ts; };
-struct SpeakRequest      { QString text; QString voice; QString request_id; };
+// target "" => the local speaker; else a satellite/room id to route TTS back to.
+struct SpeakRequest      { QString text; QString voice; QString request_id; QString target; };
 struct TokenChunk        { QString request_id; QString text; bool done; };
 struct ToolCallEvent     { QString request_id; QString tool; QString args_json; };
 struct ToolResultEvent   { QString request_id; QString tool; QString result_json; bool ok; };
@@ -29,6 +30,16 @@ struct ReminderFired     { int64_t reminder_id; QString text; };
 struct FindObjectResult  { QString query; QString answer; int camera_id; int64_t ts; };
 struct PrivacyChanged    { QString key; bool enabled; };
 struct Notice            { QString level; QString source; QString message; };
+
+// --- device fabric (v2) ----------------------------------------------------
+// A single timestamped reading from a networked lab instrument.
+struct InstrumentReading { QString instrument_id; QString device_id; double value;
+                           QString unit; QString device_class; bool in_range; int64_t ts; };
+// A device coming online / going offline (MQTT birth/LWT or mDNS).
+struct DevicePresence    { QString device_id; QString kind; QString name; bool online; int64_t ts; };
+// Progress of the interactive lab-session agent, for live UI/mobile display.
+struct LabStepEvent      { int64_t session_id; int step_no; QString prompt; QString status;
+                           double measured_value; QString unit; bool verified; };
 
 class EventBus : public QObject {
     Q_OBJECT
@@ -49,6 +60,22 @@ public:
     void publishReminder(const ReminderFired& r)        { emit reminderFired(r); }
     void publishPrivacy(const PrivacyChanged& p)        { emit privacyChanged(p); }
     void publishNotice(const Notice& n)                 { emit notice(n); }
+    void publishInstrumentReading(const InstrumentReading& r) { emit instrumentReading(r); }
+    void publishDevicePresence(const DevicePresence& p) { emit devicePresence(p); }
+    void publishLabStep(const LabStepEvent& s)          { emit labStep(s); }
+    // The assistant is actively driving the mouse/keyboard (computer-use). Each
+    // action republishes active=true with a short human description; the UI shows a
+    // glowing border while active and an activity-log line. (bool+QString are
+    // built-in metatypes — no Q_DECLARE_METATYPE needed.)
+    void publishDesktopControl(bool active, const QString& action) { emit desktopControl(active, action); }
+    // Camera vision Q&A: an agent tool asks a free-form question about a camera's
+    // CURRENT view; VisionService answers from the latest buffered frame via the
+    // VLM and replies on cameraAnswer, correlated by request_id (camera_id<0 =
+    // "most recently active camera"). (QString/int/bool are built-in metatypes.)
+    void publishCameraQuery(const QString& request_id, const QString& question, int camera_id)
+        { emit cameraQuery(request_id, question, camera_id); }
+    void publishCameraAnswer(const QString& request_id, const QString& answer, int camera_id, bool ok)
+        { emit cameraAnswer(request_id, answer, camera_id, ok); }
 
 signals:
     // --- audio ---
@@ -66,6 +93,15 @@ signals:
     // --- scheduler / proactive ---
     void taskUpdated(const polymath::TaskEvent&);
     void reminderFired(const polymath::ReminderFired&);
+    // --- device fabric (v2) ---
+    void instrumentReading(const polymath::InstrumentReading&);
+    void devicePresence(const polymath::DevicePresence&);
+    void labStep(const polymath::LabStepEvent&);
+    // --- computer use (the assistant driving the desktop) ---
+    void desktopControl(bool active, QString action);
+    // --- camera vision Q&A (request -> VisionService -> answer) ---
+    void cameraQuery(QString request_id, QString question, int camera_id);
+    void cameraAnswer(QString request_id, QString answer, int camera_id, bool ok);
     // --- system ---
     void privacyChanged(const polymath::PrivacyChanged&);
     void notice(const polymath::Notice&);               // log/toast surface
@@ -89,3 +125,6 @@ Q_DECLARE_METATYPE(polymath::TaskEvent)
 Q_DECLARE_METATYPE(polymath::ReminderFired)
 Q_DECLARE_METATYPE(polymath::PrivacyChanged)
 Q_DECLARE_METATYPE(polymath::Notice)
+Q_DECLARE_METATYPE(polymath::InstrumentReading)
+Q_DECLARE_METATYPE(polymath::DevicePresence)
+Q_DECLARE_METATYPE(polymath::LabStepEvent)

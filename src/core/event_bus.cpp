@@ -23,6 +23,9 @@ EventBus::EventBus() {
     qRegisterMetaType<polymath::ReminderFired>("polymath::ReminderFired");
     qRegisterMetaType<polymath::PrivacyChanged>("polymath::PrivacyChanged");
     qRegisterMetaType<polymath::Notice>("polymath::Notice");
+    qRegisterMetaType<polymath::InstrumentReading>("polymath::InstrumentReading");
+    qRegisterMetaType<polymath::DevicePresence>("polymath::DevicePresence");
+    qRegisterMetaType<polymath::LabStepEvent>("polymath::LabStepEvent");
 }
 
 } // namespace polymath

@@ -12,6 +12,7 @@
 #include "config.h"
 #include "paths.h"
 #include "logging.h"
+#include "inference_manager.h"   // describeCameraView calls inf_.describeImage()
 
 #include <opencv2/videoio.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -92,6 +93,14 @@ void VisionService::start() {
     loadGalleryFromDb();
 
     reloadCameras();
+
+    // Camera vision Q&A requests come over the bus (from the describe_camera agent
+    // tool). Queued onto this worker thread, so describeImage() blocks here. We
+    // subscribe even when cameras are disabled so the tool gets a prompt "no frame"
+    // answer instead of timing out.
+    connect(&EventBus::instance(), &EventBus::cameraQuery, this,
+            &VisionService::describeCameraView);
+
     PM_INFO("VisionService started: {} cameras, cameras_enabled={} face_rec={}",
             d_->cameras.size(), d_->cameras_enabled, d_->toggles.face_recognition.load());
 
@@ -302,6 +311,52 @@ void VisionService::findObject(const QString& query) {
     // Runs on the vision worker thread; describeImage() blocks here, not the UI.
     FindObjectResult res = d_->finder.find(query.toStdString());
     EventBus::instance().publishFindObject(res);
+}
+
+void VisionService::describeCameraView(const QString& request_id, const QString& question,
+                                       int camera_id) {
+    // Runs on the vision worker thread (queued from the bus); describeImage()
+    // blocks here, never the UI/agent thread. Answer goes back over the bus.
+    auto& bus = EventBus::instance();
+
+    // Pick the frame: a specific camera's latest, or the newest across all.
+    Frame f;
+    int used_cam = camera_id;
+    if (camera_id >= 0) {
+        f = d_->memory.latest(camera_id);
+    } else {
+        auto recent = d_->memory.recent(1);
+        if (!recent.empty()) { f = recent.front().frame; used_cam = f.camera_id; }
+    }
+    if (f.jpeg.empty()) {
+        bus.publishCameraAnswer(request_id,
+            QStringLiteral("No recent frame is available for that camera — it may be off or not "
+                           "streaming right now."), camera_id, false);
+        return;
+    }
+
+    const std::string q = question.trimmed().toStdString();
+    const std::string prompt = q.empty()
+        ? std::string(
+              "You are looking at a single still frame from a home camera. Describe what you see "
+              "concisely: people, notable objects, and any activity. If little is visible, say so.")
+        : ("You are looking at a single still frame from a home camera. Answer this question about "
+           "what is currently visible, based only on the image: \"" + q + "\". Be concise and "
+           "specific; if the image does not show enough to answer, say so plainly.");
+
+    std::string answer;
+    try {
+        answer = inf_.describeImage(f, prompt);
+    } catch (const std::exception& e) {
+        PM_WARN("VisionService: describeCameraView failed: {}", e.what());
+        bus.publishCameraAnswer(request_id,
+            QStringLiteral("The vision model couldn't analyze the camera frame."), used_cam, false);
+        return;
+    }
+    if (answer.empty())
+        answer = "I couldn't make out anything definite in the current view.";
+    PM_INFO("VisionService: camera {} Q&A -> {} chars", used_cam, answer.size());
+    bus.publishCameraAnswer(request_id, QString::fromStdString(answer), used_cam, true);
 }
 
 // --- snapshot ---------------------------------------------------------------

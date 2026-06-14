@@ -26,12 +26,16 @@ qt_add_qml_module(pm_ui
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/PanelMode.qml
+        qml/ControlOverlay.qml
+        qml/QuickAsk.qml
         qml/Dashboard.qml
         qml/ChatView.qml
         qml/CamerasView.qml
         qml/TaskQueueView.qml
         qml/TimelineView.qml
         qml/ShoppingView.qml
+        qml/LabView.qml
         qml/PersonalitiesView.qml
         qml/ModelManagerView.qml
         qml/PrivacyView.qml
@@ -55,6 +59,7 @@ qt_add_qml_module(pm_ui
         qml/controls/PmIcon.qml
         qml/controls/PmIconButton.qml
         qml/controls/EmptyState.qml
+        qml/controls/PersonalityAvatar.qml
     # Bundle the Inter (SIL OFL) UI font so QFontDatabase always finds a family
     # and the app renders identically headless and on any machine.
     RESOURCES
@@ -65,6 +70,8 @@ qt_add_qml_module(pm_ui
         models/camera_model.h      models/camera_model.cpp
         models/task_model.h        models/task_model.cpp
         models/timeline_model.h    models/timeline_model.cpp
+        models/lab_model.h         models/lab_model.cpp
+        models/instrument_model.h  models/instrument_model.cpp
         camera_image_provider.h    camera_image_provider.cpp
 )
 

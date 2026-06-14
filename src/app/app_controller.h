@@ -10,6 +10,8 @@
 #include <QObject>
 #include <QStringList>
 #include <QVariantList>
+#include <QVariantMap>
+#include <QTimer>
 #include <memory>
 #include <vector>
 
@@ -30,6 +32,7 @@ class PersonalityManager;
 class Config;
 class AppBridge;
 class GatewayService;
+class GlobalHotkey;
 
 // Wave-3 UI data layer (QAbstractListModels + the live-frame image provider).
 class ChatModel;
@@ -37,12 +40,25 @@ class ShoppingModel;
 class CameraModel;
 class TaskModel;
 class TimelineModel;
+class LabModel;
+class InstrumentModel;
 class CameraImageProvider;
 
 class AppController : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool listening READ listening NOTIFY listeningChanged)
     Q_PROPERTY(QString activePersonality READ activePersonality NOTIFY activePersonalityChanged)
+    // The active persona's "face": { name, style, accent, idle, talking } — drives
+    // the animated PersonalityAvatar. `speaking` is true while TTS is playing.
+    Q_PROPERTY(QVariantMap activePersona READ activePersona NOTIFY activePersonaChanged)
+    Q_PROPERTY(bool speaking READ speaking NOTIFY speakingChanged)
+    // Computer use: true while the assistant is actively driving the mouse/keyboard
+    // (powers the glowing on-screen border). controlAction is the current step label.
+    Q_PROPERTY(bool controlling READ controlling NOTIFY controllingChanged)
+    Q_PROPERTY(QString controlAction READ controlAction NOTIFY controllingChanged)
+    // Quick-ask pop-over: true while the global-hotkey ask box is showing. The
+    // QuickAsk window binds its visibility to this.
+    Q_PROPERTY(bool quickAskVisible READ quickAskVisible NOTIFY quickAskVisibleChanged)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY modelStatusChanged)
     // First-run / cold-start affordances. hasModels = at least one usable model
     // is registered on disk; firstRun = no usable model AND the first-run flow has
@@ -56,6 +72,9 @@ class AppController : public QObject {
     Q_PROPERTY(QObject* cameraModel   READ cameraModel   CONSTANT)
     Q_PROPERTY(QObject* taskModel     READ taskModel     CONSTANT)
     Q_PROPERTY(QObject* timelineModel READ timelineModel CONSTANT)
+    // v0.2 device fabric: the Lab cockpit's sessions + live instrument readout.
+    Q_PROPERTY(QObject* labModel        READ labModel        CONSTANT)
+    Q_PROPERTY(QObject* instrumentModel READ instrumentModel CONSTANT)
 public:
     explicit AppController(QObject* parent = nullptr);
     ~AppController() override;
@@ -77,6 +96,11 @@ public:
 
     bool    listening() const { return listening_; }
     QString activePersonality() const { return active_personality_; }
+    QVariantMap activePersona() const { return active_persona_; }
+    bool    speaking() const { return speaking_; }
+    bool    controlling() const { return controlling_; }
+    QString controlAction() const { return control_action_; }
+    bool    quickAskVisible() const { return quick_ask_visible_; }
     QString modelStatus() const { return model_status_; }
     bool    hasModels() const;
     bool    firstRun() const;
@@ -87,6 +111,8 @@ public:
     QObject* cameraModel() const;
     QObject* taskModel() const;
     QObject* timelineModel() const;
+    QObject* labModel() const;
+    QObject* instrumentModel() const;
 
     // --- QML-callable actions ---
     Q_INVOKABLE void sendText(const QString& text);
@@ -95,6 +121,15 @@ public:
     Q_INVOKABLE QStringList personalities() const;
     Q_INVOKABLE void setPrivacy(const QString& key, bool enabled);
     Q_INVOKABLE bool privacy(const QString& key) const;
+    // Panic-stop: abort any in-flight computer-use actions and clear the overlay.
+    Q_INVOKABLE void stopControl();
+    // Quick-ask pop-over (global hotkey, Ctrl+Alt+Space). show/hide/toggle drive
+    // the QuickAsk window; quickAsk() submits the question and returns the
+    // request_id so the pop-over can correlate the streamed reply.
+    Q_INVOKABLE void showQuickAsk();
+    Q_INVOKABLE void hideQuickAsk();
+    Q_INVOKABLE void toggleQuickAsk();
+    Q_INVOKABLE QString quickAsk(const QString& text);
     Q_INVOKABLE void findObject(const QString& query);
     Q_INVOKABLE void addShoppingItem(const QString& item);
 
@@ -106,6 +141,7 @@ public:
     Q_INVOKABLE void refreshCameras();
     Q_INVOKABLE void refreshTasks();
     Q_INVOKABLE void refreshTimeline();
+    Q_INVOKABLE void refreshLab();
 
     // Send chat text, appending the user turn to the ChatModel and correlating
     // the streamed reply.  Thin wrapper over sendText() the ChatView calls.
@@ -140,6 +176,10 @@ public:
 signals:
     void listeningChanged();
     void activePersonalityChanged();
+    void activePersonaChanged();   // the active persona's avatar/name map changed
+    void speakingChanged();        // TTS playback started/stopped
+    void controllingChanged();     // computer-use drive state / current-action label
+    void quickAskVisibleChanged(); // quick-ask pop-over shown/hidden
     void modelStatusChanged();
     void modelsChanged();      // model registry changed (add/role/load-state)
     void firstRunChanged();    // first-run state changed (model added / acknowledged)
@@ -151,6 +191,9 @@ private:
     void wireEventBus();
     void buildModels();      // construct the UI models + image provider
     void wireModels();       // connect EventBus -> models (queued onto UI thread)
+    // Rebuild active_persona_ from the PersonalityManager's active bundle (name +
+    // avatar style/accent/idle/talking as file URLs) and notify QML.
+    void updateActivePersona();
 
     Database db_;
 
@@ -161,6 +204,8 @@ private:
     std::unique_ptr<CameraModel>         camera_model_;
     std::unique_ptr<TaskModel>           task_model_;
     std::unique_ptr<TimelineModel>       timeline_model_;
+    std::unique_ptr<LabModel>            lab_model_;
+    std::unique_ptr<InstrumentModel>     instrument_model_;
     // The QML engine takes ownership of the image provider on registration; we
     // keep a non-owning pointer to push frames into it. Guarded for lifetime by
     // disconnecting the feed in shutdown().
@@ -187,10 +232,20 @@ private:
     std::unique_ptr<AppBridge>         bridge_;
     std::unique_ptr<GatewayService>    gateway_;
 
+    // System-wide quick-ask hotkey (lives on the GUI thread; null if registration
+    // failed or on non-Windows).
+    std::unique_ptr<GlobalHotkey>      hotkey_;
+
     std::vector<QThread*> threads_;
 
     bool    listening_ = false;
+    bool    speaking_  = false;
+    bool    controlling_ = false;
+    QString control_action_;
+    QTimer  control_linger_;        // keeps the overlay lit briefly after the last action
+    bool    quick_ask_visible_ = false;
     QString active_personality_ = "Assistant";
+    QVariantMap active_persona_;          // { name, style, accent, idle, talking }
     QString model_status_ = "no model loaded";
 };
 

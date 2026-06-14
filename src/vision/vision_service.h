@@ -36,6 +36,10 @@ public slots:
     void enrollUser(qint64 user_id, const QString& name);  // capture face gallery
     void findObject(const QString& query);                 // -> findObjectDone
     void snapshot(int camera_id);
+    // Camera vision Q&A: answer a free-form question about a camera's current view
+    // (camera_id<0 = most recently active) using the VLM on the latest buffered
+    // frame; replies on EventBus::cameraAnswer correlated by request_id.
+    void describeCameraView(const QString& request_id, const QString& question, int camera_id);
 
 signals:
     void cameraStateChanged(int camera_id, bool online);

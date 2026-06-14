@@ -1,7 +1,9 @@
 # inference — tiered llama.cpp model manager (Fast resident, Heavy/Vision/
 # Embedding on demand) arbitrating a ~8 GB VRAM budget. Wraps llama.cpp via
-# core::IModelBackend and links the `llama` target from third_party. CUDA is
-# only needed for the VRAM query (cudaMemGetInfo) and is optional.
+# core::IModelBackend and links the `llama` target from third_party. GPU memory
+# is queried at runtime through ggml's device registry (vram_budget.cpp), so this
+# module no longer links cudart directly — the CUDA backend is just an optional
+# ggml backend (static, or a runtime ggml-cuda.dll).
 qt_add_library(pm_inference STATIC
     inference_manager.cpp
     llama_backend.cpp
@@ -25,20 +27,5 @@ if(TARGET llama)
     if(TARGET mtmd)
         target_link_libraries(pm_inference PRIVATE mtmd)
         target_compile_definitions(pm_inference PRIVATE POLYMATH_HAVE_MTMD=1)
-    endif()
-endif()
-
-# CUDA runtime — used solely by vram_budget.cpp for cudaMemGetInfo. The toggle
-# POLYMATH_USE_CUDA is forwarded from the top-level build (and also enables
-# GGML_CUDA for llama.cpp in third_party). Falls back to a conservative budget
-# when off.
-if(POLYMATH_USE_CUDA)
-    find_package(CUDAToolkit QUIET)
-    if(CUDAToolkit_FOUND)
-        target_link_libraries(pm_inference PRIVATE CUDA::cudart)
-        target_compile_definitions(pm_inference PRIVATE POLYMATH_USE_CUDA=1)
-    else()
-        message(WARNING "POLYMATH_USE_CUDA set but CUDAToolkit not found; "
-                        "VRAM query will use the conservative default.")
     endif()
 endif()

@@ -5,6 +5,10 @@
 #include "logging.h"
 
 #include <QString>
+#include <QObject>
+#include <QEventLoop>
+#include <QTimer>
+#include <QUuid>
 
 // camera_snapshot / who_is_home — answer "home presence" questions from the
 // `events` table (kind=person|face, with optional resolved user_id) and surface
@@ -151,6 +155,85 @@ ToolResult WhoIsHomeTool::invoke(const nlohmann::json& args, ToolContext& ctx) {
         summary = std::to_string(people.size()) + " known person(s) seen recently";
     }
     return {true, std::move(content), summary};
+}
+
+// --- describe_camera --------------------------------------------------------
+
+std::string DescribeCameraTool::name() const { return "describe_camera"; }
+std::string DescribeCameraTool::description() const {
+    return "Look at a camera's CURRENT live view and answer a question about it, or describe it, "
+           "using the local vision model on the latest frame. Specify a camera by name or id, or "
+           "omit to use the most recently active camera. Use for questions like 'is anyone at the "
+           "front door?', 'what's on the porch camera right now?', or 'describe the kitchen'. This "
+           "reads the live camera — for what was seen earlier, use camera_snapshot / who_is_home.";
+}
+
+nlohmann::json DescribeCameraTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"question",  {{"type", "string"},
+                           {"description", "What to ask about the view (optional; omit for a general description)"}}},
+            {"camera",    {{"type", "string"},  {"description", "Camera name (optional)"}}},
+            {"camera_id", {{"type", "integer"}, {"description", "Camera id (optional)"}}},
+        }},
+    };
+}
+
+ToolResult DescribeCameraTool::invoke(const nlohmann::json& args, ToolContext& ctx) {
+    std::string camName;
+    const int64_t camId = resolveCamera(*ctx.db, args, camName);
+    if ((args.contains("camera") || args.contains("camera_id")) && camId < 0)
+        return {false, {{"error", "camera not found"}}, "describe_camera: unknown camera"};
+
+    // Fast-fail when no camera is configured at all, so we never block on a reply
+    // that can't come.
+    if (camId < 0) {
+        int64_t n = 0;
+        ctx.db->query("SELECT COUNT(*) FROM cameras", {}, [&](const Row& r) { n = r.i64(0); });
+        if (n == 0)
+            return {true, {{"answer", nullptr}}, "describe_camera: no cameras are configured"};
+    }
+
+    const std::string question = args.value("question", "");
+    const QString rid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+
+    // Round-trip over the bus: VisionService owns the live frames and the VLM, so
+    // we publish the query and pump a local event loop on THIS (agent) worker
+    // thread until it answers or we time out. (AgentRuntime already serialises
+    // turns and runs tools via a nested loop, so this is the established pattern.)
+    QEventLoop loop;
+    QString answer;
+    int  ansCam = static_cast<int>(camId);
+    bool ok = false, got = false;
+    QObject sink;
+    QObject::connect(&EventBus::instance(), &EventBus::cameraAnswer, &sink,
+        [&](const QString& r, const QString& a, int cam, bool okv) {
+            if (r != rid) return;
+            answer = a; ansCam = cam; ok = okv; got = true;
+            loop.quit();
+        });
+    QTimer timer;
+    timer.setSingleShot(true);
+    QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    timer.start(45000);
+
+    EventBus::instance().publishCameraQuery(rid, QString::fromStdString(question),
+                                            static_cast<int>(camId));
+    loop.exec();
+
+    if (!got)
+        return {false, {{"error", "timeout"}},
+                "describe_camera: the vision service didn't answer in time"};
+
+    const std::string a = answer.toStdString();
+    nlohmann::json content = {
+        {"camera",    camName.empty() ? nlohmann::json(nullptr) : nlohmann::json(camName)},
+        {"camera_id", ansCam},
+        {"question",  question},
+        {"answer",    a},
+    };
+    return {ok, std::move(content), ok ? ("Camera view: " + a) : a};
 }
 
 } // namespace polymath

@@ -4,9 +4,18 @@
 // WS headers, so the device token rides as a query param (gateway + relay both
 // accept ?token=).
 //
-import type { ClientCommand, ServerEvent, ServerEventType } from './contract';
+import type {
+  ClientCommand,
+  DevicePresenceEvent,
+  EdgeDeviceDTO,
+  LabStepEvent,
+  ReadingDTO,
+  ServerEvent,
+  ServerEventType,
+} from './contract';
 import { getTokenSync } from './auth';
 import { resolveWsUrl, invalidateBase } from './transport';
+import { useApp } from '../state/store';
 
 type Handler = (e: ServerEvent) => void;
 type StateHandler = (connected: boolean) => void;
@@ -91,6 +100,9 @@ class EventSocket {
       try {
         const data = JSON.parse(ev.data as string) as ServerEvent;
         this.handlers.forEach((h) => h(data));
+        // Route new fabric event types directly into the Zustand store so any
+        // screen that selects from the store updates live without its own handler.
+        this.routeFabricEvent(data);
       } catch {
         /* ignore malformed frame */
       }
@@ -120,6 +132,58 @@ class EventSocket {
 
   private emitState(connected: boolean): void {
     this.stateHandlers.forEach((h) => h(connected));
+  }
+
+  /** Pipe fabric-specific events into the Zustand store. */
+  private routeFabricEvent(e: ServerEvent): void {
+    const store = useApp.getState();
+    switch (e.type) {
+      case 'instrument_reading': {
+        const r = e.data as ReadingDTO;
+        store.upsertReading(r);
+        break;
+      }
+      case 'device_presence': {
+        const p = e.data as DevicePresenceEvent;
+        if (store.edgeDevices[p.device_id]) {
+          // Device already known — just flip online flag.
+          store.setEdgeDeviceOnline(p.device_id, p.online);
+        } else {
+          // First-seen: create a minimal EdgeDeviceDTO so the Devices screen
+          // updates without a full refetch.
+          const stub: EdgeDeviceDTO = {
+            device_id: p.device_id,
+            kind: p.kind,
+            name: p.name,
+            location: '',
+            transport: '',
+            endpoint: '',
+            capabilities: {},
+            fw_version: '',
+            last_seen: p.ts,
+            enabled: true,
+            online: p.online,
+          };
+          store.upsertEdgeDevice(stub);
+        }
+        break;
+      }
+      case 'lab_step': {
+        const s = e.data as LabStepEvent;
+        // Map LabStepEvent → LabStepDTO shape expected by the store.
+        store.upsertLabStep(s.session_id, {
+          step_no: s.step_no,
+          prompt: s.prompt,
+          expected_kind: '',
+          expected_unit: s.unit,
+          measured_value: s.measured_value,
+          measured_unit: s.unit,
+          verified: s.verified,
+          verified_at: s.verified ? Math.floor(Date.now() / 1000) : null,
+        });
+        break;
+      }
+    }
   }
 }
 

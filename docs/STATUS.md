@@ -1,12 +1,69 @@
 # Build status
 
-Both builds are verified: **they compile, link, run the tests, and launch.**
+## v0.2 — device fabric + lab assistant (branch `feat/distributed-fabric`)
 
-- **CPU build** — `build/cpu` (Visual Studio 2022 generator). Reproduced by
-  [`scripts/build-cpu.ps1`](../scripts/build-cpu.ps1).
-- **GPU / CUDA build** — `build/cuda` (Ninja generator + portable CUDA 13.2 toolkit,
-  `sm_86`). Reproduced by [`scripts/build-gpu.ps1`](../scripts/build-gpu.ps1).
-  **GPU inference is verified end-to-end (token generation on the RTX 3080 Ti).**
+The distributed expansion is in and **verified on the CPU build**:
+
+- **Schema v2** (`edge_devices`, `instruments`, `measurements`, `lab_sessions`, `lab_session_steps` +
+  edge-clip columns on `events`), migrated idempotently via guarded `ALTER`s.
+- **Device fabric** (`src/fabric`, `pm_fabric`) bridges edge devices onto the EventBus + schema; MQTT is
+  optional (`POLYMATH_USE_MQTT`, off by default) and the HTTP ingest plane works with no broker.
+- **Hub modules**: network (satellite) audio source, the `read_instrument`/`record_measurement` +
+  4 lab-session tools, an interactive **Lab Guide** persona, event/clip retention sweep, and a touch
+  **panel mode** (`Hearth.exe --panel`).
+- **Mobile app** (`app/`) builds clean (`npm run build`): chat-first home, direct-to-camera path, and new
+  Devices / Instruments / Lab-Session / clip-browser screens.
+- **Edge firmware** (`firmware/`): shared `common` lib + 5 camera tiers, voice satellite, and the HMM lab
+  module, all to the [`FABRIC.md`](FABRIC.md) contract (compiled per-board with PlatformIO/ESP-IDF/CanMV —
+  not built in CI here).
+- **`ctest`: 14/14 green** on the CPU build — the original 11 plus **fabric, instruments, lab_session**.
+  All 14 desktop QML views (incl. PanelMode and the new Lab cockpit) render in the offscreen
+  `capture_views` harness, in both populated and `--empty` first-run states.
+- **Both builds link the new code:** the CPU build (VS generator) and the **CUDA build** (Ninja +
+  portable CUDA, through the `C:\pm` no-space junction) both compile `pm_fabric` + the gateway/lab/
+  instrument additions and link `Hearth.exe` (157/157, exit 0).
+- **Mobile app** verified in a browser preview: chat-first home, the new Edge Devices / Instruments /
+  Lab Session screens render coherent empty + graceful error states, and a React error boundary keeps a
+  screen crash from blanking the app.
+
+### Single auto-detecting binary (replaces the split CPU/CUDA builds)
+
+The two build trees (`build/cpu`, `build/cuda`) collapse into **one** `Hearth.exe` that picks the
+GPU or CPU **at runtime**:
+
+- **`POLYMATH_BACKEND_DL`** turns on ggml's `GGML_BACKEND_DL`: the backends build as runtime-loadable
+  libraries — `ggml-base.dll` + `ggml.dll`, **ten per-ISA `ggml-cpu-*.dll` variants** (sse42 →
+  alderlake, the best one auto-loaded for the running CPU), and, when a CUDA toolkit is present at
+  build time, `ggml-cuda.dll`. `llama.dll`/`whisper.dll` ship beside the exe.
+- **`src/inference/vram_budget.cpp`** now detects the GPU through ggml's **device registry**
+  (`ggml_backend_dev_*`) instead of `cudaMemGetInfo`, so the binary has **no hard CUDA dependency** —
+  it uses the GPU when an NVIDIA device + `ggml-cuda.dll` are present and falls back to CPU otherwise.
+- **One script, `scripts/build.ps1`** (auto / `-Flavor cpu` / `-Flavor cuda`) configures, builds and
+  deploys it; `nvcc`'s no-space-path constraint only affects the optional CUDA-backend DLL.
+- **Verified on BOTH paths (same binary code, 3080 Ti):**
+  - `build.ps1 -Flavor cpu` (no `ggml-cuda.dll`) → headless it logs
+    `VramBudget: no GPU backend detected; running on CPU` (CUDA=false) and brings the Fast model
+    resident on a runtime-selected per-ISA CPU backend — no crash, no cudart needed.
+  - `build.ps1 -Flavor cuda` (adds `ggml-cuda.dll`, built via the `C:\pm` junction + nvcc) → the *same*
+    binary logs `VramBudget: GPU backend present — 12287 MiB total, 11100 MiB free`,
+    `InferenceManager starting (CUDA=true)`, and offloads all layers to the GPU.
+  - i.e. the runtime GPU/CPU selection is genuinely automatic — the only difference between the two is
+    whether `ggml-cuda.dll` is present beside the exe.
+- The old split `build-cpu.ps1` / `build-gpu.ps1` scripts and the `build/cpu` + `build/cuda` trees are
+  **retired** — `scripts/build.ps1` (→ `build/dist`) is the only build; `scripts/ci.ps1` and
+  `scripts/package.ps1` both drive it.
+
+---
+
+## v0.1 baseline
+
+The single binary is verified: **it compiles, links, runs the tests, and launches** on both the CPU and
+GPU paths (the v0.2 consolidation above replaced the original split build/cpu + build/cuda trees).
+
+- **Build** — one [`scripts/build.ps1`](../scripts/build.ps1): `-Flavor cpu` (VS generator) or
+  `-Flavor cuda` (Ninja + portable CUDA 13.2 toolkit, `sm_86`, through the no-space `C:\pm` junction),
+  output in the single `build/dist` tree.
+- **GPU inference is verified end-to-end** (token generation on the RTX 3080 Ti — see the bench below).
 
 `Hearth.exe` is built with MSVC 2022 + Qt 6.6.3 + OpenCV 4.9 + ONNX Runtime 1.17
 (CPU) + llama.cpp/whisper.cpp built from source, and confirmed at runtime to:
@@ -58,15 +115,14 @@ InferenceManager: Fast model resident
 
 ```powershell
 git submodule update --init --recursive   # or scripts/setup-dev.ps1
-pwsh scripts/build-cpu.ps1                 # configures + builds build/cpu
+pwsh scripts/build.ps1                     # one build: GPU backend if a CUDA toolkit is present, else CPU
 pwsh scripts/fetch-models.ps1              # download the default local models
-pwsh scripts/build-gpu.ps1                 # configures + builds + deploys build/cuda (CUDA)
+pwsh scripts/build.ps1 -Flavor cpu -Tests  # CI / dev: CPU binary + the full ctest suite
 ```
 
-`build-gpu.ps1` assumes the CPU prereqs exist (Qt/OpenCV/ONNX + the small vcpkg libs +
-the portable CUDA toolkit under `build/deps/cuda/toolkit`). It builds through a no-space
-NTFS junction (`C:\pm` → repo) because **nvcc cannot tolerate a space anywhere in its
-paths** and the repo lives in `…\Home Assistant`. See `BUILD.md`.
+The `cuda` flavor assumes the portable CUDA toolkit under `build/deps/cuda/toolkit` and builds through a
+no-space NTFS junction (`C:\pm` → repo) because **nvcc cannot tolerate a space anywhere in its paths**
+and the repo lives in `…\Home Assistant`.
 
 ## Module status
 
@@ -97,10 +153,10 @@ Xenova/onnx-community mirrors now 401; the detector confirms `in=images out=outp
    requests the CUDA EP and falls back cleanly.
 2. **Heavy model on a 12 GB card.** Gemma 3 27B Q4 (~16 GB) still partial-offloads; the
    VramBudget manager trims `n_gpu_layers` to fit. Fast/VLM/Embedding fit comfortably.
-3. **Packaging.** DONE — `scripts/package.ps1 -Flavor {cpu,cuda}` produces portable zips and the
-   Inno Setup installers compile for both flavors (`dist/Hearth-0.1.0-win64-{cpu,cuda}-Setup.exe`).
-   Bundles ship without models; the first-run wizard fetches them. Remaining ship TODOs (code
-   signing, a clean-VM smoke pass) are tracked in [`SHIP.md`](SHIP.md).
+3. **Packaging.** DONE — `scripts/package.ps1` stages one portable zip from `build/dist` and the
+   Inno Setup installer compiles (`dist/Hearth-0.1.0-win64-Setup.exe`) — a single auto-detecting
+   bundle (no cpu/cuda flavour). Bundles ship without models; the first-run wizard fetches them.
+   Remaining ship TODOs (code signing, a clean-VM smoke pass) are tracked in [`SHIP.md`](SHIP.md).
 
 ## Notes from the bring-up
 
@@ -120,5 +176,5 @@ commit and the **KEY GOTCHAS** in `BUILD.md`. The CUDA-specific ones:
 - **nvcc + spaces.** Build through the `C:\pm` junction (no admin needed).
 - **Runtime DLLs windeployqt misses.** `Hearth.exe` also needs `fmt.dll`, `spdlog.dll`
   (vcpkg), `opencv_videoio_ffmpeg490_64.dll`, and the CUDA `cudart/cublas/cublasLt 64_13`
-  DLLs next to the exe; without them the loader hangs before `main()`. `build-gpu.ps1`
-  deploys all of these.
+  DLLs next to the exe; without them the loader hangs before `main()`. `build.ps1`'s deploy
+  step copies all of these.

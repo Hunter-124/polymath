@@ -8,8 +8,16 @@
 //
 // MemoryService drives a live 24h cadence; this class is the canonical,
 // unit-tested implementation of the policy and is also used directly by tools
-// and tests.  Retention windows come from the `settings` table via Config
-// (retention.ambient_days / retention.events_days; 0 == keep forever).
+// and tests.  Retention windows come from the `settings` table via Config:
+//   retention.ambient_days       (0 == keep forever; default 7)
+//   retention.events_days        (0 == keep forever; default 30)
+//   retention.measurements_days  (0 == keep forever; default 0)
+//
+// Vision-event sweeping removes:
+//   • the DB row
+//   • on-disk thumbnail (thumb_path, resolved against Paths::media())
+//   • on-disk hub-archived clip copy (clip_local_path, non-empty only)
+// clip_url (camera-side SD card reference) is NEVER touched.
 //
 #include <cstdint>
 
@@ -18,9 +26,10 @@ namespace polymath {
 class Database;
 
 struct SweepResult {
-    int64_t transcripts_removed = 0;
-    int64_t events_removed      = 0;
-    int64_t total() const { return transcripts_removed + events_removed; }
+    int64_t transcripts_removed  = 0;
+    int64_t events_removed       = 0;
+    int64_t measurements_removed = 0;
+    int64_t total() const { return transcripts_removed + events_removed + measurements_removed; }
 };
 
 class Retention {
@@ -30,7 +39,8 @@ public:
     // Purges everything past its TTL as of `now_unix` (defaults to wall-clock):
     //   * transcripts with ttl_at <= now (explicit per-row TTL), and
     //   * ambient transcripts older than retention.ambient_days, and
-    //   * events older than retention.events_days.
+    //   * events older than retention.events_days (+ their on-disk thumb/clip files), and
+    //   * measurements older than retention.measurements_days.
     // A category whose configured window is 0 is kept forever (except rows with
     // an explicit ttl_at, which are always honoured). Fresh rows are left intact.
     SweepResult sweep(int64_t now_unix = 0);

@@ -1,0 +1,17 @@
+[Unit]
+Description=Hearth Flagship camera service (Raspberry Pi)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hearth-cam-pi --config /etc/hearth/cam-pi.json
+Restart=on-failure
+RestartSec=3
+# Port 80 needs privilege or this capability:
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+StateDirectory=hearth
+WorkingDirectory=/var/lib/hearth
+
+[Install]
+WantedBy=multi-user.target

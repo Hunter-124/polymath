@@ -24,4 +24,15 @@ public:
     ToolResult invoke(const nlohmann::json& args, ToolContext& ctx) override;
 };
 
+// describe_camera — ask the local vision model about a camera's CURRENT view
+// (free-form question, or a plain description). Round-trips to VisionService over
+// the EventBus (it owns the live frames + the VLM) and waits for the answer.
+class DescribeCameraTool : public ITool {
+public:
+    std::string name() const override;
+    std::string description() const override;
+    nlohmann::json parametersSchema() const override;
+    ToolResult invoke(const nlohmann::json& args, ToolContext& ctx) override;
+};
+
 } // namespace polymath

@@ -6,8 +6,8 @@
 ;  Inno Setup is not available on the build box.
 ;
 ;  WHAT THIS PACKAGES
-;    The staged bundle directory dist\Hearth-<ver>-win64-<flavor>\ produced by:
-;        pwsh scripts\package.ps1 -Flavor cuda          (or -Flavor cpu)
+;    The staged bundle directory dist\Hearth-<ver>-win64\ produced by:
+;        pwsh scripts\package.ps1
 ;    i.e. Hearth.exe + the Qt runtime + engine/CUDA/ONNX/OpenCV DLLs + the
 ;    VC++ redist DLLs + the first-run scripts + an EMPTY data\models\ (models are
 ;    ~28 GB and are fetched on first run, never bundled here).
@@ -19,13 +19,13 @@
 ;
 ;  HOW TO BUILD THE INSTALLER  (Inno Setup 6, ISCC.exe)
 ;    1. Stage the bundle (folder, not zip):
-;         pwsh scripts\package.ps1 -Flavor cuda -NoZip
-;       This writes dist\Hearth-<ver>-win64-cuda\.
-;    2. Compile (pass the version + flavor so SourceDir resolves):
+;         pwsh scripts\package.ps1 -NoZip
+;       This writes dist\Hearth-<ver>-win64\.
+;    2. Compile (pass the version so SourceDir resolves):
 ;         "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ^
-;             /DAppVersion=0.1.0 /DFlavor=cuda scripts\installer\polymath.iss
-;       Output: dist\Hearth-0.1.0-win64-cuda-Setup.exe
-;    Defaults: AppVersion=0.1.0, Flavor=cuda. Override either with /D as above.
+;             /DAppVersion=0.1.0 scripts\installer\polymath.iss
+;       Output: dist\Hearth-0.1.0-win64-Setup.exe
+;    Default: AppVersion=0.1.0. Override with /D as above.
 ;
 ;    Inno Setup is NOT installed on the current build machine. Install it with:
 ;         winget install JRSoftware.InnoSetup
@@ -39,11 +39,11 @@
 ;    and sign BOTH Hearth.exe and the installer:
 ;
 ;      signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 ^
-;          /f mycert.pfx /p <pw> "dist\Hearth-<ver>-win64-<flavor>\Hearth.exe"
+;          /f mycert.pfx /p <pw> "dist\Hearth-<ver>-win64\Hearth.exe"
 ;      ; re-stage so the signed exe is the one packaged, then build the installer,
 ;      ; then sign the installer the same way:
 ;      signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 ^
-;          /f mycert.pfx /p <pw> "dist\Hearth-<ver>-win64-<flavor>-Setup.exe"
+;          /f mycert.pfx /p <pw> "dist\Hearth-<ver>-win64-Setup.exe"
 ;
 ;    To let ISCC sign automatically during compile, register a sign tool in the
 ;    IDE (Tools -> Configure Sign Tools) named e.g. "signtool", then uncomment the
@@ -55,13 +55,11 @@
 #ifndef AppVersion
   #define AppVersion "0.1.0"
 #endif
-#ifndef Flavor
-  #define Flavor "cuda"
-#endif
 
 ; The staged bundle folder produced by package.ps1 -NoZip. Resolved relative to
-; this .iss (scripts\installer\ -> ..\..\dist\...).
-#define BundleName "Hearth-" + AppVersion + "-win64-" + Flavor
+; this .iss (scripts\installer\ -> ..\..\dist\...). One auto-detecting binary now,
+; so there is a single bundle name (no cpu/cuda flavour).
+#define BundleName "Hearth-" + AppVersion + "-win64"
 #define SourceDir  "..\..\dist\" + BundleName
 
 [Setup]

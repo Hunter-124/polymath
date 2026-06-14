@@ -8,6 +8,7 @@
 #include <QQuickStyle>
 #include <QDir>
 #include <QCoreApplication>
+#include <QCommandLineParser>
 #include <QtGlobal>
 
 #ifdef Q_OS_WIN
@@ -60,6 +61,18 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setApplicationName("Hearth");
     QQuickStyle::setStyle("Basic");   // self-contained style -> static-friendly
 
+    // --panel  →  load PanelMode.qml fullscreen (touch/kiosk mode) instead of
+    //             the normal Main.qml desktop shell.
+    QCommandLineParser cli;
+    cli.setApplicationDescription("Hearth — Local AI Home Assistant");
+    cli.addHelpOption();
+    cli.addVersionOption();
+    QCommandLineOption panelOpt(QStringList{"panel"},
+        "Start in fullscreen touch/kiosk panel mode (loads PanelMode.qml).");
+    cli.addOption(panelOpt);
+    cli.process(app);
+    const bool panelMode = cli.isSet(panelOpt);
+
     Paths::instance().setRoot(resolveAppRoot());
 
     AppController controller;
@@ -89,7 +102,13 @@ int main(int argc, char* argv[]) {
     // Load the embedded scene by resource URL. (Loading by module name would
     // require importing the static QML module's plugin into the exe; the URL is
     // deterministic and the QML files only import standard Qt modules.)
-    engine.load(QUrl(QStringLiteral("qrc:/qt/qml/Polymath/qml/Main.qml")));
+    //
+    // --panel swaps in PanelMode.qml (fullscreen touch/kiosk dashboard) while
+    // keeping every other initialisation path identical.
+    const QString rootQml = panelMode
+        ? QStringLiteral("qrc:/qt/qml/Polymath/qml/PanelMode.qml")
+        : QStringLiteral("qrc:/qt/qml/Polymath/qml/Main.qml");
+    engine.load(QUrl(rootQml));
     if (engine.rootObjects().isEmpty()) {
         reportFatalStartupError(
             "The user interface failed to load (no root window was created). "

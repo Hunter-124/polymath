@@ -34,7 +34,7 @@ Popup {
             ["Dashboard", "home",   "Ctrl+1"], ["Chat",     "chat",  "Ctrl+2"],
             ["Cameras",   "camera", "Ctrl+3"], ["Tasks",    "tasks", "Ctrl+4"],
             ["Timeline",  "clock",  "Ctrl+5"], ["Shopping", "cart",  "Ctrl+6"],
-            ["Settings",  "settings", "Ctrl+7"]
+            ["Lab",       "flask",  "Ctrl+7"], ["Settings", "settings", "Ctrl+8"]
         ]
         for (let p of pages)
             c.push({ label: "Go to " + p[0], icon: p[1], hint: p[2],

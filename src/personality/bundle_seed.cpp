@@ -84,12 +84,6 @@ fs::path locateStarterBundles() {
 int seedStarterBundles(const fs::path& dest) {
     std::error_code ec;
 
-    // Only seed an empty destination — never clobber the user's own bundles.
-    if (hasAnyBundle(dest)) {
-        PM_DEBUG("personality: destination already has bundles, skipping seed");
-        return 0;
-    }
-
     const fs::path src = locateStarterBundles();
     if (src.empty()) {
         PM_WARN("personality: no starter bundles found to seed into {}", dest.string());
@@ -105,9 +99,12 @@ int seedStarterBundles(const fs::path& dest) {
         if (!fs::exists(entry.path() / "persona.json", fec)) continue;
 
         const fs::path target = dest / entry.path().filename();
+        // Add shipped bundles that are MISSING; never overwrite the user's existing
+        // ones — so manual edits survive AND new shipped personas (e.g. Operator)
+        // appear after an update, not only on a clean first run.
+        if (fs::exists(target, fec)) continue;
         std::error_code cec;
-        fs::copy(entry.path(), target,
-                 fs::copy_options::recursive | fs::copy_options::skip_existing, cec);
+        fs::copy(entry.path(), target, fs::copy_options::recursive, cec);
         if (cec) {
             PM_WARN("personality: failed to copy bundle {} -> {}: {}",
                     entry.path().string(), target.string(), cec.message());

@@ -1,0 +1,14 @@
+{
+  "name": "hearth-common",
+  "version": "0.2.0",
+  "description": "Shared Hearth edge-device fabric library (wifi/provision, id, mqtt, mdns, httpd, auth, sdclip, ota) implementing docs/FABRIC.md.",
+  "keywords": ["hearth", "esp32", "mqtt", "fabric"],
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "dependencies": [
+    { "owner": "knolleary", "name": "PubSubClient", "version": "^2.8" }
+  ],
+  "build": {
+    "srcDir": "."
+  }
+}
