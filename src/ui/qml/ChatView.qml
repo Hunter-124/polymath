@@ -63,10 +63,14 @@ Item {
                 Label {
                     text: app.speaking ? "Speaking…"
                         : root.awaitingReply ? "Thinking…"
+                        : !app.ttsReady ? app.ttsStatus
                         : app.listening ? "Listening" : "Ready to chat"
                     color: app.speaking ? Style.accent
+                         : !app.ttsReady ? Style.warn
                          : app.listening ? Style.good : Style.textFaint
                     font.family: Style.fontFamily; font.pixelSize: Style.fsTiny
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: 360
                 }
             }
             Item { Layout.fillWidth: true }
@@ -256,7 +260,7 @@ Item {
             }
             PmButton {
                 accent: true
-                enabled: input.text.trim().length > 0
+                enabled: input.text.trim().length > 0 && !root.awaitingReply
                 onClicked: root.send()
                 contentItem: RowLayout {
                     spacing: 7

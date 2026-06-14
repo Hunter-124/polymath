@@ -39,8 +39,26 @@
 #include <QVariantMap>
 
 #include <filesystem>
+#include <unordered_map>
 
 namespace polymath {
+
+namespace {
+std::string uniqueModelId(Database& db, const std::string& preferred) {
+    auto exists = [&](const std::string& id) {
+        bool found = false;
+        db.query("SELECT 1 FROM models WHERE id=?1", {id},
+                 [&](const Row&) { found = true; });
+        return found;
+    };
+    if (!exists(preferred)) return preferred;
+    for (int i = 2; i < 1000; ++i) {
+        std::string candidate = preferred + "-" + std::to_string(i);
+        if (!exists(candidate)) return candidate;
+    }
+    return preferred + "-" + std::to_string(to_unix(Clock::now()));
+}
+} // namespace
 
 AppController::AppController(QObject* parent) : QObject(parent) {}
 
@@ -207,6 +225,12 @@ void AppController::wireEventBus() {
         if (speaking_ == on) return;
         speaking_ = on; emit speakingChanged();
     });
+    connect(audio_.get(), &AudioService::ttsStateChanged, this,
+            [this](bool ready, const QString& status) {
+                tts_ready_ = ready;
+                tts_status_ = status;
+                emit ttsStatusChanged();
+            });
 
     // Computer-use drive state -> the glowing overlay. Each action republishes
     // active=true; we linger ~4s after the last one so the border doesn't flicker
@@ -232,7 +256,19 @@ void AppController::wireEventBus() {
     // resident at startup, or a freshly added model loaded), so re-publish those.
     connect(inference_.get(), &InferenceManager::modelStateChanged, this,
             [this](const QString& role, const QString& id, bool loaded) {
-                model_status_ = loaded ? (role + ": " + id) : QStringLiteral("no model loaded");
+                model_status_ = QStringLiteral("no model loaded");
+                if (loaded) {
+                    model_status_ = role + ": " + id;
+                    for (const auto& st : inference_->runtimeStates()) {
+                        if (QString::fromStdString(st.id) == id) {
+                            model_status_ = QStringLiteral("%1: %2 · GPU layers %3 · %4 MiB")
+                                .arg(role, id)
+                                .arg(st.gpu_layers)
+                                .arg(static_cast<qulonglong>(st.footprint_mib));
+                            break;
+                        }
+                    }
+                }
                 emit modelStatusChanged();
                 emit modelsChanged();
                 emit firstRunChanged();
@@ -291,6 +327,10 @@ void AppController::wireModels() {
     // Timeline live feed: detections + utterances (queued from vision/audio).
     connect(&bus, &EventBus::detection, timeline_model_.get(), &TimelineModel::onDetection);
     connect(&bus, &EventBus::utterance, timeline_model_.get(), &TimelineModel::onUtterance);
+    connect(&bus, &EventBus::utterance, chat_model_.get(), [this](const Utterance& u) {
+        if (!u.is_ambient && chat_model_)
+            chat_model_->appendUser(QString::fromStdString(u.text));
+    });
 
     // Memory summaries / new memories land in the DB on the memory worker; the
     // "memory" notice is our cue to refresh the timeline so they appear.
@@ -505,6 +545,11 @@ QString AppController::submitChatTurn(const QString& text) {
 
 QVariantList AppController::models() const {
     QVariantList out;
+    std::unordered_map<std::string, ModelRuntimeState> runtimeById;
+    if (inference_) {
+        for (const auto& st : inference_->runtimeStates())
+            runtimeById[st.id] = st;
+    }
     const_cast<Database&>(db_).query(
         "SELECT id,display_name,role,path,n_ctx,n_gpu_layers,is_active "
         "FROM models ORDER BY role ASC, display_name ASC",
@@ -518,6 +563,15 @@ QVariantList AppController::models() const {
             m["nCtx"]        = static_cast<int>(r.i64(4));
             m["nGpuLayers"]  = static_cast<int>(r.i64(5));
             m["active"]      = r.i64(6) != 0;
+            if (auto it = runtimeById.find(r.text(0)); it != runtimeById.end()) {
+                m["loaded"]          = it->second.loaded;
+                m["loadedGpuLayers"] = it->second.gpu_layers;
+                m["footprintMiB"]    = static_cast<qulonglong>(it->second.footprint_mib);
+            } else {
+                m["loaded"]          = false;
+                m["loadedGpuLayers"] = 0;
+                m["footprintMiB"]    = 0;
+            }
             out.push_back(m);
         });
     return out;
@@ -575,7 +629,7 @@ bool AppController::addModel(const QString& path, const QString& role) {
         r = QStringLiteral("fast");
 
     const std::string p  = fi.absoluteFilePath().toStdString();
-    const std::string id = fi.completeBaseName().toStdString();   // stem, e.g. "gemma-3n"
+    const std::string id = uniqueModelId(db_, fi.completeBaseName().toStdString());
     const std::string rs = r.toStdString();
 
     // Skip if this exact path is already registered (mirrors auto-discover).

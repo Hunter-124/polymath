@@ -39,6 +39,8 @@ public:
     bool    listening() override;
     QString activePersonality() override;
     QString modelStatus() override;
+    bool    ttsReady() override;
+    QString ttsStatus() override;
 
 private:
     AppController& app_;

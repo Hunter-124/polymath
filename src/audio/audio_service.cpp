@@ -400,6 +400,10 @@ void AudioService::start() {
     }
 
     d_->loadModels();
+    emit ttsStateChanged(d_->tts.ready(),
+                         d_->tts.ready()
+                             ? QStringLiteral("Piper TTS ready")
+                             : QStringLiteral("Piper TTS unavailable"));
 
     // When streaming TTS playback ends on its own, the callback fires on the TTS
     // worker thread; hop back to THIS (audio) thread before touching pipeline

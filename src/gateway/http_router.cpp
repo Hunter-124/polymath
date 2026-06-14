@@ -259,6 +259,8 @@ Response HttpRouter::routeStatus(const Request& req) {
                                bridge_.listening(),
                                bridge_.activePersonality().toStdString(),
                                bridge_.modelStatus().toStdString(),
+                               bridge_.ttsReady(),
+                               bridge_.ttsStatus().toStdString(),
                                uptime);
     return Response::json(200, st.dump());
 }

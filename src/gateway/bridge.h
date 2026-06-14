@@ -22,6 +22,7 @@
 //       AppController::listening             -> listening
 //       AppController::activePersonality     -> activePersonality
 //       AppController::modelStatus           -> modelStatus
+//       AppController::ttsReady / ttsStatus  -> ttsReady / ttsStatus
 //
 // THREADING
 //   GatewayService runs on its own QThread, so the HTTP/WS handlers invoke these
@@ -83,6 +84,8 @@ public:
     virtual bool    listening() = 0;          // mic/ASR active
     virtual QString activePersonality() = 0;  // e.g. "Assistant"
     virtual QString modelStatus() = 0;        // e.g. "fast: qwen2.5-7b" or "no model loaded"
+    virtual bool    ttsReady() = 0;           // Piper engine + voice inventory usable
+    virtual QString ttsStatus() = 0;          // human-readable TTS status
 };
 
 } // namespace polymath

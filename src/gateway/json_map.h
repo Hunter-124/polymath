@@ -83,12 +83,15 @@ json serverEvent(const char* type, json data);
 
 // ─── status / pairing ───────────────────────────────────────────────────────
 
-// ServerStatus { listening, active_personality, model_status, privacy{}, uptime_s }.
+// ServerStatus { listening, active_personality, model_status, tts_ready,
+// tts_status, privacy{}, uptime_s }.
 // privacy is the map of all privacy.* toggles read from the settings table.
 json serverStatus(Database& db,
                   bool listening,
                   const std::string& activePersonality,
                   const std::string& modelStatus,
+                  bool ttsReady,
+                  const std::string& ttsStatus,
                   int64_t uptimeSeconds);
 
 // ServerCapabilities advertised in the PairResponse (and reusable elsewhere).

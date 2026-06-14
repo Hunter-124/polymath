@@ -11,6 +11,7 @@
 #include "grammar.h"
 
 #include <QString>
+#include <QUuid>
 
 #include <algorithm>
 #include <sstream>
@@ -104,6 +105,21 @@ bool parseToolCall(const std::string& text, std::string& tool, nlohmann::json& a
     return !tool.empty();
 }
 
+bool prefersHeavy(const Persona& persona) {
+    std::string m = persona.preferred_model;
+    std::transform(m.begin(), m.end(), m.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return m == "heavy";
+}
+
+std::string requestedModelId(const Persona& persona) {
+    std::string m = persona.preferred_model;
+    std::transform(m.begin(), m.end(), m.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (m == "fast" || m == "heavy") return {};
+    return persona.preferred_model;
+}
+
 } // namespace
 
 AgentRuntime::AgentRuntime(Database& db, InferenceManager& inf, TaskScheduler& sched, QObject* parent)
@@ -125,7 +141,9 @@ void AgentRuntime::stop() {
 
 void AgentRuntime::handleUtterance(const Utterance& u) {
     if (u.is_ambient) return;            // ambient text goes to memory, not the agent
-    runTurn(u.text, QStringLiteral("voice"), /*from_voice*/ true);
+    const QString rid = QStringLiteral("voice-%1")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    runTurn(u.text, rid, /*from_voice*/ true);
 }
 
 void AgentRuntime::handleTextInput(const QString& text, const QString& request_id) {
@@ -231,6 +249,10 @@ void AgentRuntime::runTurn(const std::string& user_text, const QString& request_
     }
     if (!collector_) {                    // start() not yet run (defensive)
         PM_ERROR("AgentRuntime::runTurn: collector not ready");
+        const QString msg = QStringLiteral("Sorry, the assistant worker is still starting up.");
+        bus.publishToken({request_id, msg, false});
+        bus.publishToken({request_id, QString(), true});
+        emit turnFinished(request_id, msg);
         return;
     }
 
@@ -239,7 +261,11 @@ void AgentRuntime::runTurn(const std::string& user_text, const QString& request_
     bool expected = false;
     if (!busy_.compare_exchange_strong(expected, true)) {
         PM_WARN("agent: busy with another turn; ignoring '{}'", request_id.toStdString());
-        bus.publishNotice({"warn", "agent", QStringLiteral("Still working on the previous request…")});
+        const QString msg = QStringLiteral("Still working on the previous request. Give me a moment.");
+        bus.publishNotice({"warn", "agent", msg});
+        bus.publishToken({request_id, msg, false});
+        bus.publishToken({request_id, QString(), true});
+        emit turnFinished(request_id, msg);
         return;
     }
     struct BusyGuard {
@@ -249,6 +275,16 @@ void AgentRuntime::runTurn(const std::string& user_text, const QString& request_
 
     // 1) Active personality.
     const Persona persona = loadActivePersona(db_);
+    const bool heavy_turn = prefersHeavy(persona);
+    struct HeavyGuard {
+        InferenceManager& inf;
+        bool active = false;
+        ~HeavyGuard() { if (active) inf.requestHeavy(false); }
+    } heavy_guard{inf_, false};
+    if (heavy_turn) {
+        inf_.requestHeavy(true);
+        heavy_guard.active = true;
+    }
 
     // 2) Offered tools = persona allow-list (empty => all) + synthetic final_answer.
     nlohmann::json specs = registry_.specs(persona.tools);
@@ -286,10 +322,7 @@ void AgentRuntime::runTurn(const std::string& user_text, const QString& request_
 
     for (int round = 0; round < kMaxToolRounds && !gotFinal; ++round) {
         ChatRequest req;
-        req.model_id   = (persona.preferred_model == "fast" ||
-                          persona.preferred_model == "heavy")
-                             ? std::string{}                 // role-based default
-                             : persona.preferred_model;      // explicit registry id
+        req.model_id   = requestedModelId(persona);
         req.request_id = (request_id + QStringLiteral(":plan%1").arg(round)).toStdString();
         req.messages   = messages;
         req.sampling   = persona.sampling;
@@ -395,8 +428,7 @@ void AgentRuntime::streamFinalAnswer(std::vector<ChatMessage>& messages,
         "or call any tool."});
 
     ChatRequest req;
-    req.model_id   = (persona.preferred_model == "fast" || persona.preferred_model == "heavy")
-                         ? std::string{} : persona.preferred_model;
+    req.model_id   = requestedModelId(persona);
     req.request_id = request_id.toStdString();      // streams under the real id
     req.messages   = std::move(messages);
     req.sampling   = persona.sampling;

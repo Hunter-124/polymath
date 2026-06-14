@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -62,7 +63,8 @@ public:
 
     // Synthesis only (no playback) — exposed for tests / saving to file.
     bool synthesize(const std::string& text, const std::string& voice,
-                    std::vector<int16_t>& out_pcm, int& out_sample_rate);
+                    std::vector<int16_t>& out_pcm, int& out_sample_rate,
+                    std::atomic<bool>* abort = nullptr);
 
     // Splits text into sentence-ish chunks for streaming synthesis. Pure logic
     // (no audio), exposed for tests. Adjacent fragments are merged until they

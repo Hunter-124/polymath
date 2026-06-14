@@ -200,7 +200,7 @@ QString WsHub::registerClient(std::shared_ptr<IClientChannel> ch, const QString&
 }
 
 void WsHub::dropClient(const QString& clientId) {
-    if (clients_.remove(clientId) > 0) {
+    if (clients_.remove(clientId)) {
         emit clientCountChanged(clients_.size());
         PM_INFO("gateway/ws: client gone ({}), total={}",
                 clientId.toStdString(), clients_.size());

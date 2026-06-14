@@ -52,6 +52,8 @@ class AppController : public QObject {
     // the animated PersonalityAvatar. `speaking` is true while TTS is playing.
     Q_PROPERTY(QVariantMap activePersona READ activePersona NOTIFY activePersonaChanged)
     Q_PROPERTY(bool speaking READ speaking NOTIFY speakingChanged)
+    Q_PROPERTY(bool ttsReady READ ttsReady NOTIFY ttsStatusChanged)
+    Q_PROPERTY(QString ttsStatus READ ttsStatus NOTIFY ttsStatusChanged)
     // Computer use: true while the assistant is actively driving the mouse/keyboard
     // (powers the glowing on-screen border). controlAction is the current step label.
     Q_PROPERTY(bool controlling READ controlling NOTIFY controllingChanged)
@@ -98,6 +100,8 @@ public:
     QString activePersonality() const { return active_personality_; }
     QVariantMap activePersona() const { return active_persona_; }
     bool    speaking() const { return speaking_; }
+    bool    ttsReady() const { return tts_ready_; }
+    QString ttsStatus() const { return tts_status_; }
     bool    controlling() const { return controlling_; }
     QString controlAction() const { return control_action_; }
     bool    quickAskVisible() const { return quick_ask_visible_; }
@@ -156,7 +160,8 @@ public:
     QString submitChatTurn(const QString& text);
 
     // Registered inference models (the `models` table) for the Model Manager UI,
-    // as a list of maps {id,displayName,role,path,nCtx,nGpuLayers,active}.
+    // as a list of maps {id,displayName,role,path,nCtx,nGpuLayers,active,loaded,
+    // loadedGpuLayers,footprintMiB}.
     Q_INVOKABLE QVariantList models() const;
 
     // --- Model Manager actions (live) ---
@@ -178,6 +183,7 @@ signals:
     void activePersonalityChanged();
     void activePersonaChanged();   // the active persona's avatar/name map changed
     void speakingChanged();        // TTS playback started/stopped
+    void ttsStatusChanged();       // Piper TTS became ready/unavailable
     void controllingChanged();     // computer-use drive state / current-action label
     void quickAskVisibleChanged(); // quick-ask pop-over shown/hidden
     void modelStatusChanged();
@@ -240,6 +246,8 @@ private:
 
     bool    listening_ = false;
     bool    speaking_  = false;
+    bool    tts_ready_ = false;
+    QString tts_status_ = "TTS starting";
     bool    controlling_ = false;
     QString control_action_;
     QTimer  control_linger_;        // keeps the overlay lit briefly after the last action

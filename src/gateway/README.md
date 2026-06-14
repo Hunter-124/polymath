@@ -20,9 +20,8 @@ dependency cycle. It reaches the rest of the app through one abstract seam,
 `IAssistantBridge` (`bridge.h`), which `AppController` implements during wiring.
 
 > **Qt 6.5+** (the repo's `qt_standard_project_setup(REQUIRES 6.5)` floor; the
-> code also guards a couple of 6.7/6.8 API shifts). Like the rest of the repo,
-> this **won't compile in this environment** — there's no Qt/CUDA toolchain
-> here. It builds as part of the normal CMake/vcpkg toolchain once wired in.
+> code also guards a couple of 6.7/6.8 API shifts). It builds as part of the
+> normal CMake/vcpkg toolchain and is wired into `AppController` at startup.
 
 ---
 
@@ -45,64 +44,25 @@ dependency cycle. It reaches the rest of the app through one abstract seam,
 
 ## Public surface `AppController` wires to
 
-### 1. Implement `IAssistantBridge` (`bridge.h`)
+`AppController` implements `IAssistantBridge` (`bridge.h`) directly. Gateway
+worker-thread calls that read UI-owned state are marshalled back to the app
+thread with blocking queued reads; mutating calls either dispatch onto their
+own worker or use the existing app-side methods.
 
-Every method maps 1:1 onto an existing `AppController` member. The one wrinkle is
-`sendChat`, which must **return the request_id**, so factor the rid out of
-`AppController::sendText`:
+Key bridge details:
 
-```cpp
-// app_controller.h  — add a base class (or a tiny adapter that forwards to it):
-class AppController : public QObject, public IAssistantBridge {
-    // ...
-public:
-    QString sendChat(const QString& text) override;           // returns request_id
-    void    setPersonality(const QString& n) override { setPersonalityImpl(n); }
-    QStringList personalities() override { /* existing body */ }
-    void    setPrivacy(const QString& k, bool on) override { /* existing body */ }
-    bool    privacy(const QString& k) override { /* existing body */ }
-    void    findObject(const QString& q) override { /* existing body */ }
-    void    addShoppingItem(const QString& i) override { /* existing body */ }
-    QVariantList models() override { /* existing body */ }
-    bool    listening() override { return listening_; }
-    QString activePersonality() override { return active_personality_; }
-    QString modelStatus() override { return model_status_; }
-};
-```
+- `sendChat` returns the request id that `/chat` gives back to the mobile app.
+- `setPersonality` is synchronous when called off the app thread so a `/chat`
+  request with a temporary personality override applies before the turn starts.
+- `models` includes both configured model defaults and current runtime state:
+  `loaded`, `loadedGpuLayers`, and `footprintMiB`.
+- `ttsReady` / `ttsStatus` report Piper readiness to `/status`.
 
-`sendChat` should mint the rid and dispatch to the agent worker, returning it:
+`GatewayService` is constructed during `AppController::initialize()` and runs on
+its own `QThread`; shutdown follows the same service thread cleanup path as the
+rest of the app.
 
-```cpp
-QString AppController::sendChat(const QString& text) {
-    const QString t = text.trimmed();
-    if (t.isEmpty()) return {};
-    if (chat_model_) chat_model_->appendUser(t);
-    const QString rid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    QMetaObject::invokeMethod(agent_.get(), "handleTextInput", Qt::QueuedConnection,
-                              Q_ARG(QString, t), Q_ARG(QString, rid));
-    return rid;   // the gateway returns this to the client as ChatSendResponse.request_id
-}
-```
-
-(The existing void `sendChat`/`sendText` can delegate to this and ignore the
-return.) The bridge methods are called from the gateway worker thread, so keep
-the getters lock-free (they already touch only members/atomics + WAL-mode DB);
-the action methods already marshal onto workers via `QMetaObject::invokeMethod`.
-
-### 2. Construct `GatewayService` on its own `QThread`
-
-```cpp
-// in AppController::initialize(), after services are built:
-#include "gateway_service.h"
-gateway_ = std::make_unique<GatewayService>(*this /*IAssistantBridge*/, db_, cfg);
-threads_.push_back(runOnThread(gateway_.get(), gateway_.get()));   // service.h helper
-```
-
-`cfg` is the `Config` already constructed in `initialize()` — keep it alive as a
-member (today it's a local), or construct a fresh `Config(db_)` for the gateway.
-`stop()`/`shutdown()` is handled by the existing `threads_` quit+wait loop.
-
-### 3. Add a `Settings ▸ Mobile Access` QML view
+### Mobile Access QML view
 
 Expose the service (or just its two helpers) to QML and render a QR from the
 deep link / payload:
