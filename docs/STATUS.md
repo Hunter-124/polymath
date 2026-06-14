@@ -40,11 +40,15 @@ GPU or CPU **at runtime**:
   it uses the GPU when an NVIDIA device + `ggml-cuda.dll` are present and falls back to CPU otherwise.
 - **One script, `scripts/build.ps1`** (auto / `-Flavor cpu` / `-Flavor cuda`) configures, builds and
   deploys it; `nvcc`'s no-space-path constraint only affects the optional CUDA-backend DLL.
-- **Verified (CPU flavor):** `build.ps1 -Flavor cpu` builds + deploys the single binary; run headless it
-  loads the runtime backends, logs `VramBudget: no GPU backend detected; running on CPU`, and brings the
-  **Fast model resident on the CPU backend** — no crash, no cudart needed. The CUDA flavor (adds
-  `ggml-cuda.dll`) builds via the same script through the `C:\pm` junction; GPU-offload re-verify on the
-  3080 Ti is the remaining gate, exactly as for the legacy CUDA build.
+- **Verified on BOTH paths (same binary code, 3080 Ti):**
+  - `build.ps1 -Flavor cpu` (no `ggml-cuda.dll`) → headless it logs
+    `VramBudget: no GPU backend detected; running on CPU` (CUDA=false) and brings the Fast model
+    resident on a runtime-selected per-ISA CPU backend — no crash, no cudart needed.
+  - `build.ps1 -Flavor cuda` (adds `ggml-cuda.dll`, built via the `C:\pm` junction + nvcc) → the *same*
+    binary logs `VramBudget: GPU backend present — 12287 MiB total, 11100 MiB free`,
+    `InferenceManager starting (CUDA=true)`, and offloads all layers to the GPU.
+  - i.e. the runtime GPU/CPU selection is genuinely automatic — the only difference between the two is
+    whether `ggml-cuda.dll` is present beside the exe.
 - The legacy `build-cpu.ps1` / `build-gpu.ps1` remain for the old two-tree layout during the transition.
 
 ---
