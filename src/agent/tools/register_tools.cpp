@@ -14,6 +14,7 @@
 #include "lab_session.h"
 #include "doc_rag.h"
 #include "computer_tools.h"
+#include "calc_tool.h"
 
 #include "logging.h"
 
@@ -59,6 +60,9 @@ void registerBuiltinTools(ToolRegistry& reg) {
     reg.add(std::make_shared<WhoIsHomeTool>());
     // Live camera vision Q&A (VLM on the current frame, via VisionService).
     reg.add(std::make_shared<DescribeCameraTool>());
+
+    // Deterministic math (LLMs fumble arithmetic; lab/home calcs need exact results).
+    reg.add(std::make_shared<CalculateTool>());
 
     // Deep-task queue (tasks table).
     reg.add(std::make_shared<QueueDeepTaskTool>());

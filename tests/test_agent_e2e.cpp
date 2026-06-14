@@ -88,9 +88,9 @@ void testAllToolsDirect(const std::filesystem::path& root) {
     //  read_instrument, record_measurement, and the 4 lab-session tools: 17 -> 23.
     //  v3 document RAG added search_documents + reindex_documents: 23 -> 25.
     //  Computer-use added look_at_screen + computer_click/type/key/scroll: 25 -> 30.
-    //  Camera vision Q&A added describe_camera: 30 -> 31.)
+    //  Camera vision Q&A added describe_camera: 30 -> 31. calculate: 31 -> 32.)
     const auto names = reg.names();
-    assert(names.size() == 31 && "expected 31 builtin tools");
+    assert(names.size() == 32 && "expected 32 builtin tools");
     for (const char* n : {"shopping_add", "shopping_list", "shopping_remove",
                           "web_search", "fetch_page", "browser_drive", "draft_document",
                           "generate_lab_report", "print_document", "print_image",
@@ -100,7 +100,7 @@ void testAllToolsDirect(const std::filesystem::path& root) {
                           "next_lab_step", "verify_lab_step", "finish_lab_session",
                           "search_documents", "reindex_documents",
                           "look_at_screen", "computer_click", "computer_type",
-                          "computer_key", "computer_scroll"})
+                          "computer_key", "computer_scroll", "calculate"})
         assert(reg.get(n) != nullptr && "missing builtin tool");
 
     ToolContext ctx;
@@ -319,6 +319,33 @@ void testAllToolsDirect(const std::filesystem::path& root) {
         auto descBad = reg.get("describe_camera")->invoke({{"camera", "Nope"}}, ctx);
         assert(!descBad.ok && "describe_camera should fail on an unknown camera");
         std::puts("  [ok] describe_camera (live Q&A; bus round-trip)");
+    }
+
+    // --- calculate (deterministic math: precedence, functions, error paths) --
+    {
+        auto calc = [&](const char* expr) {
+            return reg.get("calculate")->invoke({{"expression", expr}}, ctx);
+        };
+        auto approx = [](double a, double b) { double d = a - b; return d < 1e-9 && d > -1e-9; };
+        auto val = [&](const char* expr) {
+            auto r = calc(expr);
+            assert(r.ok && "calculate should succeed on a valid expression");
+            return r.content["result"].get<double>();
+        };
+
+        assert(approx(val("2 + 2 * 3"), 8.0)             && "operator precedence");
+        assert(approx(val("(1 + 2) ^ 3"), 27.0)          && "parentheses + power");
+        assert(approx(val("sqrt(16)"), 4.0)              && "function call");
+        assert(approx(val("-2^2"), -4.0)                 && "unary minus looser than ^");
+        assert(approx(val("10 / 4"), 2.5)                && "division");
+        assert(approx(val("max(3, 7, 1)"), 7.0)          && "variadic max");
+        assert(approx(val("2 * pi"), 6.283185307179586)  && "pi constant");
+
+        // Malformed / non-finite -> clean ok=false, never a throw or crash.
+        assert(!calc("2 +").ok          && "trailing operator rejected");
+        assert(!calc("1 / 0").ok        && "division by zero (non-finite) rejected");
+        assert(!calc("frobnicate(2)").ok && "unknown function rejected");
+        std::puts("  [ok] calculate (precedence / functions / errors)");
     }
 
     // --- queue_deep_task -> tasks queue -------------------------------------
