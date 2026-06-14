@@ -42,15 +42,14 @@ getting as close to "one binary" as the platform allows.
 self-contained folder, then zips it.
 
 ```powershell
-# Build first (see BUILD.md):
-pwsh scripts\build-cpu.ps1            # CPU flavour  -> build\cpu\bin\Release
-pwsh scripts\build-gpu.ps1            # CUDA flavour -> build\cuda\bin   (deploys runtime)
+# Build the single auto-detecting binary first:
+pwsh scripts\build.ps1                # auto: GPU backend if a CUDA toolkit is present, else CPU-only
+                                      #   -> build\dist\bin\...\Hearth.exe (GPU/CPU chosen at runtime)
 
-# Stage + zip the bundle:
-pwsh scripts\package.ps1                       # CUDA (default) -> dist\Hearth-<ver>-win64-cuda.zip
-pwsh scripts\package.ps1 -Flavor cpu           # CPU bundle
-pwsh scripts\package.ps1 -Flavor cuda -NoZip   # stage the folder only (for the installer)
-pwsh scripts\package.ps1 -IncludeModels        # self-contained, ~28 GB (rarely wanted)
+# Stage + zip the bundle (whatever backends the build produced ship as-is):
+pwsh scripts\package.ps1              # -> dist\Hearth-<ver>-win64.zip
+pwsh scripts\package.ps1 -NoZip       # stage the folder only (for the installer)
+pwsh scripts\package.ps1 -IncludeModels   # self-contained, ~28 GB (rarely wanted)
 ```
 
 The staged folder contains:
@@ -61,7 +60,7 @@ The staged folder contains:
 | Qt runtime | `Qt6*.dll`, `platforms\`, `qml\`, `imageformats\`, `lib\fonts\Inter.ttf` |
 | Engine DLLs | `ggml*`, `llama*`, `mtmd`, `whisper`, `onnxruntime`, OpenCV world, `fmt`/`spdlog` |
 | OpenSSL | `libcrypto-3-x64.dll` (+ `libssl-3-x64.dll`) — **required**: the crypto backend for the vendored SQLCipher codec that encrypts the DB at rest. Without it the loader fails before `main()` on a clean box. |
-| CUDA DLLs | `cudart64_*`, `cublas64_*`, `cublasLt64_*` (CUDA flavour only) |
+| CUDA DLLs | `ggml-cuda.dll` + `cudart64_*`, `cublas64_*`, `cublasLt64_*` — present only when the build included the CUDA backend; the same binary then auto-uses the GPU or falls back to CPU |
 | VC++ redist | `msvcp140*.dll`, `vcruntime140*.dll`, `concrt140.dll` (runs on a clean box) |
 | First-run scripts | `first-run.ps1`, `check-gpu.ps1`, `fetch-models.ps1` |
 | `Run-Hearth.cmd` | launcher: drives first-run on a model-less box, else launches the app |
@@ -82,19 +81,18 @@ and first-class code-signing hooks.
 
 ```powershell
 # 1. Stage the bundle as a folder (not a zip):
-pwsh scripts\package.ps1 -Flavor cpu -NoZip           # -> dist\Hearth-<ver>-win64-cpu\
+pwsh scripts\package.ps1 -NoZip           # -> dist\Hearth-<ver>-win64\
 
 # 2. Compile the installer (Inno Setup 6 / ISCC.exe). Use the call operator (&) and
-#    quote the .iss path — the repo lives under "...\Home Assistant" (a space), and
-#    the /D defines must each be their own token:
+#    quote the .iss path — the repo lives under "...\Home Assistant" (a space):
 & "C:\Users\nigga\AppData\Local\Programs\Inno Setup 6\ISCC.exe" `
-    /DAppVersion=0.1.0 /DFlavor=cpu `
+    /DAppVersion=0.1.0 `
     "C:\Users\nigga\Desktop\Home Assistant\scripts\installer\polymath.iss"
-# -> dist\Hearth-0.1.0-win64-cpu-Setup.exe   (~67.7 MB, lzma2/max)
+# -> dist\Hearth-0.1.0-win64-Setup.exe   (lzma2/max)
 ```
 
-Defaults are `AppVersion=0.1.0`, `Flavor=cuda`; override either with `/D` (use
-`/DFlavor=cpu` for the CPU bundle).
+Default is `AppVersion=0.1.0`; override with `/D`. One auto-detecting binary now, so
+there is a single installer (no cpu/cuda flavour).
 
 **Status (2026-06-09): the CPU installer COMPILES and was verified.** Inno Setup 6
 is installed at `C:\Users\nigga\AppData\Local\Programs\Inno Setup 6\ISCC.exe` (the
@@ -109,8 +107,9 @@ Inno Setup, install it with `winget install JRSoftware.InnoSetup` (or
 <https://jrsoftware.org/isdl.php>).
 
 > A clean Win10/11 VM pass is still recommended before shipping to verify SmartScreen
-> behaviour on the unsigned download and a truly bare image with no VC++ redist. The
-> CUDA-flavour installer is authored (`/DFlavor=cuda`) but awaits a GPU build to stage.
+> behaviour on the unsigned download and a truly bare image with no VC++ redist. There is
+> now a single installer (no cpu/cuda flavour) — on a box with a CUDA toolkit the same
+> bundle includes `ggml-cuda.dll`, so the one installer covers GPU and CPU machines alike.
 
 The installer:
 - installs to `{autopf}\Hearth` (Program Files) or, with `PrivilegesRequired=lowest`,

@@ -5,30 +5,29 @@
   (one primary exe + runtime DLLs + a models/ folder; see docs/PACKAGING.md).
 
 .DESCRIPTION
-  Takes an already-built + deployed tree (run scripts/build-gpu.ps1 or build-cpu.ps1
-  first) and stages a clean, self-contained folder:
+  Takes the already-built + deployed single binary (run scripts/build.ps1 first)
+  and stages a clean, self-contained folder:
     - Hearth.exe (drops the llama-*.exe dev tools and all .lib/.exp/.pdb)
     - the Qt runtime windeployqt placed beside it (Qt6*.dll, platforms\, qml\, ...)
-    - the engine DLLs (ggml*, llama*, mtmd, whisper), onnxruntime, OpenCV, fmt/spdlog
-    - the CUDA runtime DLLs (cudart/cublas/cublasLt) for the GPU flavour
-    - the VC++ 2015-2022 redistributable DLLs (so it runs on a clean machine)
-  then zips it to dist\Hearth-<ver>-win64-<flavour>.zip.
+    - the engine DLLs (ggml-base/ggml, the per-ISA ggml-cpu-*, llama*, mtmd, whisper)
+    - when the build included the CUDA backend: ggml-cuda.dll + the CUDA runtime DLLs
+      (cudart/cublas/cublasLt) — the one binary then auto-uses the GPU or falls back to CPU
+    - onnxruntime, OpenCV, fmt/spdlog, and the VC++ 2015-2022 redistributable DLLs
+  then zips it to dist\Hearth-<ver>-win64.zip. (Everything beside the exe is copied
+  as-is, so whatever backends build.ps1 produced are what ship — no flavour switch.)
 
   Models (~28 GB) are NOT bundled by default — the bundle ships fetch-models.ps1 and
   an empty data\models\ instead. Pass -IncludeModels for a fully self-contained (huge)
   zip.
 
-.PARAMETER Flavor        cuda (GPU, default) or cpu.
 .PARAMETER IncludeModels Bundle the resolved data\models\ tree (~28 GB). Off by default.
 .PARAMETER NoZip         Stage the folder but skip creating the .zip.
 
-.EXAMPLE  pwsh scripts/package.ps1                 # GPU app bundle -> dist\*.zip
-.EXAMPLE  pwsh scripts/package.ps1 -Flavor cpu
+.EXAMPLE  pwsh scripts/package.ps1                 # app bundle -> dist\*.zip
 .EXAMPLE  pwsh scripts/package.ps1 -IncludeModels  # self-contained, ~28 GB
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('cuda','cpu')] [string]$Flavor = 'cuda',
   [string]$OutRoot = (Join-Path $PSScriptRoot '..\dist'),
   [switch]$IncludeModels,
   [switch]$NoZip
@@ -40,12 +39,17 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ver = '0.0.0'
 if ((Get-Content "$repo\CMakeLists.txt" -Raw) -match 'project\(Hearth\s+VERSION\s+([0-9.]+)') { $ver = $Matches[1] }
 
-$bin = if ($Flavor -eq 'cuda') { "$repo\build\cuda\bin" } else { "$repo\build\cpu\bin\Release" }
-if (-not (Test-Path "$bin\Hearth.exe")) {
-  throw "Hearth.exe not found in $bin — build it first (pwsh scripts/build-$Flavor.ps1)."
+# The single binary lives in build/dist — Release\ for the VS (cpu) generator,
+# bin\ for the Ninja (cuda) generator. Take whichever actually has Hearth.exe.
+$bin = @("$repo\build\dist\bin\Release", "$repo\build\dist\bin") |
+       Where-Object { Test-Path (Join-Path $_ 'Hearth.exe') } | Select-Object -First 1
+if (-not $bin) {
+  throw "Hearth.exe not found under build\dist — build it first: pwsh scripts/build.ps1"
 }
+# GPU-capable iff the runtime CUDA backend DLL was built into the bundle.
+$hasCuda = Test-Path (Join-Path $bin 'ggml-cuda.dll')
 
-$name  = "Hearth-$ver-win64-$Flavor"
+$name  = "Hearth-$ver-win64"
 $stage = Join-Path $OutRoot $name
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
@@ -167,11 +171,11 @@ start "" "Hearth.exe"
 '@
   Set-Content "$stage\Run-Hearth.cmd" ($launch -replace "`n","`r`n")
 }
-$gpuNote = if ($Flavor -eq 'cuda') {
-  "This is the CUDA (GPU) build: it needs an NVIDIA GPU + a recent driver. llama/whisper`r`nrun on the GPU; the ONNX perception models (YOLO/face) run on CPU."
-} else { "This is the CPU build (no GPU required)." }
+$gpuNote = if ($hasCuda) {
+  "Auto-detects your hardware: it uses an NVIDIA GPU when one is present (llama/whisper`r`non the GPU) and falls back to CPU automatically otherwise. The ONNX perception models`r`n(YOLO/face) run on CPU."
+} else { "CPU build (no CUDA backend bundled): runs on any machine. Re-run scripts/build.ps1 on a box with a CUDA toolkit to add GPU acceleration." }
 Set-Content "$stage\README.txt" @"
-Hearth $ver — portable Windows bundle ($Flavor)
+Hearth $ver — portable Windows bundle
 
 FIRST RUN:  double-click Run-Hearth.cmd.
   If no models are present yet it launches the first-run wizard (first-run.ps1):

@@ -49,19 +49,21 @@ GPU or CPU **at runtime**:
     `InferenceManager starting (CUDA=true)`, and offloads all layers to the GPU.
   - i.e. the runtime GPU/CPU selection is genuinely automatic — the only difference between the two is
     whether `ggml-cuda.dll` is present beside the exe.
-- The legacy `build-cpu.ps1` / `build-gpu.ps1` remain for the old two-tree layout during the transition.
+- The old split `build-cpu.ps1` / `build-gpu.ps1` scripts and the `build/cpu` + `build/cuda` trees are
+  **retired** — `scripts/build.ps1` (→ `build/dist`) is the only build; `scripts/ci.ps1` and
+  `scripts/package.ps1` both drive it.
 
 ---
 
 ## v0.1 baseline
 
-Both builds are verified: **they compile, link, run the tests, and launch.**
+The single binary is verified: **it compiles, links, runs the tests, and launches** on both the CPU and
+GPU paths (the v0.2 consolidation above replaced the original split build/cpu + build/cuda trees).
 
-- **CPU build** — `build/cpu` (Visual Studio 2022 generator). Reproduced by
-  [`scripts/build-cpu.ps1`](../scripts/build-cpu.ps1).
-- **GPU / CUDA build** — `build/cuda` (Ninja generator + portable CUDA 13.2 toolkit,
-  `sm_86`). Reproduced by [`scripts/build-gpu.ps1`](../scripts/build-gpu.ps1).
-  **GPU inference is verified end-to-end (token generation on the RTX 3080 Ti).**
+- **Build** — one [`scripts/build.ps1`](../scripts/build.ps1): `-Flavor cpu` (VS generator) or
+  `-Flavor cuda` (Ninja + portable CUDA 13.2 toolkit, `sm_86`, through the no-space `C:\pm` junction),
+  output in the single `build/dist` tree.
+- **GPU inference is verified end-to-end** (token generation on the RTX 3080 Ti — see the bench below).
 
 `Hearth.exe` is built with MSVC 2022 + Qt 6.6.3 + OpenCV 4.9 + ONNX Runtime 1.17
 (CPU) + llama.cpp/whisper.cpp built from source, and confirmed at runtime to:
@@ -113,15 +115,14 @@ InferenceManager: Fast model resident
 
 ```powershell
 git submodule update --init --recursive   # or scripts/setup-dev.ps1
-pwsh scripts/build-cpu.ps1                 # configures + builds build/cpu
+pwsh scripts/build.ps1                     # one build: GPU backend if a CUDA toolkit is present, else CPU
 pwsh scripts/fetch-models.ps1              # download the default local models
-pwsh scripts/build-gpu.ps1                 # configures + builds + deploys build/cuda (CUDA)
+pwsh scripts/build.ps1 -Flavor cpu -Tests  # CI / dev: CPU binary + the full ctest suite
 ```
 
-`build-gpu.ps1` assumes the CPU prereqs exist (Qt/OpenCV/ONNX + the small vcpkg libs +
-the portable CUDA toolkit under `build/deps/cuda/toolkit`). It builds through a no-space
-NTFS junction (`C:\pm` → repo) because **nvcc cannot tolerate a space anywhere in its
-paths** and the repo lives in `…\Home Assistant`. See `BUILD.md`.
+The `cuda` flavor assumes the portable CUDA toolkit under `build/deps/cuda/toolkit` and builds through a
+no-space NTFS junction (`C:\pm` → repo) because **nvcc cannot tolerate a space anywhere in its paths**
+and the repo lives in `…\Home Assistant`.
 
 ## Module status
 
@@ -152,10 +153,10 @@ Xenova/onnx-community mirrors now 401; the detector confirms `in=images out=outp
    requests the CUDA EP and falls back cleanly.
 2. **Heavy model on a 12 GB card.** Gemma 3 27B Q4 (~16 GB) still partial-offloads; the
    VramBudget manager trims `n_gpu_layers` to fit. Fast/VLM/Embedding fit comfortably.
-3. **Packaging.** DONE — `scripts/package.ps1 -Flavor {cpu,cuda}` produces portable zips and the
-   Inno Setup installers compile for both flavors (`dist/Hearth-0.1.0-win64-{cpu,cuda}-Setup.exe`).
-   Bundles ship without models; the first-run wizard fetches them. Remaining ship TODOs (code
-   signing, a clean-VM smoke pass) are tracked in [`SHIP.md`](SHIP.md).
+3. **Packaging.** DONE — `scripts/package.ps1` stages one portable zip from `build/dist` and the
+   Inno Setup installer compiles (`dist/Hearth-0.1.0-win64-Setup.exe`) — a single auto-detecting
+   bundle (no cpu/cuda flavour). Bundles ship without models; the first-run wizard fetches them.
+   Remaining ship TODOs (code signing, a clean-VM smoke pass) are tracked in [`SHIP.md`](SHIP.md).
 
 ## Notes from the bring-up
 
@@ -175,5 +176,5 @@ commit and the **KEY GOTCHAS** in `BUILD.md`. The CUDA-specific ones:
 - **nvcc + spaces.** Build through the `C:\pm` junction (no admin needed).
 - **Runtime DLLs windeployqt misses.** `Hearth.exe` also needs `fmt.dll`, `spdlog.dll`
   (vcpkg), `opencv_videoio_ffmpeg490_64.dll`, and the CUDA `cudart/cublas/cublasLt 64_13`
-  DLLs next to the exe; without them the loader hangs before `main()`. `build-gpu.ps1`
-  deploys all of these.
+  DLLs next to the exe; without them the loader hangs before `main()`. `build.ps1`'s deploy
+  step copies all of these.

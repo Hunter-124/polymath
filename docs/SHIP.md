@@ -1,17 +1,17 @@
 # Ship checklist — Hearth (Polymath engine)
 
-Status as of the production-hardening pass. **Both flavors build, the full test suite is green, the
-GPU build runs end-to-end with at-rest encryption active, and both installers compile.**
+Status as of the production-hardening pass. **One auto-detecting binary builds, the full test suite is
+green, the GPU path runs end-to-end with at-rest encryption active, and the installer compiles.**
 
 ## What's done ✅
 
 | Area | State |
 |------|-------|
-| CPU build | `pwsh scripts/build-cpu.ps1` green; `ctest --test-dir build/cpu -C Release` → **11/11** |
-| GPU/CUDA build | `pwsh scripts/build-gpu.ps1` green (sm_86); `ctest --test-dir build/cuda -C Release` → **11/11** |
+| Single binary | `pwsh scripts/build.ps1` builds one auto-detecting `Hearth.exe` (`GGML_BACKEND_DL`): runtime GPU detect via ggml's device registry, automatic CPU fallback. Verified on both CPU and the RTX 3080 Ti. |
+| Tests | `pwsh scripts/build.ps1 -Flavor cpu -Tests` → **15/15** ctest suites green (CI runs this via `scripts/ci.ps1`) |
 | GPU runtime | headless boot verified: encryption ACTIVE, `CUDA=true`, Fast model resident (gemma-3n-E4B, 36 layers, ~5.3 GB on GPU), 8 services up, stable |
 | Voice | wake → VAD → whisper ASR → Utterance → SpeakRequest → Piper, with privacy gate |
-| Agent | 17 tools' `invoke()` asserted + GBNF tool-call round-trip (grammar crash fixed) |
+| Agent | 25 tools' `invoke()` asserted + GBNF tool-call round-trip (grammar crash fixed) |
 | Vision | person/motion/face/object-find on recorded clips (SCRFD decode bug fixed) |
 | Inference | tiered Fast↔Heavy lifecycle, VRAM budget, no OOM; cross-thread CUDA fault fixed |
 | Memory | vector recall, persistence, summarizer, retention |
@@ -22,21 +22,17 @@ GPU build runs end-to-end with at-rest encryption active, and both installers co
 | Integration/CI | headless `AppController` harness + cross-service flows; `scripts/ci.ps1` (CPU, model-less green) |
 | Phase 2 | ESP32-CAM ingest verified vs a software MJPEG stream; `browser_drive` CDP tool (real Chrome round-trip) |
 | Mobile companion | `pm_gateway` embedded in `Hearth.exe` (LAN HTTP+WS on `:8765`, HMAC device tokens, shared `HttpRouter` for LAN + relay); `app/` PWA builds (`npm run build`→`app/dist/`); `cloud/relay/` builds (off by default). Desktop **Settings ▸ Mobile Access** mints a pairing QR (vendored MIT `qrcode.js`) + copyable payload. Runtime-verified: status→200, auth gate→401, clean start/stop. |
-| Packaging | `scripts/package.ps1 -Flavor {cpu,cuda}` portable zips; **Inno Setup installers compile** for both flavors (silent install/launch/uninstall verified for CPU). Bundles now ship the **full VC143 CRT** (incl. `msvcp140_2`, `vcomp140`) and every staging run is gated by `scripts/verify-bundle.ps1` (PE import walk — fails the package if any binary's imports don't resolve inside the bundle). `Hearth.exe` startup failures now raise a native error dialog instead of exiting silently. |
+| Packaging | `scripts/package.ps1` stages one portable zip from the single `build/dist` binary; **the Inno Setup installer compiles** (silent install/launch/uninstall verified). Bundles ship the **full VC143 CRT** (incl. `msvcp140_2`, `vcomp140`) and every staging run is gated by `scripts/verify-bundle.ps1` (PE import walk — fails the package if any binary's imports don't resolve inside the bundle). `Hearth.exe` startup failures now raise a native error dialog instead of exiting silently. |
 
 ## Release commands
 
 ```powershell
-# CPU flavor
-pwsh scripts/build-cpu.ps1
-pwsh scripts/package.ps1 -Flavor cpu
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.0 /DFlavor=cpu  scripts/installer/polymath.iss
-
-# CUDA flavor (after the CPU prereqs exist)
-pwsh scripts/build-gpu.ps1
-pwsh scripts/package.ps1 -Flavor cuda
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.0 /DFlavor=cuda scripts/installer/polymath.iss
-# -> dist/Hearth-0.1.0-win64-{cpu,cuda}-Setup.exe
+# One build, one bundle, one installer. build.ps1 auto-detects a CUDA toolkit and
+# includes the GPU backend when present (the binary still falls back to CPU at runtime).
+pwsh scripts/build.ps1
+pwsh scripts/package.ps1
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.0 scripts/installer/polymath.iss
+# -> dist/Hearth-0.1.0-win64-Setup.exe
 ```
 
 Models: minimal set (Fast + whisper + embeddings ≈ a few GB) vs full (~28 GB) — see

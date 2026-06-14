@@ -75,8 +75,8 @@ Full SKU/BOM table with sources, plus the firmware projects that drive each, are
 
 Grab the latest installer from the repo's **Releases** and run it:
 
-- `Hearth-<version>-win64-cuda-Setup.exe` — NVIDIA GPU build (CUDA, much faster).
-- `Hearth-<version>-win64-cpu-Setup.exe` — CPU-only build (works anywhere, slower).
+- `Hearth-<version>-win64-Setup.exe` — one installer. The binary **auto-detects an NVIDIA GPU** and
+  uses it (much faster), and falls back to CPU automatically on machines without one.
 
 On first launch with no models, Hearth guides you through a model fetch + a GPU/driver check. Models are
 **not** bundled (they're ~GBs); the first-run wizard downloads them. See
@@ -109,12 +109,11 @@ build/dist/bin/Release/Hearth.exe
 
 This is powered by `POLYMATH_BACKEND_DL` (ggml's `GGML_BACKEND_DL`): the backends build as
 runtime-loadable libraries and the runtime GPU/CPU choice lives in `src/inference/vram_budget.cpp`,
-which queries ggml's device registry — so the binary has **no hard CUDA dependency**. The older
-split `scripts/build-cpu.ps1` / `scripts/build-gpu.ps1` remain for the legacy two-tree layout.
+which queries ggml's device registry — so the binary has **no hard CUDA dependency**.
 
-Run the test suite from a tests-enabled tree (`scripts/build-cpu.ps1` configures one):
-`ctest --test-dir build/cpu -C Release` (**14 suites**: core, tools, audio, agent, vision, inference,
-memory, privacy, integration, ui, phase2, **fabric, instruments, lab_session**). CI: `scripts/ci.ps1`.
+Build + run the full test suite (also exactly what CI runs):
+`pwsh scripts/build.ps1 -Flavor cpu -Tests` (**15 suites**: core, tools, audio, agent, vision, inference,
+memory, privacy, integration, ui, phase2, fabric, instruments, lab_session, **doc_rag**). CI: `scripts/ci.ps1`.
 
 The **mobile app** (`app/`) builds with `npm ci && npm run build`; the **edge firmware** (`firmware/*`)
 builds per-project with PlatformIO / ESP-IDF / CanMV — see each project's README.
@@ -122,8 +121,8 @@ builds per-project with PlatformIO / ESP-IDF / CanMV — see each project's READ
 Package a distributable + build the installer:
 
 ```powershell
-pwsh scripts/package.ps1 -Flavor cuda    # stages dist/ + a portable zip
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.0 /DFlavor=cuda scripts/installer/polymath.iss
+pwsh scripts/package.ps1                 # stages dist/ + a portable zip from build/dist
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.0 scripts/installer/polymath.iss
 ```
 
 See [`docs/SHIP.md`](docs/SHIP.md) for the full release checklist.
