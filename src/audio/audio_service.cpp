@@ -65,6 +65,7 @@ struct AudioService::Impl {
     // Privacy / mode flags (worker-thread only after start()).
     bool mic_enabled     = true;
     bool ambient_enabled = false;
+    bool barge_in        = true;         // listen for the wake word during TTS
     std::atomic<bool> ptt_down{false};   // set from queued slot, read in pump
     std::atomic<bool> speaking{false};   // pause capture-driven ASR during TTS
 
@@ -85,6 +86,8 @@ struct AudioService::Impl {
     void pump(AudioService* self);   // one timer tick
     void feedFrame(AudioService* self, const float* data, int n);
     void finishSegment(AudioService* self, bool ambient);
+    bool tryBargeIn(AudioService* self);   // wake-word interrupt during TTS
+    void onSpeakEnded(AudioService* self);  // streaming TTS finished on its own
 };
 
 void AudioService::Impl::loadModels() {
@@ -253,15 +256,76 @@ void AudioService::Impl::finishSegment(AudioService* self, bool ambient) {
             ambient ? "ambient" : "command", text, conf);
 }
 
+bool AudioService::Impl::tryBargeIn(AudioService* self) {
+    // Scan the local mic for the wake word while TTS is playing. Always drains
+    // the ring (so audio doesn't pile up); returns true only if we interrupted.
+    if (!wake.ready() || !capture.isRunning()) return false;
+
+    frame.resize(kFrameSamples);
+    bool fired = false;
+    while (capture.ring().available() >= static_cast<size_t>(kFrameSamples)) {
+        size_t got = capture.ring().read(frame.data(), kFrameSamples);
+        if (got == 0) break;
+        if (fired) continue;   // keep draining, but only trip once
+        float score = 0.0f;
+        if (wake.process(frame.data(), static_cast<int>(got), &score)) fired = true;
+    }
+    if (!fired) return false;
+
+    // Barge-in: stop talking and start listening for the command immediately,
+    // exactly as a fresh wake would.
+    PM_INFO("audio: barge-in — wake word heard during TTS; stopping playback");
+    tts.stop();
+    speaking.store(false, std::memory_order_release);
+    emit self->speakingStateChanged(false);
+
+    wake.reset();
+    capture.ring().clear();
+    net_ring.clear();
+    preroll.clear();
+    segment.clear();
+    vad.reset();
+    vad_window.clear();
+
+    emit self->wakeWordHeard();
+    emit self->listeningStateChanged(true);
+    EventBus::instance().publishWakeWord(
+        {QString::fromStdString(wake.phrase()), to_unix(Clock::now())});
+    state = Listen::Command;
+    command_timeout_frames = kSampleRate / kFrameSamples * 5;   // 5 s to start
+    return true;
+}
+
+void AudioService::Impl::onSpeakEnded(AudioService* self) {
+    // Streaming TTS finished on its own (not via a barge-in/stop, which already
+    // cleared `speaking`). Drop any echo captured during playback and resume.
+    if (!speaking.load(std::memory_order_acquire)) return;
+    speaking.store(false, std::memory_order_release);
+    if (capture.isRunning()) capture.ring().clear();
+    net_ring.clear();
+    wake.reset();
+    vad.reset();
+    vad_window.clear();
+    preroll.clear();
+    emit self->speakingStateChanged(false);
+}
+
 void AudioService::Impl::pump(AudioService* self) {
     const bool has_local = capture.isRunning();
     const bool has_net   = net_source && net_source->isRunning();
     if (!has_local && !has_net) return;
 
     if (speaking.load(std::memory_order_acquire)) {
-        // Discard audio captured during our own TTS to avoid self-transcription.
-        if (has_local) capture.ring().clear();
-        if (has_net)   net_ring.clear();
+        // While we speak, the mic mostly hears our own voice, so we must NOT
+        // transcribe it. But with barge-in on we keep the wake-word detector
+        // running over the local mic so the user can cut us off ("Hey Jarvis—").
+        // Wake-word (not raw VAD) is the robust trigger: without acoustic echo
+        // cancellation, plain VAD would fire on our own playback and we'd
+        // interrupt ourselves. tryBargeIn() drains the local ring as it scans.
+        if (!(barge_in && tryBargeIn(self))) {
+            if (has_local) capture.ring().clear();
+        }
+        if (has_net) net_ring.clear();   // never transcribe satellite audio mid-TTS
         return;
     }
 
@@ -317,6 +381,7 @@ void AudioService::start() {
     Config cfg(db_);
     d_->mic_enabled     = cfg.getBool(keys::MicEnabled);
     d_->ambient_enabled = cfg.getBool(keys::AmbientTranscription);
+    d_->barge_in        = db_.getBool(keys::BargeIn, true);  // default on if unset
 
     // Network mic input (Wi-Fi satellites). Off by default; no port is opened
     // unless explicitly enabled in config.
@@ -335,6 +400,14 @@ void AudioService::start() {
     }
 
     d_->loadModels();
+
+    // When streaming TTS playback ends on its own, the callback fires on the TTS
+    // worker thread; hop back to THIS (audio) thread before touching pipeline
+    // state. (Barge-in/stop paths clear `speaking` themselves and don't fire it.)
+    d_->tts.setFinishedCallback([this]() {
+        QMetaObject::invokeMethod(this, [this]() { d_->onSpeakEnded(this); },
+                                  Qt::QueuedConnection);
+    });
 
     // React to privacy toggles published by the Settings UI (queued onto this
     // thread). Mic + ambient changes adjust capture/listen state live.
@@ -356,6 +429,7 @@ void AudioService::start() {
 
 void AudioService::stop() {
     if (d_->timer) { d_->timer->stop(); }
+    d_->tts.stop();                 // abort + join any streaming playback worker
     d_->capture.stop();
     if (d_->net_source) d_->net_source->stop();
     PM_INFO("AudioService stopped");
@@ -370,15 +444,14 @@ void AudioService::speak(const QString& text, const QString& voice) {
         PM_WARN("audio.tts: not ready; dropping speak request");
         return;
     }
-    // Pause capture-driven ASR for the duration of playback (barge-in guard).
+    // Stream playback WITHOUT blocking this worker thread: speakAsync returns at
+    // once and the pump keeps ticking, so tryBargeIn() can hear the wake word
+    // over our own voice. Playback ending on its own hops back here via the TTS
+    // finished callback -> onSpeakEnded(), which clears `speaking` + the avatar.
     d_->speaking.store(true, std::memory_order_release);
     emit listeningStateChanged(false);
     emit speakingStateChanged(true);    // -> UI talking avatar comes alive
-    d_->tts.speak(t, v);
-    d_->capture.ring().clear();
-    d_->net_ring.clear();   // discard satellite audio captured during our own TTS
-    d_->speaking.store(false, std::memory_order_release);
-    emit speakingStateChanged(false);
+    d_->tts.speakAsync(t, v);
 }
 
 void AudioService::setMicEnabled(bool on) {

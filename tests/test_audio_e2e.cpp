@@ -174,6 +174,36 @@ void checkTts(TtsPiper& tts) {
     std::printf("  [ok]   TTS: %zu samples @ %d Hz (%.2fs)\n", pcm.size(), sr, seconds);
 }
 
+// 3b. Streaming TTS sentence splitter — pure logic (no audio/device), so it runs
+// even when piper.exe is absent. Verifies the chunking that lets speakAsync()
+// start the first words before the whole answer is synthesized.
+void checkStreamSplit() {
+    // Multi-sentence text: one chunk per sentence once each clears min_chars,
+    // with the sentence-ending punctuation preserved.
+    auto a = TtsPiper::splitForStreaming(
+        "Hello there. How are you doing today? I am quite well, thank you.",
+        /*min_chars*/ 8, /*max_chars*/ 240);
+    assert(a.size() == 3 && "expected three sentence chunks");
+    assert(a.front() == "Hello there." && "first chunk lost its boundary/period");
+    assert(a.back() == "I am quite well, thank you." && "last chunk wrong");
+
+    // Tiny fragments merge until they reach min_chars (no micro-chunks that would
+    // spawn a piper process per word).
+    auto b = TtsPiper::splitForStreaming("Hi. Yo. Sup.", /*min_chars*/ 60);
+    assert(b.size() == 1 && "tiny sentences should merge into one chunk");
+
+    // A long, unpunctuated run must still break up (max_chars hard cap).
+    std::string longish;
+    for (int i = 0; i < 40; ++i) longish += "word ";
+    auto c = TtsPiper::splitForStreaming(longish, /*min_chars*/ 60, /*max_chars*/ 80);
+    assert(c.size() >= 2 && "a long unpunctuated run must still chunk");
+
+    // Empty / whitespace -> nothing to speak.
+    assert(TtsPiper::splitForStreaming("   \n  ").empty() && "whitespace must yield no chunks");
+
+    std::puts("  [ok]   TTS stream split: sentences / merge / maxlen / empty");
+}
+
 // 1. ASR: known phrase -> transcript matches.
 void checkAsr(TtsPiper& tts, AsrWhisper& asr) {
     if (!tts.ready()) { std::puts("  [skip] ASR: no TTS to make a fixture"); return; }
@@ -391,6 +421,7 @@ int main(int argc, char** argv) {
 
     std::puts("== audio e2e ==");
     checkTts(tts);                       // 3. SpeakRequest -> non-empty TTS PCM
+    checkStreamSplit();                  // 3b. streaming TTS sentence chunking
     checkAsr(tts, asr);                  // 1. WAV -> expected transcript
     checkVadGating(tts, vad, asr);       // 2a. silence gated; speech -> Utterance
     checkWakeWord(tts, wake);            // 2b. wake never false-fires on silence

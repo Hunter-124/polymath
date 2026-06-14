@@ -12,7 +12,9 @@ and acts, entirely on your own hardware and GPU.
 ## What it does
 
 - **Voice loop** — wake word → speech-to-text (whisper.cpp) → a local LLM (llama.cpp) → text-to-speech
-  (Piper). Push-to-talk or hands-free, on the hub or via **whole-home voice satellites**.
+  (Piper). Push-to-talk or hands-free, on the hub or via **whole-home voice satellites**. Replies
+  **stream out sentence-by-sentence** so the first words start while the rest is still being synthesized,
+  and you can **barge in** — say the wake word to cut the assistant off mid-reply and start talking.
 - **Tiered inference** — a resident *Fast* model for live voice, plus an on-demand *Heavy* model that
   drains a deep-work queue while the machine is idle, with a VRAM budgeter that fits the card.
 - **Personalities** — the assistant can think as drop-in personas (`persona.json` bundles); ships with
