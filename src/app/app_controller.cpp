@@ -255,19 +255,28 @@ void AppController::wireEventBus() {
     // hasModels/firstRun state may have changed (e.g. the Fast model became
     // resident at startup, or a freshly added model loaded), so re-publish those.
     connect(inference_.get(), &InferenceManager::modelStateChanged, this,
-            [this](const QString& role, const QString& id, bool loaded) {
-                model_status_ = QStringLiteral("no model loaded");
-                if (loaded) {
-                    model_status_ = role + ": " + id;
-                    for (const auto& st : inference_->runtimeStates()) {
-                        if (QString::fromStdString(st.id) == id) {
-                            model_status_ = QStringLiteral("%1: %2 · GPU layers %3 · %4 MiB")
-                                .arg(role, id)
-                                .arg(st.gpu_layers)
-                                .arg(static_cast<qulonglong>(st.footprint_mib));
-                            break;
-                        }
+            [this](const QString&, const QString&, bool) {
+                auto roleLabel = [](ModelRole role) -> const char* {
+                    switch (role) {
+                        case ModelRole::Fast:      return "fast";
+                        case ModelRole::Heavy:     return "heavy";
+                        case ModelRole::Vision:    return "vision";
+                        case ModelRole::Embedding: return "embedding";
                     }
+                    return "fast";
+                };
+                model_status_ = QStringLiteral("no model loaded");
+                for (const auto& st : inference_->runtimeStates()) {
+                    if (!st.loaded) continue;
+                    const QString role = QString::fromLatin1(roleLabel(st.role));
+                    const QString id = QString::fromStdString(st.id);
+                    model_status_ = st.gpu_layers > 0
+                        ? QStringLiteral("%1: %2 · GPU layers %3 · %4 MiB")
+                            .arg(role, id)
+                            .arg(st.gpu_layers)
+                            .arg(static_cast<qulonglong>(st.footprint_mib))
+                        : QStringLiteral("%1: %2 · CPU").arg(role, id);
+                    break;
                 }
                 emit modelStatusChanged();
                 emit modelsChanged();

@@ -209,6 +209,10 @@ std::vector<ModelRuntimeState> InferenceManager::runtimeStates() const {
     std::vector<ModelRuntimeState> out;
     out.reserve(runtime_.size());
     for (const auto& kv : runtime_) out.push_back(kv.second);
+    std::sort(out.begin(), out.end(), [](const ModelRuntimeState& a,
+                                         const ModelRuntimeState& b) {
+        return static_cast<int>(a.role) < static_cast<int>(b.role);
+    });
     return out;
 }
 
