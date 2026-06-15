@@ -38,6 +38,7 @@ signals:
     void wakeWordHeard();
     // TTS playback started/finished — drives the UI's talking-avatar animation.
     void speakingStateChanged(bool speaking);
+    void ttsStateChanged(bool ready, QString status);
 
 private:
     struct Impl;                       // pimpl: capture/wakeword/vad/asr/tts

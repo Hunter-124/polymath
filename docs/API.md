@@ -17,7 +17,7 @@ JSON is snake_case and mirrors `src/core/types.h` / `src/core/schema.h`.
 | --- | --- | --- | --- |
 | POST | `/pair` | `{code, device_name, platform, pubkey?}` | `PairResponse {token, device_id, role, home_id, relay_url, capabilities}` |
 | GET | `/me` | — | the calling device |
-| GET | `/status` | — | `ServerStatus {listening, active_personality, model_status, privacy{}, uptime_s}` |
+| GET | `/status` | — | `ServerStatus {listening, active_personality, model_status, tts_ready, tts_status, privacy{}, uptime_s}` |
 | POST | `/chat` | `{text, personality?}` | `{request_id}` — reply streams as `token` events |
 | GET | `/chat/history` | `?limit=` | `ChatMessageDTO[]` |
 | POST | `/voice` | audio blob | *(reserved — ASR → chat)* |
@@ -95,6 +95,29 @@ JSON is snake_case and mirrors `src/core/types.h` / `src/core/schema.h`.
 The hub writes an `events` row (including the new `clip_url`, `confidence`, and
 `device_id` columns) and emits a `detection` WebSocket event. See
 [`docs/FABRIC.md`](FABRIC.md) §4 for the full camera event contract.
+
+### Model runtime fields
+
+`GET /models` returns registered local models plus the runtime state the desktop
+currently knows about:
+
+```jsonc
+{
+  "id": "fast-qwen",
+  "display_name": "Fast Qwen",
+  "role": "fast",              // fast|heavy|vision|embedding
+  "path": "C:/models/fast.gguf",
+  "n_ctx": 4096,
+  "n_gpu_layers": 32,          // requested/default layer plan
+  "active": true,              // selected model for that role
+  "loaded": true,              // currently resident in llama.cpp
+  "loaded_gpu_layers": 28,     // actual loaded layer count
+  "footprint_mib": 5120        // estimated resident GPU memory
+}
+```
+
+`/status` also exposes `tts_ready` and `tts_status` so clients can tell whether
+local speech output is ready, missing a voice, or running in text-only mode.
 
 ## WebSocket — `GET /api/v1/events?token=…`
 

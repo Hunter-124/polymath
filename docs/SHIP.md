@@ -58,8 +58,7 @@ Models: minimal set (Fast + whisper + embeddings ≈ a few GB) vs full (~28 GB) 
    wired to `addModel(path, role)`; windeployqt deploys the module (it is imported by the QML now).
 6. **Optional Qt6::WebSockets** for `browser_drive` (currently a minimal RFC6455 client on `QTcpSocket`,
    fully working — no new dependency needed).
-7. **Cosmetic.** Benign startup `UNIQUE constraint failed: models.id` warnings from model auto-register
-   (registry ends correct); `windeployqt` "VCINSTALLDIR not set" warning (deploy still completes).
+7. **Cosmetic.** `windeployqt` may print "VCINSTALLDIR not set"; deploy still completes.
 8. **License.** No `LICENSE` file yet — pick one before opening the repo widely (defaults to all-rights-reserved).
 
 ## First-run leftover

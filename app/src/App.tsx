@@ -21,6 +21,7 @@ import { RemindersScreen } from './screens/Reminders';
 import { MemoryScreen } from './screens/Memory';
 import { PersonalitiesScreen } from './screens/Personalities';
 import { SettingsScreen } from './screens/Settings';
+import { ModelsScreen } from './screens/Models';
 import { DevicesScreen } from './screens/Devices';
 import { FabricDevicesScreen } from './screens/FabricDevices';
 import { InstrumentsScreen } from './screens/Instruments';
@@ -66,9 +67,11 @@ function PairedApp() {
           pushToast('info', `⏰ ${r.text}`);
           break;
         }
-        case 'status':
-          setStatus(e.data as ServerStatus);
+        case 'status': {
+          const data = e.data as Partial<ServerStatus>;
+          if (typeof data.model_status === 'string') setStatus(data as ServerStatus);
           break;
+        }
       }
     });
 
@@ -104,6 +107,7 @@ function PairedApp() {
             <Route path="/memory" element={<MemoryScreen />} />
             <Route path="/personalities" element={<PersonalitiesScreen />} />
             <Route path="/settings" element={<SettingsScreen />} />
+            <Route path="/models" element={<ModelsScreen />} />
             <Route path="/devices" element={<DevicesScreen />} />
             {/* Device fabric (v2) */}
             <Route path="/fabric" element={<FabricDevicesScreen />} />

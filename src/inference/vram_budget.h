@@ -25,7 +25,9 @@ namespace polymath {
 class VramBudget {
 public:
     // budgetMiB: the ceiling the inference pool may occupy. Defaults to ~8 GiB.
-    explicit VramBudget(size_t budgetMiB = 8192);
+    // assumeGpuForTests keeps the pure budget-math test deterministic on CI
+    // boxes that have no GPU backend; production callers leave it false.
+    explicit VramBudget(size_t budgetMiB = 8192, bool assumeGpuForTests = false);
 
     // Live device totals. On non-CUDA builds returns the conservative defaults.
     struct DeviceMemory { size_t freeMiB = 0; size_t totalMiB = 0; };
@@ -37,6 +39,12 @@ public:
     // Estimate the on-GPU weight cost (MiB) of a .gguf at `path` from its file
     // size, plus a KV-cache estimate for n_ctx. Used when picking n_gpu_layers.
     static size_t estimateModelMiB(const std::string& path, int n_ctx);
+
+    // Estimate the ledger footprint of the actually offloaded portion. A model
+    // planned for 0 GPU layers should not reserve the full .gguf size; otherwise
+    // partial/offloaded CPU fallback models poison the budget for later loads.
+    static size_t estimateGpuFootprintMiB(const std::string& path, int n_ctx,
+                                          int gpu_layers, int total_layers);
 
     // Decide how many of `n_layers_total` to offload for a model of approximately
     // `modelMiB`, leaving room for everything currently reserved plus a safety

@@ -25,6 +25,14 @@ class Database;
 class VramBudget;
 class LlamaBackend;
 
+struct ModelRuntimeState {
+    ModelRole   role = ModelRole::Fast;
+    std::string id;
+    bool        loaded = false;
+    int         gpu_layers = 0;
+    size_t      footprint_mib = 0;
+};
+
 class InferenceManager : public QObject, public IService {
     Q_OBJECT
 public:
@@ -38,6 +46,7 @@ public:
     // Registry (backed by `models` table; editable from the Model Manager UI).
     void reloadRegistry();
     std::vector<ModelSpec> registry() const;
+    std::vector<ModelRuntimeState> runtimeStates() const;
     void setActiveModel(ModelRole role, const std::string& id);
 
     // Async streaming completion: tokens published on EventBus with req.request_id.
@@ -86,6 +95,9 @@ private:
     std::vector<ModelSpec>         registry_;             // mirror of `models`
     std::unordered_map<int, std::string> active_id_;      // role -> active model id
     bool                           heavy_loaded_ = false;
+
+    mutable std::mutex             runtime_mtx_;
+    std::unordered_map<int, ModelRuntimeState> runtime_;  // role -> loaded state
 };
 
 } // namespace polymath

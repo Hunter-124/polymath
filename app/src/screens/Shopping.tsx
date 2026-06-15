@@ -55,18 +55,19 @@ export function ShoppingScreen() {
 
   return (
     <div className="app-content">
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div className="inline-form">
         <input
           className="input"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && add()}
           placeholder="Add an item…"
+          aria-label="Add shopping item"
         />
         <button
-          className="btn"
-          style={{ padding: '0 14px' }}
+          className="btn icon"
           onClick={add}
+          disabled={!draft.trim()}
           aria-label="Add item"
         >
           <Icon name="plus" size={20} />
@@ -82,7 +83,8 @@ export function ShoppingScreen() {
           hint="Add items here or just ask the assistant."
         />
       ) : (
-        items.map((it) => (
+        <div className="stack">
+        {items.map((it) => (
           <div className="row" key={it.id}>
             <button
               onClick={() => toggle(it)}
@@ -113,15 +115,15 @@ export function ShoppingScreen() {
               {it.quantity ? ` · ${it.quantity}` : ''}
             </span>
             <button
-              className="btn ghost"
-              style={{ minHeight: 'auto', padding: 4 }}
+              className="btn ghost icon"
               onClick={() => remove(it.id)}
               aria-label="Delete item"
             >
               <Icon name="trash" size={18} />
             </button>
           </div>
-        ))
+        ))}
+        </div>
       )}
     </div>
   );

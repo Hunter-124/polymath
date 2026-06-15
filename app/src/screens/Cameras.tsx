@@ -39,6 +39,7 @@ function CameraTile({
   // Resolve the (token-bearing) snapshot URL once per camera.
   useEffect(() => {
     let alive = true;
+    setFailed(false);
     void mediaUrl(cam.snapshot_url).then((u) => {
       if (alive) setBase(u);
     });
@@ -61,17 +62,13 @@ function CameraTile({
 
   return (
     <div
+      className="media-tile"
       role="button"
+      tabIndex={0}
       onClick={onToggle}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onToggle()}
       style={{
         gridColumn: expanded ? '1 / -1' : 'auto',
-        borderRadius: 12,
-        overflow: 'hidden',
-        position: 'relative',
-        background: '#000',
-        border: '1px solid var(--line)',
-        cursor: 'pointer',
-        aspectRatio: '16 / 10',
       }}
     >
       {src && !failed ? (
@@ -109,19 +106,7 @@ function CameraTile({
         </span>
       )}
 
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          padding: '14px 10px 8px',
-          background: 'linear-gradient(transparent, rgba(0,0,0,.7))',
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 8,
-        }}
-      >
+      <div className="media-overlay">
         <span style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>{cam.name}</span>
         {cam.location && (
           <span style={{ color: 'rgba(255,255,255,.7)', fontSize: 12 }}>
@@ -229,11 +214,11 @@ export function CamerasScreen() {
 
   return (
     <div className="app-content">
-      <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card form-card">
         <div className="section-label" style={{ margin: '0 0 8px' }}>
           Find an object
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="inline-form" style={{ marginBottom: 0 }}>
           <div style={{ position: 'relative', flex: 1 }}>
             <span
               style={{
@@ -254,8 +239,17 @@ export function CamerasScreen() {
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && find()}
               placeholder="Did I leave my keys on the counter?"
+              aria-label="Find an object"
             />
           </div>
+          <button
+            className="btn icon"
+            onClick={find}
+            disabled={finding || !query.trim()}
+            aria-label="Find object"
+          >
+            <Icon name="search" size={20} />
+          </button>
         </div>
         {(finding || result) && (
           <div
@@ -291,7 +285,7 @@ export function CamerasScreen() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(2, 1fr)',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(156px, 1fr))',
             gap: 10,
           }}
         >

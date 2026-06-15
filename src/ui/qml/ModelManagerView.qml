@@ -27,7 +27,7 @@ Item {
             font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
         }
         Label {
-            text: "Add GGUF models and assign roles: Fast (resident), Heavy (on-demand deep work), Vision (image analysis), Embedding (memory). Set GPU layers per the ~8 GB budget."
+            text: "Add GGUF models and assign roles: Fast (resident), Heavy (on-demand deep work), Vision (image analysis), Embedding (memory). Requested GPU layers are budgeted at load time; the loaded row shows what actually landed on the GPU."
             color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsBody
             wrapMode: Text.WordWrap; Layout.fillWidth: true
         }
@@ -78,8 +78,8 @@ Item {
                     width: ListView.view ? ListView.view.width : 0
                     height: col.implicitHeight + 18
                     radius: Style.radiusSm; color: Style.surface2
-                    border.width: modelData.active === true ? 1 : 0
-                    border.color: Style.good
+                    border.width: modelData.loaded === true ? 1 : modelData.active === true ? 1 : 0
+                    border.color: modelData.loaded === true ? Style.accent : Style.good
 
                     RowLayout {
                         anchors.fill: parent; anchors.margins: 10; spacing: 10
@@ -107,13 +107,14 @@ Item {
                                     font.pixelSize: Style.fsBody; font.bold: true
                                 }
                                 Rectangle {
-                                    visible: mrow.modelData.active === true
+                                    visible: mrow.modelData.active === true || mrow.modelData.loaded === true
                                     radius: Style.radiusXs; color: Style.good
                                     implicitWidth: activeLbl.implicitWidth + 12
                                     implicitHeight: activeLbl.implicitHeight + 4
                                     Label {
                                         id: activeLbl; anchors.centerIn: parent
-                                        text: "resident"; color: Style.accentText
+                                        text: mrow.modelData.loaded === true ? "loaded" : "active"
+                                        color: Style.accentText
                                         font.family: Style.fontFamily; font.pixelSize: Style.fsTiny; font.bold: true
                                     }
                                 }
@@ -134,9 +135,23 @@ Item {
                                     }
                                 }
                             }
-                            Label {
-                                text: "ctx " + mrow.modelData.nCtx + "   ·   gpu layers " + mrow.modelData.nGpuLayers
-                                color: Style.textDim; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
+                            RowLayout {
+                                Layout.fillWidth: true; spacing: 8
+                                Label {
+                                    text: "ctx " + mrow.modelData.nCtx
+                                    color: Style.textDim; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
+                                }
+                                Label {
+                                    text: "requested GPU " + mrow.modelData.nGpuLayers
+                                    color: Style.textDim; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
+                                }
+                                Label {
+                                    visible: mrow.modelData.loaded === true
+                                    text: "loaded GPU " + mrow.modelData.loadedGpuLayers + " · " + mrow.modelData.footprintMiB + " MiB"
+                                    color: Style.accent; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
+                                    elide: Text.ElideRight; Layout.fillWidth: true
+                                }
+                                Item { Layout.fillWidth: mrow.modelData.loaded !== true }
                             }
                             Label {
                                 text: mrow.modelData.path

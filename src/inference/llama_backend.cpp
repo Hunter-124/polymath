@@ -1,5 +1,6 @@
 #include "llama_backend.h"
 #include "logging.h"
+#include "vram_budget.h"
 
 #include <algorithm>
 #include <cmath>
@@ -26,10 +27,6 @@
 #include <string_view>
 
 namespace polymath {
-
-namespace {
-constexpr size_t kMiB = 1024ull * 1024ull;
-} // namespace
 
 // ===========================================================================
 //  Impl — owns the raw llama.cpp handles.
@@ -138,11 +135,10 @@ bool LlamaBackend::load(const ModelSpec& spec) {
         return false;
     }
 
-    // Footprint estimate for the VRAM ledger: weights file size + KV cache.
-    std::error_code ec;
-    size_t weights = 0;
-    if (auto sz = std::filesystem::file_size(spec.path, ec); !ec) weights = sz / kMiB;
-    footprint_mib_ = weights + (static_cast<size_t>(cparams.n_ctx) * 128) / 1024;
+    int layerCount = probeLayerCount(spec.path);
+    if (layerCount <= 0) layerCount = std::max(spec.n_gpu_layers, 1);
+    footprint_mib_ = VramBudget::estimateGpuFootprintMiB(
+        spec.path, static_cast<int>(cparams.n_ctx), spec.n_gpu_layers, layerCount + 1);
 
     loaded_ = true;
     stop_requested_.store(false);

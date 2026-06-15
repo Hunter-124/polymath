@@ -46,7 +46,7 @@ function StepRow({
           borderColor: effective.verified
             ? 'var(--good)'
             : isOut
-              ? 'var(--danger, #e53e3e)'
+              ? 'var(--bad)'
               : 'var(--line)',
           display: 'grid',
           placeItems: 'center',
@@ -57,7 +57,7 @@ function StepRow({
           color: effective.verified
             ? 'var(--good)'
             : isOut
-              ? 'var(--danger, #e53e3e)'
+              ? 'var(--bad)'
               : 'var(--text-faint)',
         }}
       >
@@ -76,8 +76,8 @@ function StepRow({
             className="pill"
             style={{
               marginTop: 4,
-              background: 'var(--danger, #e53e3e)',
-              color: '#fff',
+              background: 'var(--bad-soft)',
+              color: 'var(--bad)',
               borderColor: 'transparent',
             }}
           >
@@ -125,7 +125,11 @@ function SessionDetail({ session }: { session: LabSessionDTO }) {
     <div
       className="card"
       style={{ marginBottom: 10, cursor: 'pointer' }}
+      role="button"
+      tabIndex={0}
+      aria-expanded={open}
       onClick={toggle}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
     >
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
         <span
@@ -216,10 +220,8 @@ export function LabSessionScreen() {
 
   return (
     <div className="app-content">
-      <div
-        style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}
-      >
-        <button className="btn ghost" style={{ padding: '0 12px', minHeight: 36 }} onClick={load}>
+      <div className="toolbar">
+        <button className="btn ghost icon" onClick={load} aria-label="Refresh lab sessions">
           <Icon name="refresh" size={16} />
         </button>
       </div>

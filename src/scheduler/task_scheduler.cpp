@@ -142,6 +142,10 @@ void TaskScheduler::drainQueue() {
         QString::fromStdString("Idle detected — running " + std::to_string(pending) + " deep-work task(s).")});
 
     inf_.requestHeavy(true);
+    struct HeavyGuard {
+        InferenceManager& inf;
+        ~HeavyGuard() { inf.requestHeavy(false); }
+    } heavy_guard{inf_};
 
     while (idle_) {
         auto next = popNextQueued();
@@ -149,7 +153,6 @@ void TaskScheduler::drainQueue() {
         runTask(*next);
     }
 
-    inf_.requestHeavy(false);
     draining_ = false;
     PM_INFO("TaskScheduler: queue drained / paused (idle={})", idle_.load());
 }
@@ -205,15 +208,17 @@ void TaskScheduler::runTask(const QueuedTask& qt) {
     result["text"] = text;
     result["completed_at"] = to_unix(Clock::now());
 
-    const char* status = ok ? "done" : "error";
-    if (!ok) result["error"] = "inference timed out or produced no output";
+    const bool success = ok && !text.empty();
+    const char* status = success ? "done" : "error";
+    if (!success) result["error"] = ok ? "inference produced no output"
+                                       : "inference timed out";
 
     db_.exec("UPDATE tasks SET status=?2, result_json=?3, updated_at=?4 WHERE id=?1",
              {qt.id, std::string(status), result.dump(), to_unix(Clock::now())});
 
     const QString result_json = QString::fromStdString(result.dump());
     EventBus::instance().publishTask({qt.id, QString::fromStdString(qt.type), status,
-                                      ok ? "" : "inference failed"});
+                                      success ? "" : "inference failed"});
     emit taskFinished(qt.id, result_json);
 
     PM_INFO("TaskScheduler: task {} finished status={} ({} chars)", qt.id, status, text.size());

@@ -16,7 +16,7 @@ import {
   type ClipInfo,
   type PairedCamera,
 } from '../api/deviceDirect';
-import { api } from '../api/client';
+import { api, mediaUrl } from '../api/client';
 import type { TimelineEventDTO } from '../api/contract';
 
 // ─── Direct (device) clip browser ─────────────────────────────────────────
@@ -57,10 +57,10 @@ function DirectClips({ cam }: { cam: PairedCamera }) {
       {playUrl && (
         <div style={{ marginBottom: 12 }}>
           <video
+            className="media-panel"
             src={playUrl}
             controls
             autoPlay
-            style={{ width: '100%', borderRadius: 10, background: '#000' }}
           />
           <button
             className="btn ghost"
@@ -79,13 +79,15 @@ function DirectClips({ cam }: { cam: PairedCamera }) {
           hint="The camera saves clips to its SD card when it detects motion."
         />
       ) : (
-        clips.map((c) => (
+        <div className="stack">
+        {clips.map((c) => (
           <div
             key={c.file}
             className="row"
             role="button"
-            style={{ cursor: 'pointer' }}
+            tabIndex={0}
             onClick={() => play(c)}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && play(c)}
           >
             <span style={{ color: 'var(--accent)', flex: '0 0 auto' }}>
               <Icon name="clip" size={20} />
@@ -103,7 +105,8 @@ function DirectClips({ cam }: { cam: PairedCamera }) {
             </div>
             <span className="faint">▶</span>
           </div>
-        ))
+        ))}
+        </div>
       )}
     </>
   );
@@ -129,6 +132,14 @@ function GatewayClips({ deviceId }: { deviceId: string }) {
       });
   }, [pushToast, deviceId]);
 
+  async function play(url: string) {
+    try {
+      setPlayUrl(await mediaUrl(url));
+    } catch (e) {
+      pushToast('bad', `Couldn't open clip: ${(e as Error).message}`);
+    }
+  }
+
   if (events === null) return <Loading />;
 
   return (
@@ -151,10 +162,10 @@ function GatewayClips({ deviceId }: { deviceId: string }) {
       {playUrl && (
         <div style={{ marginBottom: 12 }}>
           <video
+            className="media-panel"
             src={playUrl}
             controls
             autoPlay
-            style={{ width: '100%', borderRadius: 10, background: '#000' }}
           />
           <button
             className="btn ghost"
@@ -173,13 +184,19 @@ function GatewayClips({ deviceId }: { deviceId: string }) {
           hint="Clips from detected events will appear here."
         />
       ) : (
-        events.map((ev) => (
+        <div className="stack">
+        {events.map((ev) => (
           <div
             key={ev.id}
             className="row"
             role="button"
-            style={{ cursor: ev.clip_url ? 'pointer' : 'default' }}
-            onClick={() => ev.clip_url && setPlayUrl(ev.clip_url)}
+            tabIndex={ev.clip_url ? 0 : undefined}
+            onClick={() => ev.clip_url && play(ev.clip_url)}
+            onKeyDown={
+              ev.clip_url
+                ? (e) => (e.key === 'Enter' || e.key === ' ') && play(ev.clip_url!)
+                : undefined
+            }
           >
             <span style={{ color: 'var(--accent)', flex: '0 0 auto' }}>
               <Icon name="clip" size={20} />
@@ -194,7 +211,8 @@ function GatewayClips({ deviceId }: { deviceId: string }) {
             </div>
             {ev.clip_url && <span className="faint">▶</span>}
           </div>
-        ))
+        ))}
+        </div>
       )}
     </>
   );

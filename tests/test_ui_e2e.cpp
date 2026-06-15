@@ -66,6 +66,8 @@ class StubApp : public QObject {
     Q_PROPERTY(QString activePersonality READ activePersonality NOTIFY changed)
     Q_PROPERTY(bool quickAskVisible READ quickAskVisible NOTIFY changed)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY changed)
+    Q_PROPERTY(bool ttsReady READ ttsReady NOTIFY changed)
+    Q_PROPERTY(QString ttsStatus READ ttsStatus NOTIFY changed)
     Q_PROPERTY(bool hasModels READ hasModels NOTIFY changed)
     Q_PROPERTY(bool firstRun  READ firstRun  NOTIFY changed)
     Q_PROPERTY(QObject* chatModel READ chatModel CONSTANT)
@@ -74,6 +76,8 @@ public:
     QString activePersonality() const { return "Assistant"; }
     bool quickAskVisible() const { return false; }
     QString modelStatus() const { return "fast: gemma-3n"; }
+    bool ttsReady() const { return true; }
+    QString ttsStatus() const { return "Piper TTS ready"; }
     bool hasModels() const { return true; }
     bool firstRun() const { return false; }
     QObject* chatModel() const { return chat_; }
@@ -82,6 +86,7 @@ public:
     Q_INVOKABLE QVariantList models() const {
         QVariantMap m; m["id"] = "m"; m["displayName"] = "m"; m["role"] = "fast"; m["nCtx"] = 8192;
         m["nGpuLayers"] = 999; m["active"] = true; m["path"] = "data/models/m.gguf";
+        m["loaded"] = true; m["loadedGpuLayers"] = 32; m["footprintMiB"] = 4200;
         return QVariantList{ m };
     }
     Q_INVOKABLE bool privacy(const QString&) const { return true; }

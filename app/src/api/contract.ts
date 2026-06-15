@@ -163,6 +163,8 @@ export interface ServerStatus {
   listening: boolean; // mirrors AppController::listening
   active_personality: string;
   model_status: string;
+  tts_ready: boolean;
+  tts_status: string;
   privacy: Record<string, boolean>; // privacy.* toggles
   uptime_s: number;
 }
@@ -333,6 +335,9 @@ export interface ModelDTO {
   n_ctx: number;
   n_gpu_layers: number;
   active: boolean;
+  loaded: boolean;
+  loaded_gpu_layers: number;
+  footprint_mib: number;
 }
 
 // ─── Settings ──────────────────────────────────────────────────────────────

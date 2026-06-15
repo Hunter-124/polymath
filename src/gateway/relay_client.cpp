@@ -271,7 +271,7 @@ void RelayClient::handleWsClose(const json& msg) {
     const std::string cid = msg.value("cid", std::string());
     if (cid.empty()) return;
     const QString qcid = QString::fromStdString(cid);
-    if (channels_.remove(qcid) > 0)
+    if (channels_.remove(qcid))
         hub_.removeChannel(qcid);
 }
 
@@ -287,7 +287,7 @@ void RelayClient::sendChannelText(const QString& cid, const QString& text) {
 }
 
 void RelayClient::sendChannelClose(const QString& cid) {
-    if (channels_.remove(cid) > 0)
+    if (channels_.remove(cid))
         send(json{{"t", "ws_close"}, {"cid", cid.toStdString()}});
 }
 

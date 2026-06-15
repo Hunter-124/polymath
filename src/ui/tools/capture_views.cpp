@@ -115,6 +115,8 @@ class StubApp : public QObject {
     Q_PROPERTY(QString controlAction READ controlAction NOTIFY changed)
     Q_PROPERTY(bool quickAskVisible READ quickAskVisible NOTIFY changed)
     Q_PROPERTY(QString modelStatus READ modelStatus NOTIFY changed)
+    Q_PROPERTY(bool ttsReady READ ttsReady NOTIFY changed)
+    Q_PROPERTY(QString ttsStatus READ ttsStatus NOTIFY changed)
     Q_PROPERTY(bool hasModels READ hasModels NOTIFY changed)
     Q_PROPERTY(bool firstRun READ firstRun NOTIFY changed)
     Q_PROPERTY(QObject* chatModel READ chatModel CONSTANT)
@@ -138,8 +140,11 @@ public:
         return m;
     }
     QString modelStatus() const {
-        return populated ? "fast: gemma-3n-E4B-it-Q4_K_M" : "no model loaded";
+        return populated ? "fast: gemma-3n-E4B-it-Q4_K_M · GPU layers 32 · 4200 MiB"
+                         : "no model loaded";
     }
+    bool ttsReady() const { return populated; }
+    QString ttsStatus() const { return populated ? "Piper TTS ready" : "Piper TTS unavailable"; }
     bool hasModels() const { return populated; }
     bool firstRun() const { return !populated; }
     QObject* chatModel() const { return chat_; }
@@ -152,17 +157,19 @@ public:
     Q_INVOKABLE QVariantList models() const {
         QVariantList out;
         if (!populated) return out;
-        auto mk = [](QString name, QString role, int ctx, int ngl, bool act) {
+        auto mk = [](QString name, QString role, int ctx, int ngl, bool act,
+                     bool loaded, int loadedNgl, int footprint) {
             QVariantMap m;
             m["id"] = name; m["displayName"] = name; m["role"] = role; m["nCtx"] = ctx;
             m["nGpuLayers"] = ngl; m["active"] = act;
+            m["loaded"] = loaded; m["loadedGpuLayers"] = loadedNgl; m["footprintMiB"] = footprint;
             m["path"] = "data/models/" + name + ".gguf";
             return QVariant(m);
         };
-        out << mk("gemma-3n-E4B-it-Q4_K_M", "fast", 8192, 999, true);
-        out << mk("gemma-3-27b-it-Q4_K_M", "heavy", 8192, 46, false);
-        out << mk("gemma-3-4b-it-Q4_K_M", "vision", 4096, 999, false);
-        out << mk("embeddinggemma-Q8_0", "embedding", 2048, 0, false);
+        out << mk("gemma-3n-E4B-it-Q4_K_M", "fast", 8192, 999, true, true, 32, 4200);
+        out << mk("gemma-3-27b-it-Q4_K_M", "heavy", 8192, 46, false, false, 0, 0);
+        out << mk("gemma-3-4b-it-Q4_K_M", "vision", 4096, 999, false, false, 0, 0);
+        out << mk("embeddinggemma-Q8_0", "embedding", 2048, 0, false, false, 0, 0);
         return out;
     }
     Q_INVOKABLE bool privacy(const QString& key) const {

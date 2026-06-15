@@ -151,6 +151,9 @@ json modelFromRow(const Row& r) {
         {"n_ctx",        r.i64(4)},
         {"n_gpu_layers", r.i64(5)},
         {"active",       r.i64(6) != 0},
+        {"loaded",       false},
+        {"loaded_gpu_layers", 0},
+        {"footprint_mib", 0},
     };
 }
 
@@ -224,6 +227,9 @@ json modelFromVariant(const QVariant& v) {
         {"n_ctx",        m.value("nCtx").toInt()},
         {"n_gpu_layers", m.value("nGpuLayers").toInt()},
         {"active",       m.value("active").toBool()},
+        {"loaded",       m.value("loaded").toBool()},
+        {"loaded_gpu_layers", m.value("loadedGpuLayers").toInt()},
+        {"footprint_mib", m.value("footprintMiB").toULongLong()},
     };
 }
 
@@ -383,6 +389,8 @@ json serverStatus(Database& db,
                   bool listening,
                   const std::string& activePersonality,
                   const std::string& modelStatus,
+                  bool ttsReady,
+                  const std::string& ttsStatus,
                   int64_t uptimeSeconds) {
     // Surface every privacy.* toggle as a bool map.
     json privacy = json::object();
@@ -395,6 +403,8 @@ json serverStatus(Database& db,
         {"listening",          listening},
         {"active_personality", activePersonality},
         {"model_status",       modelStatus},
+        {"tts_ready",          ttsReady},
+        {"tts_status",         ttsStatus},
         {"privacy",            std::move(privacy)},
         {"uptime_s",           uptimeSeconds},
     };

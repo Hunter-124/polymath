@@ -57,7 +57,7 @@ static void testBudgetMath() {
     // A 12 GB-class device modelled via the no-CUDA fallback path: total ==
     // budget, free == budget - reserved. (On a CUDA build this still exercises
     // the same arithmetic; the live free pool only makes it *more* conservative.)
-    VramBudget vb(/*budgetMiB*/ 8192);
+    VramBudget vb(/*budgetMiB*/ 8192, /*assumeGpuForTests*/ true);
 
     // Full fit: a small model with generous headroom offloads every layer.
     {
@@ -102,6 +102,20 @@ static void testBudgetMath() {
     {
         const size_t est = VramBudget::estimateModelMiB("does-not-exist.gguf", 4096);
         assert(est > 0);
+    }
+
+    // Runtime footprint accounting must follow the actual offload depth. The
+    // previous ledger reserved the full model size even for CPU fallback, which
+    // made partial/offloaded loads poison the GPU budget.
+    {
+        const std::string missing = "does-not-exist.gguf";
+        const size_t est = VramBudget::estimateModelMiB(missing, 4096);
+        const size_t cpu = VramBudget::estimateGpuFootprintMiB(missing, 4096, 0, 33);
+        const size_t partial = VramBudget::estimateGpuFootprintMiB(missing, 4096, 8, 33);
+        const size_t full = VramBudget::estimateGpuFootprintMiB(missing, 4096, 33, 33);
+        assert(cpu == 0);
+        assert(partial > 0 && partial < full);
+        assert(full <= est * 2); // same order as estimateModelMiB, not unbounded
     }
 
     std::puts("[budget] OK");

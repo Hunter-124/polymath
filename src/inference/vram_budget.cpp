@@ -42,7 +42,7 @@ ggml_backend_dev_t firstGpuDevice() {
 #endif
 } // namespace
 
-VramBudget::VramBudget(size_t budgetMiB) : budget_mib_(budgetMiB) {
+VramBudget::VramBudget(size_t budgetMiB, bool assumeGpuForTests) : budget_mib_(budgetMiB) {
 #ifdef POLYMATH_HAVE_LLAMA
     // Register any runtime backend libraries (ggml-cpu / ggml-cuda DLLs sitting
     // next to the exe). A harmless no-op when backends are statically linked.
@@ -60,10 +60,16 @@ VramBudget::VramBudget(size_t budgetMiB) : budget_mib_(budgetMiB) {
                     totalB / kMiB, freeB / kMiB, budget_mib_);
         }
     }
+    if (!cuda_available_ && assumeGpuForTests) {
+        cuda_available_ = true;
+        fallback_total_mib_ = budget_mib_;
+        PM_INFO("VramBudget: assuming GPU backend for deterministic budget tests");
+    }
     if (!cuda_available_)
         PM_INFO("VramBudget: no GPU backend detected; running on CPU with a {} MiB budget",
                 budget_mib_);
 #else
+    if (assumeGpuForTests) cuda_available_ = true;
     PM_INFO("VramBudget: built without the llama/ggml backend; using {} MiB budget",
             budget_mib_);
 #endif
@@ -105,9 +111,33 @@ size_t VramBudget::estimateModelMiB(const std::string& path, int n_ctx) {
     return weightsMiB + kvMiB + overhead;
 }
 
+size_t VramBudget::estimateGpuFootprintMiB(const std::string& path, int n_ctx,
+                                           int gpu_layers, int total_layers) {
+    if (gpu_layers <= 0) return 0;
+
+    std::error_code ec;
+    size_t weightsMiB = 0;
+    if (std::filesystem::exists(path, ec)) {
+        const auto bytes = std::filesystem::file_size(path, ec);
+        if (!ec) weightsMiB = static_cast<size_t>(bytes / kMiB);
+    }
+    if (weightsMiB == 0) weightsMiB = 4500;
+
+    const int layers = std::max(total_layers, 1);
+    const double offload =
+        std::clamp(static_cast<double>(gpu_layers) / static_cast<double>(layers),
+                   0.0, 1.0);
+    const size_t gpuWeights = static_cast<size_t>(static_cast<double>(weightsMiB) * offload);
+    const size_t kvMiB =
+        (static_cast<size_t>(std::max(n_ctx, 0)) * kKvMiBPer1kCtx) / 1024;
+    const size_t overhead = gpuWeights / 8;
+    return gpuWeights + kvMiB + overhead;
+}
+
 int VramBudget::planGpuLayers(size_t modelMiB, int n_layers_total,
                               size_t reserveMiB) const {
     if (n_layers_total <= 0) return 0;
+    if (!cuda_available_) return 0;
     if (modelMiB == 0)       return n_layers_total;   // nothing to weigh
 
     const DeviceMemory dev = query();

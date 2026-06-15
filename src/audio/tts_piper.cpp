@@ -4,6 +4,7 @@
 #include <QProcess>
 #include <QStringList>
 #include <QByteArray>
+#include <QElapsedTimer>
 
 #include <nlohmann/json.hpp>
 #include <atomic>
@@ -52,6 +53,37 @@ struct TtsPiper::Impl {
         } catch (...) {}
         return 22050;
     }
+
+    std::filesystem::path resolveVoiceModel(const std::string& name) const {
+        const auto dir = voices_dir / name;
+        auto model = dir / (name + ".onnx");
+        if (std::filesystem::exists(model)) return model;
+        std::error_code ec;
+        if (!std::filesystem::exists(dir, ec)) return {};
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+            if (e.path().extension() == ".onnx") return e.path();
+        }
+        return {};
+    }
+
+    std::filesystem::path firstVoiceModel(std::string* voice_id = nullptr) const {
+        std::error_code ec;
+        if (!std::filesystem::exists(voices_dir, ec)) return {};
+        for (const auto& e : std::filesystem::recursive_directory_iterator(voices_dir, ec)) {
+            if (e.path().extension() != ".onnx") continue;
+            if (voice_id) *voice_id = e.path().parent_path().filename().string();
+            return e.path();
+        }
+        return {};
+    }
+
+    std::filesystem::path configForModel(const std::filesystem::path& model,
+                                         const std::string& voice_id) const {
+        auto cfg = model;
+        cfg += ".json";
+        if (std::filesystem::exists(cfg)) return cfg;
+        return voices_dir / voice_id / (voice_id + ".onnx.json");
+    }
 };
 
 TtsPiper::TtsPiper() : d_(std::make_unique<Impl>()) {}
@@ -62,35 +94,59 @@ bool TtsPiper::init(const std::filesystem::path& voices_dir, const std::string& 
     d_->default_voice = default_voice;
     // Engine sits next to the voices: <models>/piper-engine/piper.exe.
     d_->piper_exe = voices_dir.parent_path() / "piper-engine" / "piper.exe";
-    ready_ = std::filesystem::exists(d_->piper_exe);
-    if (ready_)
-        PM_INFO("audio.tts: Piper engine at {} (default voice '{}')",
-                d_->piper_exe.string(), default_voice);
-    else
+    if (!std::filesystem::exists(d_->piper_exe)) {
+        ready_ = false;
         PM_WARN("audio.tts: piper.exe not found at {} — TTS disabled "
                 "(run scripts/fetch-models.ps1)", d_->piper_exe.string());
+        return ready_;
+    }
+
+    if (d_->resolveVoiceModel(d_->default_voice).empty()) {
+        std::string fallback_voice;
+        if (d_->firstVoiceModel(&fallback_voice).empty()) {
+            ready_ = false;
+            PM_WARN("audio.tts: no Piper voices found under {} — TTS disabled "
+                    "(run scripts/fetch-models.ps1)", d_->voices_dir.string());
+            return ready_;
+        }
+        PM_WARN("audio.tts: default voice '{}' not found; using installed voice '{}'",
+                d_->default_voice, fallback_voice);
+        d_->default_voice = fallback_voice;
+    }
+
+    ready_ = true;
+    PM_INFO("audio.tts: Piper engine at {} (default voice '{}')",
+            d_->piper_exe.string(), d_->default_voice);
     return ready_;
 }
 
 bool TtsPiper::synthesize(const std::string& text, const std::string& voice,
-                          std::vector<int16_t>& out_pcm, int& out_sample_rate) {
+                          std::vector<int16_t>& out_pcm, int& out_sample_rate,
+                          std::atomic<bool>* abort) {
     out_pcm.clear();
     out_sample_rate = 22050;
     if (!ready_ || text.empty()) return false;
+    if (abort && abort->load(std::memory_order_acquire)) return false;
 
-    // Resolve the voice files, falling back to the default voice.
-    auto resolve = [&](const std::string& name) -> std::filesystem::path {
-        auto model = d_->voices_dir / name / (name + ".onnx");
-        return std::filesystem::exists(model) ? model : std::filesystem::path{};
-    };
+    // Resolve the voice files, falling back to the default voice. Prefer the
+    // canonical <voice>/<voice>.onnx layout, but accept a single .onnx in the
+    // folder too; several Piper packs include more descriptive filenames.
     std::string name = voice.empty() ? d_->default_voice : voice;
-    std::filesystem::path model = resolve(name);
-    if (model.empty() && name != d_->default_voice) { name = d_->default_voice; model = resolve(name); }
+    std::filesystem::path model = d_->resolveVoiceModel(name);
+    if (model.empty() && name != d_->default_voice) {
+        name = d_->default_voice;
+        model = d_->resolveVoiceModel(name);
+    }
     if (model.empty()) {
         PM_WARN("audio.tts: voice '{}' not found under {}", name, d_->voices_dir.string());
         return false;
     }
-    const auto cfg = d_->voices_dir / name / (name + ".onnx.json");
+    const auto cfg = d_->configForModel(model, name);
+    if (!std::filesystem::exists(cfg)) {
+        PM_WARN("audio.tts: config for voice '{}' not found (looked near {})",
+                name, model.string());
+        return false;
+    }
     out_sample_rate = d_->sampleRate(cfg);
 
     // Run piper.exe: text on stdin, raw s16 mono PCM on stdout. The working dir
@@ -107,12 +163,27 @@ bool TtsPiper::synthesize(const std::string& text, const std::string& voice,
         PM_ERROR("audio.tts: failed to start piper.exe");
         return false;
     }
+    if (abort && abort->load(std::memory_order_acquire)) {
+        proc.kill();
+        proc.waitForFinished(1000);
+        return false;
+    }
     proc.write(text.data(), static_cast<qint64>(text.size()));
     proc.closeWriteChannel();
-    if (!proc.waitForFinished(30000)) {
-        PM_ERROR("audio.tts: piper.exe timed out");
-        proc.kill();
-        return false;
+    QElapsedTimer timer;
+    timer.start();
+    while (!proc.waitForFinished(50)) {
+        if (abort && abort->load(std::memory_order_acquire)) {
+            proc.kill();
+            proc.waitForFinished(1000);
+            return false;
+        }
+        if (timer.elapsed() >= 30000) {
+            PM_ERROR("audio.tts: piper.exe timed out");
+            proc.kill();
+            proc.waitForFinished(1000);
+            return false;
+        }
     }
     const QByteArray raw = proc.readAllStandardOutput();
     if (raw.isEmpty()) {
@@ -252,7 +323,7 @@ void runStream(TtsPiper& tts, std::atomic<bool>& abort,
     // time-to-first-word, and it tells us the voice's sample rate.
     std::vector<int16_t> first;
     int sr = 22050;
-    if (!tts.synthesize(chunks[0], voice, first, sr) || first.empty()) {
+    if (!tts.synthesize(chunks[0], voice, first, sr, &abort) || first.empty()) {
         PM_WARN("audio.tts: streaming synth produced no audio on first chunk");
         return;
     }
@@ -285,7 +356,7 @@ void runStream(TtsPiper& tts, std::atomic<bool>& abort,
         if (abort.load(std::memory_order_acquire)) break;
         std::vector<int16_t> pcm;
         int csr = sr;
-        if (tts.synthesize(chunks[i], voice, pcm, csr) && !pcm.empty()) {
+        if (tts.synthesize(chunks[i], voice, pcm, csr, &abort) && !pcm.empty()) {
             std::lock_guard<std::mutex> lk(st.m);
             st.chunks.push_back(std::move(pcm));
         }

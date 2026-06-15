@@ -22,6 +22,10 @@ interface Msg {
   done: boolean;
 }
 
+function localId(prefix: string) {
+  return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
+}
+
 export function ChatScreen() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState('');
@@ -38,7 +42,9 @@ export function ChatScreen() {
           rows
             .filter((r) => r.role === 'user' || r.role === 'assistant')
             .map((r, i) => ({
-              id: r.request_id ?? `h${i}`,
+              id: r.role === 'assistant' && r.request_id
+                ? r.request_id
+                : `h-${r.role}-${r.request_id ?? i}`,
               role: r.role as 'user' | 'assistant',
               content: r.content,
               done: true,
@@ -84,14 +90,16 @@ export function ChatScreen() {
   async function send() {
     const text = draft.trim();
     if (!text || sending) return;
+    const optimisticId = localId('u');
     setDraft('');
     setSending(true);
     setMessages((m) => [
       ...m,
-      { id: `u${Date.now()}`, role: 'user', content: text, done: true },
+      { id: optimisticId, role: 'user', content: text, done: true },
     ]);
     try {
       const { request_id } = await api.sendChat({ text });
+      if (!request_id) throw new Error('empty request id');
       // Pre-create the assistant bubble so tokens land even if they race.
       setMessages((m) =>
         m.some((x) => x.id === request_id)
@@ -99,6 +107,8 @@ export function ChatScreen() {
           : [...m, { id: request_id, role: 'assistant', content: '', done: false }],
       );
     } catch (e) {
+      setMessages((m) => m.filter((msg) => msg.id !== optimisticId));
+      setDraft(text);
       pushToast('bad', `Send failed: ${(e as Error).message}`);
     } finally {
       setSending(false);
@@ -126,28 +136,17 @@ export function ChatScreen() {
         <div ref={bottomRef} />
       </div>
 
-      <div
-        style={{
-          position: 'sticky',
-          bottom: 0,
-          display: 'flex',
-          gap: 8,
-          padding: 12,
-          paddingBottom: 'calc(12px + var(--safe-bottom))',
-          background: 'var(--bg)',
-          borderTop: '1px solid var(--line)',
-        }}
-      >
+      <div className="chat-composer">
         <input
           className="input"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()}
           placeholder="Message Hearth…"
+          aria-label="Message Hearth"
         />
         <button
-          className="btn"
-          style={{ padding: '0 14px' }}
+          className="btn icon"
           onClick={send}
           disabled={sending || !draft.trim()}
           aria-label="Send"

@@ -20,6 +20,14 @@ function statusClass(s: TaskStatus): string {
   return 'pill warn'; // queued | running
 }
 
+const STATUS_ORDER: Record<TaskStatus, number> = {
+  running: 0,
+  queued: 1,
+  error: 2,
+  done: 3,
+  canceled: 4,
+};
+
 export function TasksScreen() {
   const [tasks, setTasks] = useState<TaskDTO[] | null>(null);
   const [type, setType] = useState<TaskType>('research');
@@ -95,9 +103,17 @@ export function TasksScreen() {
     }
   }
 
+  const sortedTasks = tasks
+    ? [...tasks].sort(
+        (a, b) =>
+          STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
+          b.updated_at - a.updated_at,
+      )
+    : null;
+
   return (
     <div className="app-content">
-      <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card form-card">
         <div className="section-label" style={{ margin: '0 0 8px' }}>
           Queue a deep-work task
         </div>
@@ -118,37 +134,37 @@ export function TasksScreen() {
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Describe the task (optional)…"
-          style={{ minHeight: 70, marginBottom: 8 }}
+          style={{ minHeight: 76 }}
         />
         <Button block disabled={busy} onClick={create}>
           <Icon name="plus" size={18} /> Add to queue
         </Button>
       </div>
 
-      {tasks === null ? (
+      {sortedTasks === null ? (
         <Loading />
-      ) : tasks.length === 0 ? (
+      ) : sortedTasks.length === 0 ? (
         <EmptyState
           icon={<Icon name="tasks" size={34} />}
           title="No tasks queued"
           hint="Heavy jobs run while the assistant is idle."
         />
       ) : (
-        tasks.map((t) => (
+        <div className="stack">
+        {sortedTasks.map((t) => (
           <div className="row" key={t.id} style={{ alignItems: 'flex-start' }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, textTransform: 'capitalize' }}>
+              <div className="row-title" style={{ textTransform: 'capitalize' }}>
                 {t.type.replace('_', ' ')}
               </div>
               {typeof t.params?.prompt === 'string' && (
-                <div className="faint">{t.params.prompt as string}</div>
+                <div className="row-subtitle">{t.params.prompt as string}</div>
               )}
             </div>
             <span className={statusClass(t.status)}>{t.status}</span>
             {(t.status === 'queued' || t.status === 'running') && (
               <button
-                className="btn ghost"
-                style={{ minHeight: 'auto', padding: 4 }}
+                className="btn ghost icon"
                 onClick={() => cancel(t.id)}
                 aria-label="Cancel task"
               >
@@ -157,6 +173,8 @@ export function TasksScreen() {
             )}
           </div>
         ))
+        }
+        </div>
       )}
     </div>
   );

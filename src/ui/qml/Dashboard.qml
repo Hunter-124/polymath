@@ -133,6 +133,12 @@ Item {
                             color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
                             elide: Text.ElideRight; Layout.fillWidth: true
                         }
+                        Label {
+                            text: app.ttsStatus
+                            color: app.ttsReady ? Style.textFaint : Style.warn
+                            font.family: Style.fontFamily; font.pixelSize: Style.fsTiny
+                            elide: Text.ElideRight; Layout.fillWidth: true
+                        }
                     }
                 }
             }

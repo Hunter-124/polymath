@@ -28,6 +28,21 @@ ModelRole roleFromString(const std::string& s) {
     if (s == "embedding") return ModelRole::Embedding;
     return ModelRole::Fast;
 }
+
+std::string uniqueModelId(Database& db, const std::string& preferred) {
+    auto exists = [&](const std::string& id) {
+        bool found = false;
+        db.query("SELECT 1 FROM models WHERE id=?1", {id},
+                 [&](const Row&) { found = true; });
+        return found;
+    };
+    if (!exists(preferred)) return preferred;
+    for (int i = 2; i < 1000; ++i) {
+        std::string candidate = preferred + "-" + std::to_string(i);
+        if (!exists(candidate)) return candidate;
+    }
+    return preferred + "-" + std::to_string(to_unix(Clock::now()));
+}
 } // namespace
 
 const char* InferenceManager::roleName(ModelRole role) {
@@ -71,6 +86,10 @@ void InferenceManager::stop() {
     {
         std::lock_guard rlk(registry_mtx_);
         active_id_.clear();
+    }
+    {
+        std::lock_guard rlk(runtime_mtx_);
+        runtime_.clear();
     }
     heavy_loaded_ = false;
 }
@@ -123,7 +142,7 @@ void InferenceManager::autoDiscoverModels() {
                       [&](const Row&) { exists = true; });
             if (exists) continue;
 
-            const std::string id = e.path().stem().string();
+            const std::string id = uniqueModelId(db_, e.path().stem().string());
             // is_active=1 only if no other model of this role exists yet.
             db_.exec(
                 "INSERT INTO models(id,display_name,path,role,n_ctx,n_gpu_layers,"
@@ -185,6 +204,18 @@ std::vector<ModelSpec> InferenceManager::registry() const {
     return registry_;
 }
 
+std::vector<ModelRuntimeState> InferenceManager::runtimeStates() const {
+    std::lock_guard lk(runtime_mtx_);
+    std::vector<ModelRuntimeState> out;
+    out.reserve(runtime_.size());
+    for (const auto& kv : runtime_) out.push_back(kv.second);
+    std::sort(out.begin(), out.end(), [](const ModelRuntimeState& a,
+                                         const ModelRuntimeState& b) {
+        return static_cast<int>(a.role) < static_cast<int>(b.role);
+    });
+    return out;
+}
+
 const ModelSpec* InferenceManager::specById(const std::string& id) const {
     // caller holds registry_mtx_
     auto it = std::find_if(registry_.begin(), registry_.end(),
@@ -204,6 +235,12 @@ const ModelSpec* InferenceManager::specForRole(ModelRole role) const {
 }
 
 void InferenceManager::setActiveModel(ModelRole role, const std::string& id) {
+    if (QThread::currentThread() != this->thread()) {
+        QMetaObject::invokeMethod(this, [this, role, id]() { setActiveModel(role, id); },
+                                  Qt::QueuedConnection);
+        return;
+    }
+
     {
         std::lock_guard lk(registry_mtx_);
         active_id_[static_cast<int>(role)] = id;
@@ -262,6 +299,11 @@ bool InferenceManager::loadModel(const ModelSpec& spec_in) {
     const size_t footprint = backend->vramFootprintMiB();
     vram_->reserve(spec.id, footprint);
     backends_[static_cast<int>(spec.role)] = std::move(backend);
+    {
+        std::lock_guard rlk(runtime_mtx_);
+        runtime_[static_cast<int>(spec.role)] =
+            ModelRuntimeState{spec.role, spec.id, true, spec.n_gpu_layers, footprint};
+    }
 
     emit modelStateChanged(QString::fromUtf8(roleName(spec.role)),
                            QString::fromStdString(spec.id), true);
@@ -295,6 +337,10 @@ void InferenceManager::unloadRole(ModelRole role) {
     }
     backends_.erase(it);
     if (!id.empty()) vram_->release(id);
+    {
+        std::lock_guard rlk(runtime_mtx_);
+        runtime_.erase(static_cast<int>(role));
+    }
 
     emit modelStateChanged(QString::fromUtf8(roleName(role)),
                            QString::fromStdString(id), false);
@@ -336,20 +382,37 @@ void InferenceManager::runGenerate(const ChatRequest& req) {
     LlamaBackend* backend = nullptr;
     if (!req.model_id.empty()) {
         ModelRole role = ModelRole::Fast;
+        ModelSpec spec;
         {
             std::lock_guard rlk(registry_mtx_);
-            if (const ModelSpec* s = specById(req.model_id)) role = s->role;
-        }
-        // Ensure the *specific* model is the one loaded for its role.
-        if (auto* b = backendFor(role); b && b->spec().id == req.model_id) {
-            backend = b;
-        } else {
-            unloadRole(role);
-            ModelSpec spec;
-            {
-                std::lock_guard rlk(registry_mtx_);
-                if (const ModelSpec* s = specById(req.model_id)) spec = *s;
+            if (const ModelSpec* s = specById(req.model_id)) {
+                role = s->role;
+                spec = *s;
             }
+        }
+        // Ensure the *specific* model is the one loaded for its role. Explicit
+        // Heavy ids get the same resident-set eviction as requestHeavy(true), so
+        // a named large model does not get planned after Fast has already eaten
+        // the GPU budget.
+        if (spec.id.empty()) {
+            backend = nullptr;
+        } else if (auto* b = backendFor(role); b && b->spec().id == req.model_id) {
+            backend = b;
+        } else if (role == ModelRole::Heavy) {
+            unloadRole(ModelRole::Vision);
+            unloadRole(ModelRole::Fast);
+            unloadRole(ModelRole::Embedding);
+            unloadRole(ModelRole::Heavy);
+            if (loadModel(spec)) {
+                heavy_loaded_ = true;
+                backend = backendFor(ModelRole::Heavy);
+            }
+        } else {
+            if (heavy_loaded_) {
+                unloadRole(ModelRole::Heavy);
+                heavy_loaded_ = false;
+            }
+            unloadRole(role);
             if (!spec.id.empty() && loadModel(spec)) backend = backendFor(role);
         }
     } else if (heavy_loaded_) {
