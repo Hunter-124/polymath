@@ -3,9 +3,16 @@
 #include "logging.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
+#include <QByteArray>
 #include <QDir>
 
+#include <nlohmann/json.hpp>
+
 #include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <vector>
 
 // First-run seeding of the starter persona bundles.  We can't rely on CMake
@@ -81,42 +88,163 @@ fs::path locateStarterBundles() {
     return {};
 }
 
-int seedStarterBundles(const fs::path& dest) {
-    std::error_code ec;
+namespace {
+using nlohmann::json;
 
+// Whole-file bytes, or "" if unreadable.
+std::string readBytes(const fs::path& p) {
+    std::ifstream in(p, std::ios::binary);
+    if (!in) return {};
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+
+std::string sha256Hex(const std::string& bytes) {
+    const QByteArray hex = QCryptographicHash::hash(
+        QByteArray(bytes.data(), static_cast<qsizetype>(bytes.size())),
+        QCryptographicHash::Sha256).toHex();
+    return std::string(hex.constData(), static_cast<size_t>(hex.size()));
+}
+
+// SHA-256 of a persona.json (hex), or "" if it cannot be read.
+std::string personaHash(const fs::path& persona_json) {
+    std::error_code ec;
+    if (!fs::exists(persona_json, ec)) return {};
+    return sha256Hex(readBytes(persona_json));
+}
+
+json loadManifest(const fs::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return json::object();
+    try {
+        json j;
+        in >> j;
+        if (j.is_object()) return j;
+    } catch (...) {}
+    return json::object();
+}
+
+void saveManifest(const fs::path& path, const json& j) {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (out) out << j.dump(2) << '\n';
+}
+
+// Copy stock files from `srcBundle` into `dstBundle` that don't exist yet (e.g.
+// a newly shipped avatar). Never overwrites existing files. persona.json is
+// handled explicitly by the caller.
+void copyMissingSiblings(const fs::path& srcBundle, const fs::path& dstBundle) {
+    std::error_code ec;
+    for (auto& e : fs::directory_iterator(srcBundle, ec)) {
+        std::error_code fec;
+        if (!e.is_regular_file(fec)) continue;
+        if (e.path().filename() == "persona.json") continue;
+        const fs::path target = dstBundle / e.path().filename();
+        if (fs::exists(target, fec)) continue;
+        std::error_code cec;
+        fs::copy_file(e.path(), target, cec);
+    }
+}
+
+std::string recordedHashOf(const json& manifest, const std::string& name) {
+    auto it = manifest.find(name);
+    if (it != manifest.end() && it->is_string()) return it->get<std::string>();
+    return {};
+}
+
+} // namespace
+
+int seedBundlesFrom(const fs::path& src, const fs::path& dest) {
+    std::error_code ec;
+    if (src.empty() || !fs::is_directory(src, ec)) {
+        PM_WARN("personality: no source bundle dir to seed from ({})", src.string());
+        return 0;
+    }
+    fs::create_directories(dest, ec);
+
+    const fs::path manifestPath = dest / ".stock-manifest.json";
+    json manifest = loadManifest(manifestPath);
+
+    int copied = 0, refreshed = 0, preserved = 0;
+    for (auto& entry : fs::directory_iterator(src, ec)) {
+        std::error_code fec;
+        if (!entry.is_directory(fec)) continue;
+        const fs::path srcPersona = entry.path() / "persona.json";
+        if (!fs::exists(srcPersona, fec)) continue;
+
+        const std::string name = entry.path().filename().string();
+        const fs::path target     = dest / name;
+        const fs::path dstPersona = target / "persona.json";
+        const std::string shippedHash = personaHash(srcPersona);
+
+        // (1) New bundle — copy wholesale (first run / freshly shipped persona).
+        if (!fs::exists(target, fec)) {
+            std::error_code cec;
+            fs::copy(entry.path(), target, fs::copy_options::recursive, cec);
+            if (cec) {
+                PM_WARN("personality: failed to copy bundle {} -> {}: {}",
+                        entry.path().string(), target.string(), cec.message());
+                continue;
+            }
+            manifest[name] = shippedHash;
+            ++copied;
+            continue;
+        }
+
+        const std::string installedHash = personaHash(dstPersona);
+        const std::string recordedHash  = recordedHashOf(manifest, name);
+
+        // Already identical to the shipped stock — make sure a baseline is on
+        // record so a *future* stock bump can refresh it.
+        if (installedHash == shippedHash) {
+            manifest[name] = shippedHash;
+            continue;
+        }
+
+        // (2) Untouched by the user since our last write, and the stock changed
+        // — refresh persona.json and add any newly shipped sibling files. This
+        // is what lets stock persona improvements reach already-seeded installs.
+        if (!recordedHash.empty() && installedHash == recordedHash) {
+            std::error_code cec;
+            fs::copy_file(srcPersona, dstPersona,
+                          fs::copy_options::overwrite_existing, cec);
+            if (cec) {
+                PM_WARN("personality: failed to refresh persona '{}': {}",
+                        name, cec.message());
+                continue;
+            }
+            copyMissingSiblings(entry.path(), target);
+            manifest[name] = shippedHash;
+            ++refreshed;
+            continue;
+        }
+
+        // (3) User-edited (or predates the manifest) and differs from stock —
+        // never clobber. Drop the new stock beside it as persona.json.new so the
+        // update is discoverable. Leave the manifest baseline alone: we must not
+        // record the user's content as "stock", or a later bump would overwrite.
+        const fs::path sidecar = target / "persona.json.new";
+        std::error_code cec;
+        fs::copy_file(srcPersona, sidecar, fs::copy_options::overwrite_existing, cec);
+        ++preserved;
+    }
+
+    saveManifest(manifestPath, manifest);
+
+    if (copied || refreshed || preserved)
+        PM_INFO("personality: bundles {} -> {} (copied {}, refreshed {}, "
+                "preserved {} user-edited)",
+                src.string(), dest.string(), copied, refreshed, preserved);
+    return copied + refreshed;
+}
+
+int seedStarterBundles(const fs::path& dest) {
     const fs::path src = locateStarterBundles();
     if (src.empty()) {
         PM_WARN("personality: no starter bundles found to seed into {}", dest.string());
         return 0;
     }
-
-    fs::create_directories(dest, ec);
-
-    int copied = 0;
-    for (auto& entry : fs::directory_iterator(src, ec)) {
-        std::error_code fec;
-        if (!entry.is_directory(fec)) continue;
-        if (!fs::exists(entry.path() / "persona.json", fec)) continue;
-
-        const fs::path target = dest / entry.path().filename();
-        // Add shipped bundles that are MISSING; never overwrite the user's existing
-        // ones — so manual edits survive AND new shipped personas (e.g. Operator)
-        // appear after an update, not only on a clean first run.
-        if (fs::exists(target, fec)) continue;
-        std::error_code cec;
-        fs::copy(entry.path(), target, fs::copy_options::recursive, cec);
-        if (cec) {
-            PM_WARN("personality: failed to copy bundle {} -> {}: {}",
-                    entry.path().string(), target.string(), cec.message());
-            continue;
-        }
-        ++copied;
-    }
-
-    if (copied > 0)
-        PM_INFO("personality: seeded {} starter bundle(s) from {} into {}",
-                copied, src.string(), dest.string());
-    return copied;
+    return seedBundlesFrom(src, dest);
 }
 
 } // namespace polymath

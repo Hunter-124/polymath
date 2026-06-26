@@ -179,3 +179,13 @@ add_executable(test_desktop test_desktop.cpp)
 target_link_libraries(test_desktop PRIVATE pm_desktop pm_core Qt6::Core)
 add_test(NAME desktop COMMAND test_desktop)
 set_tests_properties(desktop PROPERTIES TIMEOUT 60)
+
+# Persona bundle seeding — seedBundlesFrom() stock-propagation logic over a
+# throwaway temp src/dest tree: first-run copy, refresh of an unedited persona
+# when the stock changes, preserve-and-offer-.new for a user-edited persona,
+# idempotent steady state, and a newly shipped persona appearing on a populated
+# install. Pure filesystem + hashing (QCryptographicHash), no app/Paths/models.
+add_executable(test_personality test_personality.cpp)
+target_link_libraries(test_personality PRIVATE pm_personality pm_core Qt6::Core)
+add_test(NAME personality COMMAND test_personality)
+set_tests_properties(personality PROPERTIES TIMEOUT 60)

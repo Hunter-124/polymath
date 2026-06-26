@@ -125,8 +125,8 @@ runtime-loadable libraries and the runtime GPU/CPU choice lives in `src/inferenc
 which queries ggml's device registry — so the binary has **no hard CUDA dependency**.
 
 Build + run the full test suite (also exactly what CI runs):
-`pwsh scripts/build.ps1 -Flavor cpu -Tests` (**16 suites**: core, tools, audio, agent, vision, inference,
-memory, privacy, integration, ui, phase2, fabric, instruments, lab_session, doc_rag, **desktop**). CI: `scripts/ci.ps1`.
+`pwsh scripts/build.ps1 -Flavor cpu -Tests` (**17 suites**: core, tools, audio, agent, vision, inference,
+memory, privacy, integration, ui, phase2, fabric, instruments, lab_session, doc_rag, desktop, **personality**). CI: `scripts/ci.ps1`.
 
 The **mobile app** (`app/`) builds with `npm ci && npm run build`; the **edge firmware** (`firmware/*`)
 builds per-project with PlatformIO / ESP-IDF / CanMV — see each project's README.
