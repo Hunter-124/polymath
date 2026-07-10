@@ -14,6 +14,7 @@
 //   8. Ring drops — FloatRing 16 s capacity; drop counter increments on overflow.
 
 #include "audio_common.h"
+#include "capture.h"
 #include "wakeword.h"
 #include "vad.h"
 #include "asr_whisper.h"
@@ -490,15 +491,16 @@ void checkRingDrops() {
            "FloatRing must hold at least 16 s @ 16 kHz");
     assert(ring.drops() == 0);
 
-    // Fill to capacity.
+    // Fill to capacity without overflowing (write only free space each step).
     std::vector<float> block(static_cast<size_t>(kFrameSamples), 0.25f);
-    size_t written = 0;
-    while (written < ring.capacity()) {
-        const size_t w = ring.write(block.data(), block.size());
+    while (ring.available() < ring.capacity()) {
+        const size_t free = ring.capacity() - ring.available();
+        const size_t n = std::min(block.size(), free);
+        const size_t w = ring.write(block.data(), n);
         if (w == 0) break;
-        written += w;
     }
     assert(ring.drops() == 0 && "no drops while filling to capacity");
+    assert(ring.available() == ring.capacity());
 
     // One more write must drop.
     const size_t d0 = ring.drops();

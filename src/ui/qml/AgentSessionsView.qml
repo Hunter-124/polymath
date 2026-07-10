@@ -96,7 +96,7 @@ Item {
                         // Unread ping glow
                         Rectangle {
                             anchors.fill: parent
-                            radius: parent.radius
+                            radius: Style.radius
                             color: "transparent"
                             border.width: card.unreadPing ? 1 : 0
                             border.color: Style.warn

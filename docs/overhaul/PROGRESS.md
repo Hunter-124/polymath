@@ -1,4 +1,4 @@
-# Overhaul progress ledger
+﻿# Overhaul progress ledger
 
 Update the checkbox + add a one-line note (commit hash) as each node lands.
 This file + git history = the resume state for any machine/harness.
@@ -32,13 +32,14 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 - [x] C1 shell integration (Main.qml wiring)
 
 ## Wave D — verify & ship
-- [ ] D1 full builds + captures
-- [ ] D2 full test suite
+- [x] D1 full builds + captures
+- [x] D2 full test suite
 - [ ] D3 models fetched + live e2e + resource audit vs budget
 - [ ] D4 docs refresh + graphify update + tag v0.2.0-overhaul
 - [ ] D5 (optional) QtWebEngine + real WebSurface — awaiting owner go-ahead
 
 ## Notes / deviations
-- Waves A–C complete. Wave D is integrate/verify/ship.
-- C5: 25 tools; risk classes; uicontrol_tool (AUTOUIC-safe name); agent_* late-bind via setAgentSessionService.
+- D1: build/cpu Release Polymath + capture_views green; captures 13/13 both modes. GPU tree not required for code-complete (optional).
+- D2: ctest Release 14/14 green (legacy + harness/skills/sessions).
+- C5: 25 tools; risk classes; uicontrol_tool; agent_* late-bind setAgentSessionService.
 - C1: palette+Ctrl+K, ToastStack, Bell+Center, SurfaceHost, Style↔settings Bindings.
