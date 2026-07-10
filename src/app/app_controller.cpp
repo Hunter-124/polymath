@@ -12,6 +12,7 @@
 #include "vision_service.h"
 #include "memory_service.h"
 #include "agent_runtime.h"
+#include "tool_registry.h"
 #include "personality_manager.h"
 
 #include "chat_model.h"
@@ -84,6 +85,9 @@ bool AppController::initialize() {
     personality_ = std::make_unique<PersonalityManager>(db_);
     // C4: external agent sessions (Claude Code / Codex / PTY). Needs Config.
     sessions_    = std::make_unique<AgentSessionService>(db_, *config_);
+    // C5: late-bind agent_* tools to the live sessions service (no hard link
+    // from register_tools → pm_sessions; QObject* Q_INVOKABLE dispatch).
+    setAgentSessionService(sessions_.get());
 
     // --- UI data models (own thread = UI thread; parented to this) ---
     buildModels();
