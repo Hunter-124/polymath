@@ -26,7 +26,7 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 - [x] B6 SettingsView
 - [x] B7 notifications QML (ToastStack, Bell, Center)
 - [x] B8 CommandPalette
-- [ ] B9 SurfaceHost + surfaces
+- [x] B9 SurfaceHost + surfaces
 - [ ] BV wave-B build + capture verify + fix round
 
 ## Wave C — harness features
