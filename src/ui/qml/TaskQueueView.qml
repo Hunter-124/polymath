@@ -3,32 +3,37 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Polymath
 
+// Tasks — amber glass rows (01 §5.4).
 Item {
     Component.onCompleted: app.refreshTasks()
 
     ColumnLayout {
-        anchors.fill: parent; anchors.margins: Style.pad; spacing: Style.gap
-        Label {
-            text: "Deep-Work Task Queue"; color: Style.text
-            font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
-        }
-        Label {
-            text: "Long/important jobs (lab reports, research, daily summaries) run here when the machine is idle and the heavy model can be loaded."
-            color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsBody
-            wrapMode: Text.WordWrap; Layout.fillWidth: true
+        anchors.fill: parent
+        anchors.margins: Style.pad
+        spacing: Style.gap
+
+        PmSectionHeader {
+            Layout.fillWidth: true
+            title: "Deep-Work Task Queue"
+            section: "Tasks"
+            subtitle: "Long/important jobs (lab reports, research, daily summaries) run here when the machine is idle and the heavy model can be loaded."
         }
 
-        Rectangle {
-            Layout.fillWidth: true; Layout.fillHeight: true
-            radius: Style.radius; color: Style.surface; border.color: Style.borderSoft
+        GlassCard {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            section: "Tasks"
 
             ListView {
                 id: list
-                anchors.fill: parent; anchors.margins: 8
-                clip: true; spacing: 6
+                anchors.fill: parent
+                anchors.margins: Style.gapSm
+                clip: true
+                spacing: Style.gapSm
                 model: taskModel
+                ScrollBar.vertical: PmScrollBar { tone: Style.sectionColor("Tasks") }
 
-                delegate: Rectangle {
+                delegate: GlassCard {
                     id: trow
                     required property string type
                     required property string status
@@ -36,7 +41,8 @@ Item {
                     required property int priority
                     width: ListView.view ? ListView.view.width : 0
                     height: col.implicitHeight + 18
-                    radius: Style.radiusSm; color: Style.surface2
+                    section: "Tasks"
+                    radius: Style.radiusSm
 
                     function statusColor(s) {
                         switch (s) {
@@ -49,48 +55,43 @@ Item {
                     }
 
                     RowLayout {
-                        anchors.fill: parent; anchors.margins: 10; spacing: 12
-                        Rectangle {
-                            width: 10; height: 10; radius: 5
-                            color: trow.statusColor(trow.status)
+                        anchors.fill: parent
+                        anchors.margins: Style.gapSm
+                        spacing: Style.gap
+                        PmStatusDot {
+                            tone: trow.statusColor(trow.status)
+                            pulsing: trow.status === "running"
                             Layout.alignment: Qt.AlignTop
                             Layout.topMargin: 4
-                            // pulse while running
-                            SequentialAnimation on opacity {
-                                running: trow.status === "running"; loops: Animation.Infinite
-                                NumberAnimation { to: 0.3; duration: 650 }
-                                NumberAnimation { to: 1.0; duration: 650 }
-                            }
                         }
                         ColumnLayout {
                             id: col
-                            Layout.fillWidth: true; spacing: 3
+                            Layout.fillWidth: true
+                            spacing: 3
                             RowLayout {
-                                Layout.fillWidth: true; spacing: 8
+                                Layout.fillWidth: true
+                                spacing: Style.gapSm
                                 Label {
-                                    text: trow.type; color: Style.text; font.family: Style.fontFamily
-                                    font.pixelSize: Style.fsBody; font.bold: true
+                                    text: trow.type
+                                    color: Style.text
+                                    font.family: Style.fontFamily
+                                    font.pixelSize: Style.fsBody
+                                    font.bold: true
                                 }
                                 Item { Layout.fillWidth: true }
-                                Rectangle {
-                                    radius: Style.radiusXs
-                                    color: Qt.rgba(trow.statusColor(trow.status).r,
-                                                   trow.statusColor(trow.status).g,
-                                                   trow.statusColor(trow.status).b, 0.16)
-                                    implicitWidth: stLbl.implicitWidth + 14
-                                    implicitHeight: stLbl.implicitHeight + 5
-                                    Label {
-                                        id: stLbl; anchors.centerIn: parent
-                                        text: trow.status; color: trow.statusColor(trow.status)
-                                        font.family: Style.fontFamily; font.pixelSize: Style.fsTiny; font.bold: true
-                                    }
+                                PmBadge {
+                                    text: trow.status
+                                    tone: trow.statusColor(trow.status)
                                 }
                             }
                             Label {
                                 visible: trow.detail.length > 0
-                                text: trow.detail; color: Style.textDim
-                                font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
-                                wrapMode: Text.WordWrap; Layout.fillWidth: true
+                                text: trow.detail
+                                color: Style.textDim
+                                font.family: Style.fontFamily
+                                font.pixelSize: Style.fsSmall
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
                             }
                         }
                     }
@@ -99,7 +100,9 @@ Item {
                 EmptyState {
                     anchors.fill: parent
                     visible: list.count === 0
-                    glyph: "●"
+                    glyph: "*"
+                    iconName: "tasks"
+                    glyphColor: Style.sectionColor("Tasks")
                     title: "No deep-work tasks queued"
                     hint: "Ask the assistant for something heavy — \"write a lab report\", \"research X\" — and it queues here, running when the machine is idle."
                 }
