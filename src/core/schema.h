@@ -6,7 +6,8 @@
 //
 namespace polymath {
 
-inline constexpr int kSchemaVersion = 1;
+// v2: goals + plan_steps (harness v2); models.n_ctx default 4096 (04 §1).
+inline constexpr int kSchemaVersion = 2;
 
 inline constexpr const char* kSchemaSQL = R"SQL(
 PRAGMA journal_mode = WAL;
@@ -18,7 +19,7 @@ CREATE TABLE IF NOT EXISTS models (
     display_name  TEXT NOT NULL,
     path          TEXT NOT NULL,
     role          TEXT NOT NULL,            -- fast|heavy|vision|embedding
-    n_ctx         INTEGER DEFAULT 8192,
+    n_ctx         INTEGER DEFAULT 4096,
     n_gpu_layers  INTEGER DEFAULT 999,
     chat_template TEXT DEFAULT '',
     mmproj_path   TEXT DEFAULT '',
@@ -132,6 +133,35 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE TABLE IF NOT EXISTS settings (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL
+);
+
+-- Agent harness goals + plan steps (overhaul 03 §1) -----------------------
+CREATE TABLE IF NOT EXISTS goals (
+    id            INTEGER PRIMARY KEY,
+    title         TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'active',
+      -- active | waiting_user | waiting_agent | done | failed | cancelled
+    origin        TEXT NOT NULL DEFAULT 'chat',
+      -- chat | voice | schedule | skill | agent
+    context_json  TEXT NOT NULL DEFAULT '{}',
+    result_json   TEXT,
+    created_at    INTEGER,
+    updated_at    INTEGER
+);
+CREATE TABLE IF NOT EXISTS plan_steps (
+    id            INTEGER PRIMARY KEY,
+    goal_id       INTEGER NOT NULL REFERENCES goals(id),
+    idx           INTEGER NOT NULL,
+    description   TEXT NOT NULL,
+    kind          TEXT NOT NULL,
+      -- tool | prompt | skill | agent_session | surface
+    tool          TEXT,
+    args_json     TEXT,
+    status        TEXT NOT NULL DEFAULT 'pending',
+      -- pending | running | done | failed | skipped
+    result_json   TEXT,
+    attempts      INTEGER NOT NULL DEFAULT 0,
+    updated_at    INTEGER
 );
 )SQL";
 

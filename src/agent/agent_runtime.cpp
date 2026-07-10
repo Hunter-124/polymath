@@ -106,9 +106,14 @@ bool parseToolCall(const std::string& text, std::string& tool, nlohmann::json& a
 
 } // namespace
 
-AgentRuntime::AgentRuntime(Database& db, InferenceManager& inf, TaskScheduler& sched, QObject* parent)
-    : QObject(parent), db_(db), inf_(inf), sched_(sched) {
+AgentRuntime::AgentRuntime(Database& db, InferenceManager& inf, TaskScheduler& sched,
+                           MemoryService* memory, QObject* parent)
+    : QObject(parent), db_(db), inf_(inf), sched_(sched), memory_(memory) {
     registerBuiltinTools(registry_);
+    // Thread tools + memory into the scheduler so deep-task drain can invoke
+    // real ITools (e.g. generate_lab_report → .docx) and daily_summary.
+    sched_.setToolRegistry(&registry_);
+    sched_.setMemoryService(memory_);
 }
 
 void AgentRuntime::start() {
@@ -136,12 +141,13 @@ void AgentRuntime::handleTextInput(const QString& text, const QString& request_i
 
 std::vector<ChatMessage> AgentRuntime::recentHistory(int max_turns,
                                                      const std::string& exclude_text) const {
-    // Most-recent command turns, oldest-first. Speaker is unknown here; we treat
-    // stored command transcripts as the running user/assistant dialogue context.
+    // Most-recent command turns, oldest-first. speaker = -1 marks assistant
+    // lines (persistTranscript); NULL / other => user. Fixes the prior
+    // all-User mislabel that collapsed dialogue structure for the model.
     // Pull one extra row so dropping the current utterance still yields max_turns.
     std::vector<ChatMessage> rev;
     bool dropped = false;
-    db_.query("SELECT text FROM transcripts WHERE is_ambient=0 "
+    db_.query("SELECT text, speaker FROM transcripts WHERE is_ambient=0 "
               "ORDER BY ts DESC LIMIT ?1",
               {max_turns + 1}, [&](const Row& r) {
                   std::string t = r.text(0);
@@ -150,7 +156,8 @@ std::vector<ChatMessage> AgentRuntime::recentHistory(int max_turns,
                       return;
                   }
                   ChatMessage m;
-                  m.role = Role::User;          // generic prior-context role
+                  // speaker sentinel: -1 = assistant; NULL/other = user
+                  m.role = (!r.isNull(1) && r.i64(1) == -1) ? Role::Assistant : Role::User;
                   m.content = std::move(t);
                   rev.push_back(std::move(m));
               });
@@ -321,6 +328,7 @@ void AgentRuntime::runTurn(const std::string& user_text, const QString& request_
             ToolContext tctx;
             tctx.inference          = &inf_;
             tctx.db                 = &db_;
+            tctx.memory             = memory_;
             tctx.active_user_id     = -1;
             tctx.active_personality = persona.name;
             try {

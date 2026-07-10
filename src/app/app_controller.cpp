@@ -37,6 +37,7 @@
 #include <QVariantMap>
 
 #include <filesystem>
+#include <nlohmann/json.hpp>
 
 namespace polymath {
 
@@ -75,7 +76,7 @@ bool AppController::initialize() {
     proactive_   = std::make_unique<ProactiveEngine>(db_);
     idle_        = std::make_unique<IdleDetector>();
     memory_      = std::make_unique<MemoryService>(db_, *inference_);
-    agent_       = std::make_unique<AgentRuntime>(db_, *inference_, *scheduler_);
+    agent_       = std::make_unique<AgentRuntime>(db_, *inference_, *scheduler_, memory_.get());
     vision_      = std::make_unique<VisionService>(db_, *inference_);
     audio_       = std::make_unique<AudioService>(db_);
     personality_ = std::make_unique<PersonalityManager>(db_);
@@ -138,6 +139,49 @@ void AppController::wireEventBus() {
 
     // Idle detector -> scheduler
     connect(idle_.get(), &IdleDetector::idleChanged, scheduler_.get(), &TaskScheduler::onIdleChanged);
+
+    // A3: taskFinished → notification + chat delivery (was orphaned; results
+    // previously died in tasks.result_json). Mirrors §2.3 goal-delivery path.
+    connect(scheduler_.get(), &TaskScheduler::taskFinished, this,
+            [this](qint64 task_id, const QString& result_json) {
+                QString type = QStringLiteral("task");
+                QString summary;
+                bool ok = true;
+                try {
+                    const auto j = nlohmann::json::parse(result_json.toStdString());
+                    if (j.contains("type") && j["type"].is_string())
+                        type = QString::fromStdString(j["type"].get<std::string>());
+                    if (j.contains("summary") && j["summary"].is_string())
+                        summary = QString::fromStdString(j["summary"].get<std::string>());
+                    else if (j.contains("text") && j["text"].is_string())
+                        summary = QString::fromStdString(j["text"].get<std::string>());
+                    if (j.contains("ok") && j["ok"].is_boolean())
+                        ok = j["ok"].get<bool>();
+                    if (j.contains("error")) ok = false;
+                } catch (...) {
+                    summary = result_json;
+                }
+                if (summary.size() > 240)
+                    summary = summary.left(237) + QStringLiteral("...");
+
+                const QString title = type;
+                const QString body = summary.isEmpty()
+                    ? QStringLiteral("Task %1 finished").arg(task_id)
+                    : summary;
+                const QString level = ok ? QStringLiteral("good") : QStringLiteral("error");
+                EventBus::instance().publishNotice(
+                    {level, QStringLiteral("scheduler"),
+                     QStringLiteral("✔ Finished: %1 — %2").arg(title, body)});
+
+                // Inject an assistant chat line so the user sees the result
+                // even when not looking at the task queue / notification center.
+                if (chat_model_) {
+                    const QString rid = QStringLiteral("task-done-%1").arg(task_id);
+                    const QString msg = QStringLiteral("✔ Finished: %1 — %2").arg(title, body);
+                    chat_model_->appendAssistantToken(rid, msg, /*done*/ false);
+                    chat_model_->appendAssistantToken(rid, QString(), /*done*/ true);
+                }
+            });
 
     // Audio listening state -> UI property
     connect(audio_.get(), &AudioService::listeningStateChanged, this, [this](bool on) {

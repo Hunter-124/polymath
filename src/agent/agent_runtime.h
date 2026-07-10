@@ -23,6 +23,7 @@ namespace polymath {
 class Database;
 class InferenceManager;
 class TaskScheduler;
+class MemoryService;
 class TurnCollector;
 struct Persona;
 
@@ -30,7 +31,7 @@ class AgentRuntime : public QObject, public IService {
     Q_OBJECT
 public:
     AgentRuntime(Database& db, InferenceManager& inf, TaskScheduler& sched,
-                 QObject* parent = nullptr);
+                 MemoryService* memory = nullptr, QObject* parent = nullptr);
 
     void start() override;
     void stop() override;
@@ -74,6 +75,7 @@ private:
     Database&                      db_;
     InferenceManager&              inf_;
     TaskScheduler&                 sched_;
+    MemoryService*                 memory_ = nullptr;   // nullptr-safe
     ToolRegistry                   registry_;
     std::unique_ptr<TurnCollector> collector_;
     // One turn at a time: tool dispatch spins a nested event loop (Qt Network),

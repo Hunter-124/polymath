@@ -17,12 +17,16 @@
 #include "agent_runtime.h"
 #include "inference_manager.h"
 #include "task_scheduler.h"
+#include "memory_service.h"
 #include "database.h"
 #include "config.h"
 #include "paths.h"
 #include "event_bus.h"
 #include "service.h"
 #include "types.h"
+#include "schema.h"
+#include "i_tool.h"
+#include "notifications_model.h"
 
 #include <QCoreApplication>
 #include <QObject>
@@ -30,6 +34,7 @@
 #include <QTimer>
 #include <QEventLoop>
 #include <QMetaObject>
+#include <QAbstractItemModel>
 
 #undef NDEBUG   // keep assert() active even in Release (otherwise the test is a no-op)
 #include <cassert>
@@ -94,8 +99,15 @@ void testAllToolsDirect(const std::filesystem::path& root) {
                           "camera_snapshot", "who_is_home", "queue_deep_task"})
         assert(reg.get(n) != nullptr && "missing builtin tool");
 
+    // InferenceManager is required by MemoryService; no GGUF needed for keyword
+    // fallback. ToolContext.memory is wired so remember/recall prefer the service.
+    InferenceManager inf(db);
+    MemoryService memorySvc(db, inf);
+
     ToolContext ctx;
     ctx.db = &db;
+    ctx.inference = &inf;
+    ctx.memory = &memorySvc;
     ctx.active_user_id = -1;
     ctx.active_personality = "test";
 
@@ -149,8 +161,9 @@ void testAllToolsDirect(const std::filesystem::path& root) {
         auto m = reg.get("remember")->invoke(
             {{"text", "Erik prefers oat milk in his coffee"}, {"kind", "preference"}}, ctx);
         assert(m.ok);
+        // Via MemoryService when ctx.memory is set (source may be empty default).
         assert(scalarCount(db, "SELECT COUNT(*) FROM memories "
-                               "WHERE kind='preference' AND source='agent'") == 1);
+                               "WHERE kind='preference' AND text LIKE '%oat milk%'") == 1);
         reg.get("remember")->invoke({{"text", "The garage code is 4821"}, {"kind", "fact"}}, ctx);
 
         auto rec = reg.get("recall")->invoke({{"query", "what milk does Erik like"}}, ctx);
@@ -296,6 +309,253 @@ void testAllToolsDirect(const std::filesystem::path& root) {
 }
 
 // ---------------------------------------------------------------------------
+//  A3 deterministic extras: schema migration, memory wiring, scheduler tool
+//  dispatch (generate_lab_report → .docx), taskFinished → NotificationsModel.
+// ---------------------------------------------------------------------------
+void testA3HarnessFixes(const std::filesystem::path& root) {
+    Paths::instance().setRoot(root);
+    Paths::instance().ensureLayout();
+
+    // --- schema migration: goals + plan_steps on a fresh DB ------------------
+    {
+        const auto dbPath = root / "a3_schema.db";
+        std::filesystem::remove(dbPath);
+        Database db;
+        assert(db.open(dbPath.string()));
+        // Tables from kSchemaSQL (version 2) must exist.
+        int goals_ok = 0, steps_ok = 0;
+        db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='goals'",
+                 {}, [&](const Row&) { goals_ok = 1; });
+        db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='plan_steps'",
+                 {}, [&](const Row&) { steps_ok = 1; });
+        assert(goals_ok && steps_ok && "goals/plan_steps missing after migrate");
+
+        // Insert a goal + step to prove the shape is usable.
+        const int64_t now = to_unix(Clock::now());
+        const int64_t gid = db.exec(
+            "INSERT INTO goals(title,status,origin,context_json,created_at,updated_at) "
+            "VALUES('test goal','active','chat','{}',?1,?1)", {now});
+        assert(gid > 0);
+        const int64_t sid = db.exec(
+            "INSERT INTO plan_steps(goal_id,idx,description,kind,status,attempts,updated_at) "
+            "VALUES(?1,0,'do thing','tool','pending',0,?2)", {gid, now});
+        assert(sid > 0);
+        assert(scalarCount(db, "SELECT COUNT(*) FROM plan_steps WHERE goal_id=?1", {gid}) == 1);
+
+        // user_version recorded as kSchemaVersion.
+        int ver = 0;
+        db.query("PRAGMA user_version", {}, [&](const Row& r) { ver = static_cast<int>(r.i64(0)); });
+        assert(ver == kSchemaVersion && "schema version not applied");
+        db.close();
+        std::puts("  [ok] A3 schema migration (goals + plan_steps)");
+    }
+
+    // --- memory wired: ToolContext.memory + keyword fallback recall ----------
+    {
+        const auto dbPath = root / "a3_memory.db";
+        std::filesystem::remove(dbPath);
+        Database db;
+        assert(db.open(dbPath.string()));
+        Config(db).seedDefaults();
+        InferenceManager inf(db);
+        MemoryService mem(db, inf);
+
+        ToolRegistry reg;
+        registerBuiltinTools(reg);
+        ToolContext ctx;
+        ctx.db = &db;
+        ctx.inference = &inf;
+        ctx.memory = &mem;   // wired
+
+        auto m = reg.get("remember")->invoke(
+            {{"text", "Erik prefers oat milk in his coffee"}, {"kind", "preference"}}, ctx);
+        assert(m.ok);
+        // MemoryService::remember path (even without embedder) writes the row.
+        assert(scalarCount(db, "SELECT COUNT(*) FROM memories WHERE text LIKE '%oat milk%'") == 1);
+
+        // No embedding model → semantic empty → keyword fallback still finds it.
+        auto rec = reg.get("recall")->invoke({{"query", "what milk does Erik like"}}, ctx);
+        assert(rec.ok);
+        assert(rec.content["memories"].is_array() && !rec.content["memories"].empty());
+        assert(rec.content["memories"][0]["text"].get<std::string>().find("oat milk")
+               != std::string::npos);
+        db.close();
+        std::puts("  [ok] A3 memory wired (ToolContext.memory + keyword fallback)");
+    }
+
+    // --- scheduler tool dispatch: queued generate_lab_report → real .docx ----
+    {
+        const auto dbPath = root / "a3_sched.db";
+        std::filesystem::remove(dbPath);
+        Database db;
+        assert(db.open(dbPath.string()));
+        Config(db).seedDefaults();
+        InferenceManager inf(db);
+        ToolRegistry reg;
+        registerBuiltinTools(reg);
+
+        TaskScheduler sched(db, inf);
+        sched.setToolRegistry(&reg);
+        sched.start();
+
+        QString finishedJson;
+        bool gotFinished = false;
+        QObject::connect(&sched, &TaskScheduler::taskFinished,
+                         [&](qint64 /*id*/, QString rj) {
+                             finishedJson = rj;
+                             gotFinished = true;
+                         });
+
+        const nlohmann::json params = {
+            {"title", "A3 queued lab report"},
+            {"objective", "Prove scheduler tool dispatch."},
+            {"method", "Enqueue generate_lab_report; drain on idle."},
+            {"results", "A .docx exists on disk."},
+            {"conclusion", "Dispatch works."},
+        };
+        const qint64 tid = sched.enqueue("generate_lab_report", params, /*priority*/ 10);
+        assert(tid > 0);
+
+        // Drain on this thread via the event loop (onIdleChanged queues drainQueue).
+        QEventLoop loop;
+        QTimer guard;
+        guard.setSingleShot(true);
+        QObject::connect(&guard, &QTimer::timeout, &loop, &QEventLoop::quit);
+        QObject::connect(&sched, &TaskScheduler::taskFinished, &loop, &QEventLoop::quit);
+        guard.start(30000);
+        sched.onIdleChanged(true);
+        loop.exec();
+
+        assert(gotFinished && "taskFinished not emitted for generate_lab_report");
+        assert(scalarCount(db, "SELECT COUNT(*) FROM tasks WHERE id=?1 AND status='done'",
+                           {tid}) == 1);
+        assert(scalarCount(db, "SELECT COUNT(*) FROM documents WHERE kind='lab_report'") == 1);
+
+        std::string docPath;
+        db.query("SELECT path FROM documents WHERE kind='lab_report' ORDER BY id DESC LIMIT 1",
+                 {}, [&](const Row& r) { docPath = r.text(0); });
+        assert(!docPath.empty() && std::filesystem::exists(docPath) &&
+               "generate_lab_report did not write a .docx");
+        assert(std::filesystem::path(docPath).extension() == ".docx");
+
+        // result_json should carry the tool content/path.
+        try {
+            const auto j = nlohmann::json::parse(finishedJson.toStdString());
+            assert(j.value("ok", false) == true);
+            assert(j.contains("content"));
+            const std::string p = j["content"].value("path", "");
+            assert(!p.empty() && std::filesystem::exists(p));
+        } catch (...) {
+            assert(false && "taskFinished result_json not parseable");
+        }
+
+        sched.stop();
+        db.close();
+        std::puts("  [ok] A3 scheduler tool dispatch (generate_lab_report → .docx)");
+    }
+
+    // --- taskFinished delivery reaches NotificationsModel via notice path ----
+    {
+        const auto dbPath = root / "a3_notify.db";
+        std::filesystem::remove(dbPath);
+        Database db;
+        assert(db.open(dbPath.string()));
+        Config(db).seedDefaults();
+
+        NotificationsModel notes(db);
+        auto& bus = EventBus::instance();
+        QObject::connect(&bus, &EventBus::notice, &notes, &NotificationsModel::onNotice);
+        QObject::connect(&bus, &EventBus::taskUpdated, &notes, &NotificationsModel::onTask);
+
+        InferenceManager inf(db);
+        ToolRegistry reg;
+        registerBuiltinTools(reg);
+        TaskScheduler sched(db, inf);
+        sched.setToolRegistry(&reg);
+        sched.start();
+
+        // Mirror AppController's taskFinished → notice wiring (surgical delivery).
+        QObject::connect(&sched, &TaskScheduler::taskFinished,
+                         [&](qint64 task_id, const QString& result_json) {
+                             QString type = QStringLiteral("task");
+                             QString summary;
+                             try {
+                                 const auto j = nlohmann::json::parse(result_json.toStdString());
+                                 if (j.contains("type") && j["type"].is_string())
+                                     type = QString::fromStdString(j["type"].get<std::string>());
+                                 if (j.contains("summary") && j["summary"].is_string())
+                                     summary = QString::fromStdString(j["summary"].get<std::string>());
+                                 else if (j.contains("text") && j["text"].is_string())
+                                     summary = QString::fromStdString(j["text"].get<std::string>());
+                             } catch (...) {
+                                 summary = result_json;
+                             }
+                             EventBus::instance().publishNotice(
+                                 {QStringLiteral("good"), QStringLiteral("scheduler"),
+                                  QStringLiteral("✔ Finished: %1 — %2")
+                                      .arg(type, summary.isEmpty()
+                                                     ? QStringLiteral("Task %1 finished").arg(task_id)
+                                                     : summary)});
+                         });
+
+        const int before = notes.rowCount();
+        const qint64 tid = sched.enqueue(
+            "generate_lab_report",
+            {{"title", "Notify me"}, {"objective", "delivery"}, {"conclusion", "ok"}},
+            0);
+
+        QEventLoop loop;
+        QTimer guard;
+        guard.setSingleShot(true);
+        QObject::connect(&guard, &QTimer::timeout, &loop, &QEventLoop::quit);
+        QObject::connect(&sched, &TaskScheduler::taskFinished, &loop, &QEventLoop::quit);
+        guard.start(30000);
+        sched.onIdleChanged(true);
+        loop.exec();
+
+        // Process any queued notice delivery onto this thread.
+        QCoreApplication::processEvents();
+
+        assert(notes.rowCount() > before && "NotificationsModel did not receive taskFinished delivery");
+        // At least one notification should mention Finished / generate_lab_report.
+        bool found = false;
+        for (int i = 0; i < notes.rowCount(); ++i) {
+            const QVariant body = notes.data(notes.index(i, 0), NotificationsModel::BodyRole);
+            const QVariant title = notes.data(notes.index(i, 0), NotificationsModel::TitleRole);
+            const QString s = body.toString() + title.toString();
+            if (s.contains(QStringLiteral("Finished")) ||
+                s.contains(QStringLiteral("generate_lab_report")) ||
+                s.contains(QStringLiteral("Notify me"))) {
+                found = true;
+                break;
+            }
+        }
+        assert(found && "no Finished notification in NotificationsModel");
+        (void)tid;
+
+        sched.stop();
+        db.close();
+        std::puts("  [ok] A3 taskFinished → NotificationsModel");
+    }
+
+    // --- countTokens API is callable without a model (heuristic fallback) ----
+    {
+        const auto dbPath = root / "a3_tokens.db";
+        std::filesystem::remove(dbPath);
+        Database db;
+        assert(db.open(dbPath.string()));
+        InferenceManager inf(db);
+        const int n = inf.countTokens(QStringLiteral("hello world token count"));
+        assert(n > 0 && "countTokens should return a positive estimate without a model");
+        assert(inf.countTokens(QString()) == 0);
+        db.close();
+        std::puts("  [ok] A3 InferenceManager::countTokens (no-model fallback)");
+    }
+
+    std::puts("test_agent_e2e: A3 harness fixes asserted");
+}
+
+// ---------------------------------------------------------------------------
 //  Part 2 — one LLM-driven tool round-trip with the Fast model.
 //  Returns true if it ran and the assertion held; false if skipped (no model).
 // ---------------------------------------------------------------------------
@@ -392,7 +652,8 @@ bool testLlmRoundTrip(QCoreApplication& app, char** argv) {
     // The QThreads themselves are still cleanly quit()+wait()'d and freed below.
     auto* inf   = new InferenceManager(db);
     auto* sched = new TaskScheduler(db, *inf);
-    auto* agent = new AgentRuntime(db, *inf, *sched);
+    auto* mem   = new MemoryService(db, *inf);
+    auto* agent = new AgentRuntime(db, *inf, *sched, mem);
 
     QThread* tInf   = runOnThread(inf, inf);          // start() loads the Fast model
     QThread* tSched = runOnThread(sched, sched);
@@ -461,6 +722,9 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(root);
 
     testAllToolsDirect(root);
+
+    // A3: schema / memory wiring / scheduler tool dispatch / taskFinished.
+    testA3HarnessFixes(root);
 
     // Part 2: LLM-in-the-loop (skipped cleanly if no Fast model is present).
     testLlmRoundTrip(app, argv);

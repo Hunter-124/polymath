@@ -1,23 +1,21 @@
 #include "memory_tools.h"
 #include "tool_support.h"
 #include "database.h"
+#include "memory_service.h"
 #include "logging.h"
 
 #include <algorithm>
 #include <cctype>
 #include <sstream>
+#include <unordered_map>
+#include <vector>
 
 // remember / recall / search_memory — long-term memory over the `memories`
 // table (the persisted source of truth, per schema.h).
 //
-// Vector upgrade: MemoryService owns the hnswlib index and is the canonical
-// semantic indexer (MemoryService::remember embeds + inserts; recall does k-NN).
-// The ToolContext exposes only Database + InferenceManager (not MemoryService),
-// so these tools write the durable row here and the row is left with a NULL
-// vector_id for MemoryService to embed and index on its own pass. Recall here
-// uses a keyword-scored SQL query — a dependency-free fallback that always works
-// even before the vector index has caught up. (See TODO about threading a
-// MemoryService handle through ToolContext to enable inline semantic recall.)
+// When ToolContext.memory is set, remember/recall go through MemoryService
+// (embed + hnswlib). When the embedder is unavailable (or memory is null),
+// recall/search fall back to keyword-scored SQL so tools still work offline.
 
 namespace polymath {
 
@@ -40,7 +38,7 @@ std::vector<std::string> tokenize(const std::string& q) {
 }
 
 // Keyword-scored recall: rank recent memories by how many query tokens they
-// contain (a cheap proxy for relevance until the vector index is consulted).
+// contain (fallback when MemoryService / embedder is unavailable).
 nlohmann::json keywordRecall(Database& db, const std::string& query, int k,
                              const std::string& kindFilter) {
     const auto tokens = tokenize(query);
@@ -81,6 +79,46 @@ nlohmann::json keywordRecall(Database& db, const std::string& query, int k,
     return hits;
 }
 
+// Convert MemoryService::recall hits into the tool JSON shape, optionally
+// filtering by kind (search_memory). Looks up kind/source/ts from the table.
+nlohmann::json semanticHitsToJson(Database& db,
+                                  const std::vector<MemoryHit>& hits,
+                                  const std::string& kindFilter) {
+    nlohmann::json out = nlohmann::json::array();
+    if (hits.empty()) return out;
+
+    std::string in_list;
+    for (size_t i = 0; i < hits.size(); ++i) {
+        if (i) in_list += ',';
+        in_list += std::to_string(hits[i].id);
+    }
+
+    struct Meta { std::string kind, source; int64_t ts; };
+    std::unordered_map<int64_t, Meta> meta;
+    db.query("SELECT id,kind,source,ts FROM memories WHERE id IN (" + in_list + ")",
+             {}, [&](const Row& r) {
+                 meta.emplace(r.i64(0), Meta{r.text(1), r.text(2), r.i64(3)});
+             });
+
+    for (const auto& h : hits) {
+        auto it = meta.find(h.id);
+        const std::string kind = it != meta.end() ? it->second.kind : std::string{};
+        if (!kindFilter.empty() && kind != kindFilter) continue;
+        nlohmann::json row = {
+            {"id", h.id},
+            {"text", h.text},
+            {"score", h.score},
+            {"kind", kind},
+        };
+        if (it != meta.end()) {
+            row["source"] = it->second.source;
+            row["ts"] = it->second.ts;
+        }
+        out.push_back(std::move(row));
+    }
+    return out;
+}
+
 } // namespace
 
 // --- remember ---------------------------------------------------------------
@@ -109,15 +147,27 @@ ToolResult RememberTool::invoke(const nlohmann::json& args, ToolContext& ctx) {
         return {false, {{"error", "text required"}}, "remember: missing text"};
 
     const int64_t uid = ctx.active_user_id;
-    nlohmann::json uidParam = (uid >= 0) ? nlohmann::json(uid) : nlohmann::json(nullptr);
 
-    // Durable row; vector_id stays NULL for MemoryService to embed + index.
+    // Prefer MemoryService so the row is embedded + indexed for semantic recall.
+    if (ctx.memory) {
+        const int64_t id = ctx.memory->remember(text, kind, uid);
+        if (id < 0)
+            return {false, {{"error", "remember failed"}}, "remember: service rejected text"};
+        PM_INFO("remember: id={} kind={} (via MemoryService)", id, kind);
+        return {true, {{"memory_id", id}, {"kind", kind}}, "Remembered: " + text};
+    }
+
+    if (!ctx.db)
+        return {false, {{"error", "no database"}}, "remember: no db"};
+
+    nlohmann::json uidParam = (uid >= 0) ? nlohmann::json(uid) : nlohmann::json(nullptr);
+    // Durable row; vector_id stays NULL for a later MemoryService backfill.
     const int64_t id = ctx.db->exec(
         "INSERT INTO memories(kind,text,vector_id,source,user_id,ts) "
         "VALUES(?1,?2,NULL,?3,?4,?5)",
         {kind, text, std::string("agent"), uidParam, tool_support::nowUnix()});
 
-    PM_INFO("remember: id={} kind={}", id, kind);
+    PM_INFO("remember: id={} kind={} (db-only)", id, kind);
     return {true, {{"memory_id", id}, {"kind", kind}}, "Remembered: " + text};
 }
 
@@ -146,7 +196,18 @@ ToolResult RecallTool::invoke(const nlohmann::json& args, ToolContext& ctx) {
     if (query.empty())
         return {false, {{"error", "query required"}}, "recall: missing query"};
 
-    nlohmann::json hits = keywordRecall(*ctx.db, query, k, /*kindFilter*/ "");
+    nlohmann::json hits = nlohmann::json::array();
+
+    // Semantic path first (MemoryService::recall → embed → hnsw).
+    if (ctx.memory && ctx.db) {
+        const auto sem = ctx.memory->recall(query, k);
+        hits = semanticHitsToJson(*ctx.db, sem, /*kindFilter*/ "");
+    }
+
+    // Keyword fallback when embedder/index is unavailable or returned nothing.
+    if (hits.empty() && ctx.db)
+        hits = keywordRecall(*ctx.db, query, k, /*kindFilter*/ "");
+
     const size_t n = hits.size();
     nlohmann::json content = {{"query", query}, {"memories", std::move(hits)}};
     if (n == 0)
@@ -182,7 +243,20 @@ ToolResult SearchMemoryTool::invoke(const nlohmann::json& args, ToolContext& ctx
     if (query.empty())
         return {false, {{"error", "query required"}}, "search_memory: missing query"};
 
-    nlohmann::json hits = keywordRecall(*ctx.db, query, k, kind);
+    nlohmann::json hits = nlohmann::json::array();
+
+    if (ctx.memory && ctx.db) {
+        // Over-fetch when kind-filtering so we still fill k after the filter.
+        const int fetch = kind.empty() ? k : std::max(k * 3, 15);
+        const auto sem = ctx.memory->recall(query, fetch);
+        hits = semanticHitsToJson(*ctx.db, sem, kind);
+        if (static_cast<int>(hits.size()) > k)
+            hits = nlohmann::json(hits.begin(), hits.begin() + k);
+    }
+
+    if (hits.empty() && ctx.db)
+        hits = keywordRecall(*ctx.db, query, k, kind);
+
     const size_t n = hits.size();
     nlohmann::json content = {{"query", query}, {"kind", kind}, {"results", std::move(hits)}};
     return {true, std::move(content),

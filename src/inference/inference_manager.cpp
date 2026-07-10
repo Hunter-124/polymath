@@ -2,6 +2,7 @@
 #include "llama_backend.h"
 #include "vram_budget.h"
 #include "database.h"
+#include "config.h"
 #include "event_bus.h"
 #include "logging.h"
 #include "paths.h"
@@ -109,7 +110,8 @@ void InferenceManager::autoDiscoverModels() {
 
             const std::string subS = sub;
             std::string role = "fast";
-            int n_ctx = 8192;
+            // Fast/Heavy default n_ctx 4096 per resource budget (04 §1).
+            int n_ctx = 4096;
             if (subS == "vlm")              role = "vision";
             else if (subS == "embeddings")  { role = "embedding"; n_ctx = 2048; }
             else if (fname.find("27b") != std::string::npos ||
@@ -254,6 +256,11 @@ bool InferenceManager::loadModel(const ModelSpec& spec_in) {
     spec.n_gpu_layers = std::min(desired, planned);
 
     auto backend = std::make_unique<LlamaBackend>();
+    // KV-cache quant from settings (default q8_0 per 04 §1 / A2 config key).
+    {
+        Config cfg(db_);
+        backend->setKvQuant(cfg.getStr(keys::LlmKvQuant, "q8_0"));
+    }
     if (!backend->load(spec)) {
         PM_ERROR("InferenceManager: failed to load '{}' ({})", spec.id, roleName(spec.role));
         return false;
@@ -376,6 +383,22 @@ void InferenceManager::runGenerate(const ChatRequest& req) {
         bus.publishToken({rid, QString::fromUtf8(piece.data(),
                                                  static_cast<int>(piece.size())), done});
     });
+}
+
+// ---------------------------------------------------------------------------
+//  countTokens (cheap; no generation)
+// ---------------------------------------------------------------------------
+int InferenceManager::countTokens(const QString& text) {
+    const std::string utf8 = text.toStdString();
+    if (utf8.empty()) return 0;
+
+    std::lock_guard lk(pool_mtx_);
+    LlamaBackend* backend = ensureLoaded(ModelRole::Fast);
+    if (!backend) {
+        // ~4 chars/token heuristic when no model is resident.
+        return std::max(1, static_cast<int>(utf8.size()) / 4);
+    }
+    return backend->countTokens(utf8);
 }
 
 // ---------------------------------------------------------------------------

@@ -49,6 +49,13 @@ public:
     // boundary. Safe to call from another thread.
     void requestStop() { stop_requested_.store(true); }
 
+    // Call before load(). Controls type_k/type_v for the KV cache (04 §1).
+    // Values: "q8_0" (default) | "f16" | "f32".
+    void setKvQuant(std::string quant) { kv_quant_ = std::move(quant); }
+
+    // Tokenize `text` with the loaded vocab (no generation). Returns 0 if unloaded.
+    int countTokens(std::string_view text) const;
+
     // Cheaply read the transformer block (layer) count from a .gguf's metadata
     // header WITHOUT loading the weights, by scanning for the `*.block_count`
     // key. Returns 0 if it can't be determined (caller should fall back). Used by
@@ -64,6 +71,7 @@ private:
     bool              loaded_ = false;
     size_t            footprint_mib_ = 0;
     std::atomic<bool> stop_requested_{false};
+    std::string       kv_quant_ = "q8_0";   // llm.kv_quant config (default q8_0)
 
     // Internal helpers (implemented in llama_backend.cpp).
     std::string applyChatTemplate(const std::vector<ChatMessage>& messages,

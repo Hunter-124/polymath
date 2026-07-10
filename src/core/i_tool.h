@@ -12,11 +12,13 @@ namespace polymath {
 
 class InferenceManager;   // fwd
 class Database;           // fwd
+class MemoryService;      // fwd
 
 // Services a tool may reach.  Passed by reference; do not store beyond invoke().
 struct ToolContext {
     InferenceManager* inference = nullptr;
     Database*         db = nullptr;
+    MemoryService*    memory = nullptr;   // nullptr-safe: tools fall back without it
     int64_t           active_user_id = -1;
     std::string       active_personality;
 };

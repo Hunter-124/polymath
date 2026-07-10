@@ -13,6 +13,7 @@
 #include "i_model_backend.h"
 #include "types.h"
 #include <QObject>
+#include <QString>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -46,6 +47,11 @@ public:
     // Synchronous helpers (call from worker threads only).
     Embedding   embed(const std::string& text);
     std::string describeImage(const Frame& frame, const std::string& prompt);
+
+    // Cheap token count via llama_tokenize on the Fast model (no generation).
+    // Used by harness context budgeting (03 §2.4). Falls back to a char/4
+    // estimate when no model is loaded.
+    int countTokens(const QString& text);
 
     // Tiered control. Loading Heavy may unload Fast/Vision per the VRAM budget.
     void requestHeavy(bool on);

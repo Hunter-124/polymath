@@ -124,6 +124,19 @@ bool LlamaBackend::load(const ModelSpec& spec) {
     cparams.n_batch = std::min<uint32_t>(cparams.n_ctx ? cparams.n_ctx : 2048, 2048);
     cparams.n_threads       = 0;   // 0 => llama picks a sane default
     cparams.n_threads_batch = 0;
+    // KV-cache quantization (04 §1): type_k/type_v behind llm.kv_quant.
+    // Default q8_0 ≈ 50 % KV memory vs fp16 with negligible quality loss here.
+    {
+        auto kvType = [](const std::string& q) -> ggml_type {
+            if (q == "f16" || q == "fp16") return GGML_TYPE_F16;
+            if (q == "f32" || q == "fp32") return GGML_TYPE_F32;
+            return GGML_TYPE_Q8_0;   // "q8_0" and anything unknown
+        };
+        const ggml_type kt = kvType(kv_quant_);
+        cparams.type_k = kt;
+        cparams.type_v = kt;
+        PM_INFO("LlamaBackend: KV quant={} (type_k/type_v)", kv_quant_);
+    }
     if (d_->embeddings_mode) {
         cparams.embeddings = true;
         // API: pooling type enum name is LLAMA_POOLING_TYPE_MEAN in recent tags.
@@ -166,6 +179,25 @@ void LlamaBackend::unload() {
     loaded_ = false;
     footprint_mib_ = 0;
     PM_DEBUG("LlamaBackend unloaded '{}'", spec_.id);
+}
+
+// ---------------------------------------------------------------------------
+//  countTokens — llama_tokenize only (no generation)
+// ---------------------------------------------------------------------------
+int LlamaBackend::countTokens(std::string_view text) const {
+    if (!loaded_ || text.empty()) return 0;
+#ifndef POLYMATH_HAVE_LLAMA
+    return std::max(1, static_cast<int>(text.size()) / 4);
+#else
+    if (!d_->vocab) return std::max(1, static_cast<int>(text.size()) / 4);
+    // First call with null buffer returns the required token count (negated).
+    const int n = -llama_tokenize(d_->vocab, text.data(),
+                                  static_cast<int32_t>(text.size()),
+                                  nullptr, 0,
+                                  /*add_special*/ false,
+                                  /*parse_special*/ false);
+    return std::max(n, 0);
+#endif
 }
 
 // ---------------------------------------------------------------------------

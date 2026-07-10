@@ -5,6 +5,9 @@
 // it.  When the IdleDetector reports the machine quiet, it asks the
 // InferenceManager to load the Heavy model, drains the queue, then releases it.
 //
+// A3: runTask dispatches known tool names via ITool::invoke, daily_summary via
+// MemoryService::summarizeDay, else legacy completion.
+//
 #include "service.h"
 #include <nlohmann/json.hpp>
 #include <QObject>
@@ -18,6 +21,8 @@ namespace polymath {
 class Database;
 class InferenceManager;
 class StreamCollector;
+class ToolRegistry;
+class MemoryService;
 
 class TaskScheduler : public QObject, public IService {
     Q_OBJECT
@@ -31,6 +36,11 @@ public:
     void start() override;
     void stop() override;
     const char* serviceName() const override { return "scheduler"; }
+
+    // Wire tools + memory for deep-task dispatch (AgentRuntime sets these).
+    // Nullptr-safe: missing tools/memory fall through to legacy completion.
+    void setToolRegistry(ToolRegistry* tools) { tools_ = tools; }
+    void setMemoryService(MemoryService* memory) { memory_ = memory; }
 
     // Push a deep task. Returns the task id (also persisted in `tasks`).
     qint64 enqueue(const std::string& type, const nlohmann::json& params, int priority = 0);
@@ -61,6 +71,8 @@ private:
 
     Database&          db_;
     InferenceManager&  inf_;
+    ToolRegistry*      tools_  = nullptr;          // optional: known-tool dispatch
+    MemoryService*     memory_ = nullptr;          // optional: daily_summary
     std::atomic<bool>  idle_{false};               // read from enqueue() (other threads)
     bool               draining_ = false;          // re-entrancy guard (scheduler thread only)
     std::unique_ptr<StreamCollector> collector_;   // async->sync token bridge

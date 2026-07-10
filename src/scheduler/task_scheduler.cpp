@@ -5,6 +5,9 @@
 #include "event_bus.h"
 #include "logging.h"
 #include "types.h"
+#include "i_tool.h"
+#include "tool_registry.h"
+#include "memory_service.h"
 
 #include <QMetaObject>
 #include <nlohmann/json.hpp>
@@ -18,6 +21,11 @@
 // they need no extra locking. Draining happens entirely on the scheduler
 // thread: onIdleChanged(true) hops onto this thread (queued connection) and
 // runs drainQueue() inline — blocking work is exactly what this thread is for.
+//
+// A3 runTask dispatch order:
+//   1. known tool name → ToolContext → ITool::invoke (e.g. generate_lab_report)
+//   2. daily_summary   → MemoryService::summarizeDay
+//   3. else            → legacy heavy-model completion
 
 namespace polymath {
 
@@ -84,6 +92,9 @@ void TaskScheduler::start() {
     // Recover any tasks that were left 'running' by a previous crash/shutdown.
     db_.exec("UPDATE tasks SET status='queued', updated_at=?1 WHERE status='running'",
              {to_unix(Clock::now())});
+    // Startup recovery for plan_steps (03 §1): running → pending so goals resume.
+    db_.exec("UPDATE plan_steps SET status='pending', updated_at=?1 WHERE status='running'",
+             {to_unix(Clock::now())});
     collector_ = std::make_unique<StreamCollector>();   // bound to the bus on this thread
 }
 
@@ -141,6 +152,8 @@ void TaskScheduler::drainQueue() {
     EventBus::instance().publishNotice({"info", "scheduler",
         QString::fromStdString("Idle detected — running " + std::to_string(pending) + " deep-work task(s).")});
 
+    // Heavy model only needed for legacy completion path; tool dispatch and
+    // daily_summary can run without it. Still request it so mixed queues work.
     inf_.requestHeavy(true);
 
     while (idle_) {
@@ -190,6 +203,81 @@ void TaskScheduler::runTask(const QueuedTask& qt) {
         PM_WARN("TaskScheduler: bad params_json for task {}: {}", qt.id, e.what());
     }
 
+    auto complete = [&](const json& result, bool ok) {
+        const char* status = ok ? "done" : "error";
+        db_.exec("UPDATE tasks SET status=?2, result_json=?3, updated_at=?4 WHERE id=?1",
+                 {qt.id, std::string(status), result.dump(), to_unix(Clock::now())});
+        const QString result_json = QString::fromStdString(result.dump());
+        const QString detail = ok
+            ? QString()
+            : QString::fromStdString(result.value("error", std::string("failed")));
+        EventBus::instance().publishTask(
+            {qt.id, QString::fromStdString(qt.type), QString::fromUtf8(status), detail});
+        emit taskFinished(qt.id, result_json);
+        PM_INFO("TaskScheduler: task {} finished status={} type={}", qt.id, status, qt.type);
+    };
+
+    // --- 1) Known tool name → ITool::invoke --------------------------------
+    if (tools_) {
+        if (ITool* tool = tools_->get(qt.type)) {
+            ToolContext tctx;
+            tctx.inference          = &inf_;
+            tctx.db                 = &db_;
+            tctx.memory             = memory_;
+            tctx.active_user_id     = -1;
+            tctx.active_personality = "";
+            ToolResult result;
+            try {
+                result = tool->invoke(params, tctx);
+            } catch (const std::exception& e) {
+                result.ok = false;
+                result.content = {{"error", e.what()}};
+                result.summary = std::string("tool threw: ") + e.what();
+                PM_ERROR("TaskScheduler: tool '{}' threw: {}", qt.type, e.what());
+            }
+            json out;
+            out["type"] = qt.type;
+            out["tool"] = qt.type;
+            out["ok"] = result.ok;
+            out["content"] = result.content;
+            out["summary"] = result.summary;
+            out["text"] = result.summary.empty() ? result.content.dump() : result.summary;
+            out["completed_at"] = to_unix(Clock::now());
+            if (!result.ok)
+                out["error"] = result.content.value("error", result.summary);
+            complete(out, result.ok);
+            return;
+        }
+    }
+
+    // --- 2) daily_summary → MemoryService::summarizeDay --------------------
+    if (qt.type == "daily_summary" && memory_) {
+        int64_t day = to_unix(Clock::now());
+        if (params.contains("day") && params["day"].is_number_integer())
+            day = params["day"].get<int64_t>();
+        else if (params.contains("day_unix") && params["day_unix"].is_number_integer())
+            day = params["day_unix"].get<int64_t>();
+
+        std::string text;
+        bool ok = true;
+        try {
+            text = memory_->summarizeDay(day);
+        } catch (const std::exception& e) {
+            ok = false;
+            text = e.what();
+            PM_ERROR("TaskScheduler: summarizeDay threw: {}", e.what());
+        }
+        json out;
+        out["type"] = qt.type;
+        out["text"] = text;
+        out["day"] = day;
+        out["completed_at"] = to_unix(Clock::now());
+        if (!ok) out["error"] = text;
+        complete(out, ok);
+        return;
+    }
+
+    // --- 3) Legacy completion (heavy model) --------------------------------
     ChatRequest req;
     req.model_id   = "";                 // active heavy model is selected by InferenceManager
     req.request_id = "task-" + std::to_string(qt.id);
@@ -198,25 +286,19 @@ void TaskScheduler::runTask(const QueuedTask& qt) {
     req.messages.push_back({Role::User,   userPromptFor(qt.type, params)});
 
     bool ok = false;
-    std::string text = collector_->run(inf_, req, /*timeout_ms=*/600'000, &ok);
+    std::string text;
+    if (collector_)
+        text = collector_->run(inf_, req, /*timeout_ms=*/600'000, &ok);
+    else
+        ok = false;
 
     json result;
     result["type"] = qt.type;
     result["text"] = text;
     result["completed_at"] = to_unix(Clock::now());
-
-    const char* status = ok ? "done" : "error";
     if (!ok) result["error"] = "inference timed out or produced no output";
 
-    db_.exec("UPDATE tasks SET status=?2, result_json=?3, updated_at=?4 WHERE id=?1",
-             {qt.id, std::string(status), result.dump(), to_unix(Clock::now())});
-
-    const QString result_json = QString::fromStdString(result.dump());
-    EventBus::instance().publishTask({qt.id, QString::fromStdString(qt.type), status,
-                                      ok ? "" : "inference failed"});
-    emit taskFinished(qt.id, result_json);
-
-    PM_INFO("TaskScheduler: task {} finished status={} ({} chars)", qt.id, status, text.size());
+    complete(result, ok);
 }
 
 } // namespace polymath
