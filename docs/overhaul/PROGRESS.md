@@ -1,0 +1,42 @@
+# Overhaul progress ledger
+
+Update the checkbox + add a one-line note (commit hash) as each node lands.
+This file + git history = the resume state for any machine/harness.
+
+Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/overhaul/results/)
+
+## Wave A — foundations
+- [ ] A0 repo/docs hygiene (MODELS.md, fetch-models.ps1, STATUS.md hardware)
+- [ ] A1 GUI foundation (Style, glass primitives, controls, CMake, capture flag)
+- [ ] A2 core foundation (event_bus, config, SettingsController, NotificationsModel, AppController, placeholder QML, stubs)
+- [ ] A3 harness core fixes (memory wiring, deep-task dispatch, schema, countTokens, KV-quant, 4k ctx)
+- [ ] A4 audio rework (VAD-gated wake, lazy whisper, async pipeline, streaming TTS, barge-in)
+
+## Wave B — GUI packages (parallel after A2)
+- [ ] B1 shell reskin (Main.qml)
+- [ ] B2 Dashboard + Chat
+- [ ] B3 Cameras + Timeline
+- [ ] B4 Tasks + Shopping
+- [ ] B5 Personalities + Models + Privacy + Mobile
+- [ ] B6 SettingsView
+- [ ] B7 notifications QML (ToastStack, Bell, Center)
+- [ ] B8 CommandPalette
+- [ ] B9 SurfaceHost + surfaces
+- [ ] BV wave-B build + capture verify + fix round
+
+## Wave C — harness features
+- [ ] C2 AgentLoop v2 (goals, plan/execute/reflect, context v2)
+- [ ] C3 skills system + starter skills
+- [ ] C4 agent sessions (service, providers, model, view)
+- [ ] C5 tool registration + ui_control + browser_drive improvements
+- [ ] C1 shell integration (Main.qml wiring)
+
+## Wave D — verify & ship
+- [ ] D1 full builds + captures
+- [ ] D2 full test suite
+- [ ] D3 models fetched + live e2e + resource audit vs budget
+- [ ] D4 docs refresh + graphify update + tag v0.2.0-overhaul
+- [ ] D5 (optional) QtWebEngine + real WebSurface — awaiting owner go-ahead
+
+## Notes / deviations
+(append here)
