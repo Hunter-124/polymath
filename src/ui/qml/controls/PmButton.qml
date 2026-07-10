@@ -2,12 +2,12 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Polymath
 
-// PmButton — a flat/filled dark button.  `accent: true` fills it with the
-// primary colour (for the main call-to-action); otherwise it is a quiet
-// outlined button.  `flat: true` (inherited) drops the border for nav items.
+// PmButton — glass-aware accent / plain / flat button (API-compatible).
+// contentItem stays overridable (Main.qml nav items replace it).
 Button {
     id: control
     property bool accent: false
+    property color tone: Style.accent
 
     implicitHeight: Style.controlH
     padding: 8
@@ -15,13 +15,15 @@ Button {
     rightPadding: 14
     font.family: Style.fontFamily
     font.pixelSize: Style.fsBody
+    scale: down ? 0.98 : 1.0
+    Behavior on scale { NumberAnimation { duration: Style.durFast } }
 
     contentItem: Text {
         text: control.text
         font: control.font
         opacity: control.enabled ? 1.0 : 0.4
         color: control.accent ? Style.accentText
-             : control.highlighted ? Style.accent
+             : control.highlighted ? control.tone
              : Style.text
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
@@ -30,17 +32,26 @@ Button {
 
     background: Rectangle {
         radius: Style.radiusSm
+        gradient: control.accent ? accentGrad : null
         color: {
             if (control.accent)
-                return control.down ? Qt.darker(Style.accent, 1.15) : Style.accent
+                return "transparent"
             if (control.flat)
-                return control.highlighted ? Style.accentDim
-                     : control.hovered ? Style.surface2 : "transparent"
+                return control.highlighted ? Style.tint(control.tone, 0.18)
+                     : control.hovered ? Qt.rgba(1, 1, 1, 0.05) : "transparent"
             return control.down ? Style.surface3
-                 : control.hovered ? Style.surface2 : Style.surface
+                 : control.hovered ? Style.surface2 : Qt.rgba(1, 1, 1, 0.04)
         }
-        border.width: control.flat || control.accent ? 0 : 1
-        border.color: control.highlighted ? Style.accent : Style.border
-        Behavior on color { ColorAnimation { duration: 90 } }
+        border.width: control.flat ? 0 : (control.accent ? 1 : 1)
+        border.color: control.accent
+            ? Style.tint(control.tone, 0.55)
+            : (control.highlighted ? control.tone : Style.glassBorder)
+        Behavior on color { ColorAnimation { duration: Style.durFast } }
+
+        Gradient {
+            id: accentGrad
+            GradientStop { position: 0.0; color: control.tone }
+            GradientStop { position: 1.0; color: Qt.darker(control.tone, 1.12) }
+        }
     }
 }

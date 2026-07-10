@@ -2,19 +2,14 @@ import QtQuick
 import QtQuick.Layouts
 import Polymath
 
-// EmptyState — a centred placeholder for empty / loading / error states.
-// Shows a drawn circular badge (font-independent so it never renders as tofu),
-// a title, a hint line, and an optional call-to-action.  Views drop one into a
-// list/grid and bind `visible` to count===0.
+// EmptyState — centred placeholder. Keeps all public props from §0.
 Item {
     id: root
-    // A single char drawn inside the badge.  Keep to widely-available glyphs
-    // (●, ○, +, ?, !) — the offscreen software renderer has no emoji/symbol
-    // fallback, so exotic code points render as tofu.
     property string glyph: "●"
     property string title: ""
     property string hint: ""
     property color  glyphColor: Style.textFaint
+    property string iconName: ""
     property alias  actionText: action.text
     property bool   actionVisible: false
     signal actionTriggered()
@@ -24,16 +19,24 @@ Item {
         width: Math.min(parent.width - 48, 440)
         spacing: 12
 
-        // Drawn badge — a soft ring with the glyph centred. Uses the default UI
-        // font (not forced to Inter) so the glyph always has a fallback.
+        // Glass disc badge + sectionGlow ring
         Rectangle {
             Layout.alignment: Qt.AlignHCenter
             width: 64; height: 64; radius: 32
-            color: Qt.rgba(root.glyphColor.r, root.glyphColor.g, root.glyphColor.b, 0.12)
+            color: Qt.rgba(root.glyphColor.r, root.glyphColor.g, root.glyphColor.b, 0.10)
             border.width: 1
-            border.color: Qt.rgba(root.glyphColor.r, root.glyphColor.g, root.glyphColor.b, 0.5)
+            border.color: Qt.rgba(root.glyphColor.r, root.glyphColor.g, root.glyphColor.b, 0.45)
+
+            PmIcon {
+                anchors.centerIn: parent
+                width: 28; height: 28
+                visible: root.iconName.length > 0
+                name: root.iconName
+                color: root.glyphColor
+            }
             Text {
                 anchors.centerIn: parent
+                visible: root.iconName.length === 0
                 text: root.glyph
                 color: root.glyphColor
                 font.pixelSize: 28

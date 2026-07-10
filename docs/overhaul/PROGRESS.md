@@ -7,7 +7,7 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 
 ## Wave A — foundations
 - [x] A0 repo/docs hygiene (MODELS.md, fetch-models.ps1, STATUS.md hardware)
-- [ ] A1 GUI foundation (Style, glass primitives, controls, CMake, capture flag)
+- [x] A1 GUI foundation (Style, glass primitives, controls, CMake, capture flag)
 - [ ] A2 core foundation (event_bus, config, SettingsController, NotificationsModel, AppController, placeholder QML, stubs)
 - [ ] A3 harness core fixes (memory wiring, deep-task dispatch, schema, countTokens, KV-quant, 4k ctx)
 - [ ] A4 audio rework (VAD-gated wake, lazy whisper, async pipeline, streaming TTS, barge-in)

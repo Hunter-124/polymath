@@ -3,9 +3,10 @@
 # and adds C++ QAbstractListModels (chat/shopping/cameras/tasks/timeline) plus
 # the live-frame QQuickImageProvider, compiled into this same target so the QML
 # and its backing C++ ship together.
-# Style.qml is a QML singleton (pragma Singleton) — mark it so the module's
-# generated qmldir registers it and `import Polymath` exposes `Style`.
+# Style.qml / Icons.qml are QML singletons (pragma Singleton) — mark them so the
+# module's generated qmldir registers them and `import Polymath` exposes them.
 set_source_files_properties(qml/Style.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/theme/Icons.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 qt_add_qml_module(pm_ui
     STATIC          # static so the model/provider symbols link into pm_app and
@@ -36,9 +37,13 @@ qt_add_qml_module(pm_ui
         # Self-contained QR encoder (MIT) for the Mobile Access pairing QR; pure
         # ECMAScript usable from the Canvas, no extra Qt module / C++ dependency.
         qml/qrcode.js
-        # Shared style singleton + themed controls (cohesive dark theme over the
-        # otherwise-unstyled QtQuick.Controls.Basic).
+        # Holographic aurora design system (docs/overhaul/01_GUI_DESIGN_SYSTEM.md).
         qml/Style.qml
+        qml/theme/Icons.qml
+        qml/effects/AuroraBackground.qml
+        qml/controls/GlassPanel.qml
+        qml/controls/GlassCard.qml
+        qml/controls/GlassSurface.qml
         qml/controls/PmButton.qml
         qml/controls/PmTextField.qml
         qml/controls/PmComboBox.qml
@@ -46,7 +51,16 @@ qt_add_qml_module(pm_ui
         qml/controls/PmCheckBox.qml
         qml/controls/PmItemDelegate.qml
         qml/controls/PmToolButton.qml
+        qml/controls/PmIcon.qml
         qml/controls/EmptyState.qml
+        qml/controls/PmTooltip.qml
+        qml/controls/PmBadge.qml
+        qml/controls/PmPill.qml
+        qml/controls/PmStatusDot.qml
+        qml/controls/PmSectionHeader.qml
+        qml/controls/PmScrollBar.qml
+        qml/controls/PmDialog.qml
+        qml/controls/PmSlider.qml
     # Bundle the Inter (SIL OFL) UI font so QFontDatabase always finds a family
     # and the app renders identically headless and on any machine.
     RESOURCES
@@ -69,7 +83,13 @@ target_include_directories(pm_ui PUBLIC
 
 # pm_core gives the models the Database wrapper, EventBus payload types, types.h
 # and the spdlog logging macros; Qt Gui supplies QImage for the image provider.
-target_link_libraries(pm_ui PUBLIC pm_core Qt6::Quick Qt6::QuickControls2 Qt6::Gui)
+# QuickEffects (optional) powers MultiEffect blur on GlassSurface live path.
+find_package(Qt6 QUIET COMPONENTS QuickEffects)
+if(TARGET Qt6::QuickEffects)
+    target_link_libraries(pm_ui PUBLIC pm_core Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::QuickEffects)
+else()
+    target_link_libraries(pm_ui PUBLIC pm_core Qt6::Quick Qt6::QuickControls2 Qt6::Gui)
+endif()
 
 # ---------------------------------------------------------------------------
 # capture_views — offscreen screenshot harness (Card F).  Renders every view to

@@ -275,6 +275,8 @@ int main(int argc, char* argv[]) {
         // headless harness we feed a stub seeded with a sample pairing payload so
         // the QR encoder + payload box render populated (and scannable).
         ctx->setContextProperty("gateway", &stubGw);
+        // Software capture path: force faux-glass (no MultiEffect blur).
+        ctx->setContextProperty("pmEffectsEnabled", false);
 
         if (isWindow) {
             // Main.qml is an ApplicationWindow — load it and grab the window.
@@ -292,11 +294,13 @@ int main(int argc, char* argv[]) {
         }
 
         // A plain Item view — wrap it in a sized window so it has a surface.
+        // Bridge pmEffectsEnabled → Style so glass stays faux under Software.
         const QString wrapper =
             "import QtQuick\n"
             "import Polymath\n"
             "Window {\n"
             "  width: 1040; height: 760; visible: true; color: Style.bg\n"
+            "  Component.onCompleted: Style.effectsEnabled = pmEffectsEnabled\n"
             "  Loader { anchors.fill: parent; source: \"" + qmlUrl + "\";\n"
             "    onStatusChanged: if (status === Loader.Error) console.error('loader error') }\n"
             "}\n";

@@ -2,9 +2,10 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Polymath
 
-// PmCheckBox — dark checkbox with an accent check.
+// PmCheckBox — glass box; checked = tone fill + check glyph.
 CheckBox {
     id: control
+    property color tone: Style.accent
     implicitHeight: 24
 
     indicator: Rectangle {
@@ -12,13 +13,22 @@ CheckBox {
         x: control.leftPadding
         y: parent.height / 2 - height / 2
         radius: Style.radiusXs
-        color: control.checked ? Style.accent : Style.surface2
+        color: control.checked ? control.tone : Qt.rgba(1, 1, 1, 0.04)
         border.width: 1
-        border.color: control.checked ? Style.accent : Style.border
+        border.color: control.checked ? control.tone : Style.glassBorder
 
+        // Prefer PmIcon; keep ✓ fallback for safety
+        PmIcon {
+            anchors.centerIn: parent
+            width: 12; height: 12
+            visible: control.checked
+            name: "check"
+            color: Style.accentText
+            stroke: 2.2
+        }
         Text {
             anchors.centerIn: parent
-            visible: control.checked
+            visible: false
             text: "✓"
             color: Style.accentText
             font.pixelSize: 13
