@@ -129,6 +129,8 @@ if (-not (Test-Path $piperExe)) {
 }
 
 Write-Host "`nDone. Launch Polymath -- LLMs auto-register on first run (Model Manager to adjust roles)." -ForegroundColor Green
+Write-Host "For high-quality neural TTS (recommended):  powershell -File scripts/setup-kokoro.ps1" -ForegroundColor Cyan
+Write-Host "For GPU inference (8 GB+ VRAM):              powershell -File scripts/build-gpu.ps1" -ForegroundColor Cyan
 if (-not $Heavy) {
   Write-Host "Heavy 27B is parked (use -Heavy on capable machines). See docs/MODELS.md." -ForegroundColor DarkGray
 }

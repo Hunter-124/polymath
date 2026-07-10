@@ -721,15 +721,17 @@ TurnRoute AgentLoop::classifyRoute(const std::string& user_text,
                                    const Persona& persona,
                                    const QString& request_id) {
     // Fast path: skip a full LLM round-trip when the heuristic is confident.
-    // On CPU this alone saves ~5–15 s of prefill; on GPU it still cuts latency.
+    // Router prefill alone was multi-second even on GPU and catastrophic on CPU.
+    // Default to heuristic for almost everything; only run the LLM router when
+    // the message is long *and* the heuristic is Quick (ambiguous intent).
     const TurnRoute heuristic = classifyRouteHeuristic(user_text);
     const std::string lower = toLower(user_text);
-    const bool shortMsg = user_text.size() < 120;
+    const bool shortMsg = user_text.size() < 200;
     const bool clearlyQuick =
-        heuristic == TurnRoute::Quick && shortMsg &&
-        !containsAny(lower, {"plan", "research", "multi", "and then", "step by"});
+        heuristic == TurnRoute::Quick &&
+        (shortMsg || !containsAny(lower, {"plan", "research", "multi", "and then", "step by"}));
     const bool clearlyCommand = heuristic == TurnRoute::Command;
-    const bool clearlyGoal    = heuristic == TurnRoute::Goal && user_text.size() > 40;
+    const bool clearlyGoal    = heuristic == TurnRoute::Goal;
     if (clearlyQuick || clearlyCommand || clearlyGoal) {
         PM_INFO("AgentLoop: router heuristic fast-path → {} (skip LLM)",
                 turnRouteToString(heuristic));

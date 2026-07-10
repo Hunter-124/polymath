@@ -42,4 +42,6 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 - Full overhaul A0-D5 complete on master.
 - D5: aqt installed qtwebengine/qtwebchannel/qtpositioning; WebAdblockInterceptor; WebSurface WebEngineView; video type maps to WebSurface; windeployqt deploys resources.
 - Piper engine: fetch-models.ps1 now downloads piper_windows_amd64; TTS ready in audio e2e.
-- GPU CUDA tree: portable toolkit not present on this machine; build-gpu.ps1 defaults arch=75 (2070 Max-Q) + VS18 vcvars.
+- **GPU CUDA tree shipped** (`build/cuda`): CUDA 13.3 + VS 2026 (`-allow-unsupported-compiler`), arch=75, `ggml-cuda`, n_batch=2048, flash-attn ENABLED. Verified: `CUDA=true`, ngl=36, ~5.9 GB VRAM resident.
+- **Kokoro neural TTS** (preferred over Piper): `scripts/setup-kokoro.ps1` + `tools/kokoro_worker/`; real-time sentence streaming from AgentLoop. Piper remains fallback.
+- Nav rail scrollbar chrome removed (AlwaysOff). Router heuristic skips LLM classify for almost all turns.

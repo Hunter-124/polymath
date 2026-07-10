@@ -38,7 +38,7 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$CudaToolkit = (Join-Path $PSScriptRoot '..\build\deps\cuda\toolkit'),
+  [string]$CudaToolkit = '',
   [string]$Arch        = '75',
   [string]$QtDir       = 'C:\Qt\6.6.3\msvc2019_64',
   [string]$Junction    = 'C:\pm',
@@ -46,7 +46,21 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-$repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+# $PSScriptRoot can be empty in param() defaults under Windows PowerShell 5.1
+# when the script is invoked via `powershell -File` from some hosts — resolve
+# the script directory ourselves first.
+$scriptDir = $PSScriptRoot
+if (-not $scriptDir) {
+  $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if (-not $scriptDir) {
+  $scriptDir = Split-Path -Parent $PSCommandPath
+}
+if (-not $CudaToolkit) {
+  $CudaToolkit = Join-Path $scriptDir '..\build\deps\cuda\toolkit'
+}
+
+$repo = (Resolve-Path (Join-Path $scriptDir '..')).Path
 
 # --- 1. No-space working directory (junction) -------------------------------
 # nvcc cannot handle a space anywhere in its paths; build through a junction when
@@ -86,20 +100,45 @@ if (-not $vcvars) { throw "vcvars64.bat not found (looked for VS 18 / 2022 Commu
 $qtF   = ($QtDir -replace '\\','/')
 $bin   = "$work\build\cuda\bin"
 
+# Prefer a system CUDA toolkit that understands newer MSVC host compilers
+# (VS 2026 / cl 19.5x). Portable 12.9 rejects VS 18 without -allow-unsupported-compiler.
+foreach ($sysCuda in @(
+  'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3',
+  'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9'
+)) {
+  if (Test-Path "$sysCuda\bin\nvcc.exe") {
+    $cuda  = $sysCuda
+    $cudaF = ($cuda -replace '\\','/')
+    Write-Host "Using system CUDA: $cuda" -ForegroundColor Cyan
+    break
+  }
+}
+
 # --- 2. Configure + build (inside a VS dev env that has nvcc + ninja on PATH) -
 # Note: Qt6_DIR and the vcpkg "installed" dir are BOTH required on CMAKE_PREFIX_PATH
 # (see gotcha #2). project() declares LANGUAGES C CXX so Ninja has C for sqlite3/ggml.
+# -allow-unsupported-compiler: CUDA 12.x host check stops at VS 2022; VS 2026 works
+# in practice for ggml-cuda but needs the override.
 $bat = @"
 @echo off
 call "$vcvars" >nul 2>&1
 set "PATH=$cuda\bin;$(Split-Path $ninja);%PATH%"
+set "CUDA_PATH=$cuda"
 cd /d "$work"
+if exist "$workF/build/cuda/CMakeCache.txt" (
+  findstr /C:"VCPKG_MANIFEST_MODE:BOOL=ON" "$workF/build/cuda/CMakeCache.txt" >nul 2>&1
+  if not errorlevel 1 (
+    echo Cleaning stale CUDA build tree (manifest mode mismatch)...
+    rmdir /s /q "$workF/build/cuda"
+  )
+)
 cmake -S "$workF" -B "$workF/build/cuda" -G Ninja ^
   -DCMAKE_BUILD_TYPE=Release ^
   -DPOLYMATH_USE_CUDA=ON -DGGML_CUDA=ON ^
   -DCMAKE_CUDA_COMPILER="$cudaF/bin/nvcc.exe" ^
   -DCUDAToolkit_ROOT="$cudaF" ^
   -DCMAKE_CUDA_ARCHITECTURES=$Arch ^
+  -DCMAKE_CUDA_FLAGS=-allow-unsupported-compiler ^
   -DCMAKE_MAKE_PROGRAM="$($ninja -replace '\\','/')" ^
   -DCMAKE_TOOLCHAIN_FILE="$workF/third_party/vcpkg/scripts/buildsystems/vcpkg.cmake" ^
   -DVCPKG_MANIFEST_MODE=OFF -DVCPKG_TARGET_TRIPLET=x64-windows ^

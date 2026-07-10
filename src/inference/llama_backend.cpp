@@ -122,18 +122,29 @@ bool LlamaBackend::load(const ModelSpec& spec) {
     // --- context ---
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx   = static_cast<uint32_t>(std::max(spec.n_ctx, 0));
-    // Larger batch helps prompt eval; cap so we don't over-allocate on 8 GB machines.
-    cparams.n_batch = std::min<uint32_t>(cparams.n_ctx ? cparams.n_ctx : 2048, 512);
-    // Pin thread counts: llama's "0 = default" is often too low on Windows. Leave
-    // one logical core for the UI / audio pump. 6C/12T → 11 worker threads.
+    // Prompt eval batch: larger on GPU offload machines (target 8 GB+ cards).
+    // 512 was a CPU-safe default; 1024–2048 cuts prefill latency when ngl > 0.
+    {
+        const uint32_t cap = (spec.n_gpu_layers > 0) ? 2048u : 512u;
+        cparams.n_batch = std::min<uint32_t>(cparams.n_ctx ? cparams.n_ctx : 2048, cap);
+        cparams.n_ubatch = cparams.n_batch;
+    }
+    // Pin thread counts: leave one logical core for UI / audio. On full GPU
+    // offload the decode path is CUDA-bound; still set threads for residual CPU ops.
     {
         unsigned hc = std::thread::hardware_concurrency();
         if (hc == 0) hc = 8;
         const int n = static_cast<int>(hc > 2 ? hc - 1 : hc);
         cparams.n_threads       = n;
         cparams.n_threads_batch = n;
-        PM_INFO("LlamaBackend: n_threads={} n_batch={}", n, cparams.n_batch);
+        PM_INFO("LlamaBackend: n_threads={} n_batch={} ngl={}",
+                n, cparams.n_batch, spec.n_gpu_layers);
     }
+#if defined(GGML_USE_CUDA) || defined(POLYMATH_USE_CUDA)
+    // Flash attention when available — large win for prefill on Turing+.
+    // API: enum llama_flash_attn_type (AUTO/DISABLED/ENABLED), not a bool.
+    cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+#endif
     // KV-cache quantization (04 §1): type_k/type_v behind llm.kv_quant.
     // Default q8_0 ≈ 50 % KV memory vs fp16 with negligible quality loss here.
     {

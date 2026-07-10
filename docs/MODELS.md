@@ -39,7 +39,7 @@ data/models/
 | Vision | gemma-3-4b-it-Q4_K_M + mmproj-f16 | ~3.5 GB | on-demand (evict Fast first) |
 | Heavy | — (parked) | — | re-add with `fetch-models.ps1 -Heavy` for ≥16 GB cards |
 | ASR | whisper ggml-base.en (+ tiny.en if ambient) | 140 / 75 MB | on-demand GPU |
-| TTS | Piper en_US-amy-medium (+ alan) | small | persistent CPU process |
+| TTS | **Kokoro-82M** (neural, default `af_sky`) via ONNX; Piper fallback | ~300 MB | persistent CPU process (does not steal LLM VRAM) |
 | Wake / VAD | openWakeWord hey_jarvis trio + silero_vad | tiny | CPU resident |
 
 ## Getting the models

@@ -2,6 +2,7 @@
 #include "logging.h"
 
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QStringList>
 #include <QByteArray>
 #include <QElapsedTimer>
@@ -31,12 +32,12 @@ namespace polymath::audio {
 namespace {
 
 // How long to wait for more raw PCM after a write before declaring the
-// utterance complete (piper blocks on the next stdin line when done).
-// First-byte budget is larger: persistent piper still pays espeak load on the
-// very first synth after spawn, which used to look like "produced no audio".
-constexpr int kUtteranceIdleMs    = 220;
-constexpr int kFirstByteMs        = 12000;
-constexpr int kUtteranceMaxMs     = 90000;
+// utterance complete (engine blocks on the next stdin line when done).
+// First-byte budget is larger: cold start loads ONNX / espeak data.
+// Kokoro first sentence can take a few seconds on CPU after model load.
+constexpr int kUtteranceIdleMs    = 280;
+constexpr int kFirstByteMs        = 30000;
+constexpr int kUtteranceMaxMs     = 120000;
 
 bool isSentenceEnd(char c) {
     return c == '.' || c == '!' || c == '?' || c == ';' || c == '\n';
@@ -50,7 +51,11 @@ struct TtsPiper::Impl {
     std::filesystem::path piper_exe;
     std::string           output_device;
 
-    // Persistent piper process (one voice at a time).
+    // Engine: "piper" (default) or "kokoro" (neural, preferred when present).
+    std::string engine = "piper";
+    int         engine_sr = 22050;  // Kokoro = 24000; Piper from voice config
+
+    // Persistent piper/kokoro process (one voice at a time).
     std::unique_ptr<QProcess> proc;
     std::string               proc_voice;   // voice currently loaded in proc
     std::mutex                proc_mu;
@@ -71,16 +76,43 @@ struct TtsPiper::Impl {
     std::atomic<bool> play_active{false};
 
     int sampleRate(const std::filesystem::path& cfg) const {
+        if (engine == "kokoro") return engine_sr > 0 ? engine_sr : 24000;
         try {
             std::ifstream in(cfg);
             auto j = nlohmann::json::parse(in);
             if (j.contains("audio") && j["audio"].contains("sample_rate"))
                 return j["audio"]["sample_rate"].get<int>();
         } catch (...) {}
-        return 22050;
+        return engine_sr > 0 ? engine_sr : 22050;
+    }
+
+    // Map personality/legacy Piper voice ids onto a Kokoro voice when using
+    // the neural engine so existing personas still speak.
+    std::string mapVoice(const std::string& voice) const {
+        if (engine != "kokoro") return voice.empty() ? default_voice : voice;
+        std::string name = voice.empty() ? default_voice : voice;
+        // Already a kokoro id.
+        if (name.rfind("kokoro-", 0) == 0) return name;
+        if (name.rfind("af_", 0) == 0 || name.rfind("am_", 0) == 0 ||
+            name.rfind("bf_", 0) == 0 || name.rfind("bm_", 0) == 0)
+            return "kokoro-" + name;
+        // Legacy Piper ids → sensible Kokoro defaults.
+        if (name.find("alan") != std::string::npos ||
+            name.find("ryan") != std::string::npos ||
+            name.find("joe") != std::string::npos)
+            return "kokoro-am_adam";
+        // amy / lessac / default female → af_sky
+        return default_voice.empty() ? "kokoro-af_sky" : default_voice;
     }
 
     std::filesystem::path resolveModel(const std::string& name) const {
+        // Kokoro: voices live in voices.bin; stub dir is enough.
+        if (engine == "kokoro") {
+            auto model = voices_dir / name / (name + ".onnx");
+            if (std::filesystem::exists(model)) return model;
+            // Non-empty sentinel so callers treat the voice as resolved.
+            return voices_dir / (name.empty() ? default_voice : name);
+        }
         auto model = voices_dir / name / (name + ".onnx");
         return std::filesystem::exists(model) ? model : std::filesystem::path{};
     }
@@ -101,7 +133,7 @@ struct TtsPiper::Impl {
         killProcUnlocked();
     }
 
-    // Ensure a live piper process for `voice`. Restarts on voice change / crash.
+    // Ensure a live TTS process for `voice`. Restarts on voice change / crash.
     bool ensureProc(const std::string& voice) {
         std::lock_guard<std::mutex> lock(proc_mu);
         if (proc && proc->state() == QProcess::Running && proc_voice == voice)
@@ -109,35 +141,97 @@ struct TtsPiper::Impl {
 
         killProcUnlocked();
 
-        std::string name = voice.empty() ? default_voice : voice;
+        std::string name = mapVoice(voice);
         auto model = resolveModel(name);
-        if (model.empty() && name != default_voice) {
-            name = default_voice;
-            model = resolveModel(name);
+        if (model.empty() && engine != "kokoro") {
+            if (name != default_voice) {
+                name = default_voice;
+                model = resolveModel(name);
+            }
         }
-        if (model.empty()) {
+        if (model.empty() && engine != "kokoro") {
             PM_WARN("audio.tts: voice '{}' not found under {}", name, voices_dir.string());
             return false;
         }
-        const auto cfg = voices_dir / name / (name + ".onnx.json");
 
         proc = std::make_unique<QProcess>();
         proc->setWorkingDirectory(
             QString::fromStdString(piper_exe.parent_path().string()));
-        proc->setProgram(QString::fromStdString(piper_exe.string()));
-        proc->setArguments(QStringList{}
-            << "--model"  << QString::fromStdString(model.string())
-            << "--config" << QString::fromStdString(cfg.string())
-            << "--output_raw");
         proc->setProcessChannelMode(QProcess::SeparateChannels);
+
+        if (engine == "kokoro") {
+            // Prefer python.exe + worker.py (reliable under QProcess). The .cmd
+            // wrapper is only a fallback. Always unbuffer stdout for raw PCM.
+            std::string kvoice = name;
+            if (kvoice.rfind("kokoro-", 0) == 0)
+                kvoice = kvoice.substr(7);
+            if (kvoice.empty()) kvoice = "af_sky";
+
+            const auto engDir = piper_exe.parent_path();
+            const auto py     = engDir / "venv" / "Scripts" / "python.exe";
+            const auto worker = engDir / "kokoro_worker.py";
+            const auto modelp = engDir / "kokoro-v1.0.onnx";
+            const auto voices = engDir / "voices-v1.0.bin";
+
+            QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+            env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
+            env.insert(QStringLiteral("KOKORO_VOICE"), QString::fromStdString(kvoice));
+            proc->setProcessEnvironment(env);
+
+            if (std::filesystem::exists(py) && std::filesystem::exists(worker)) {
+                proc->setProgram(QString::fromStdString(py.string()));
+                proc->setArguments(QStringList{}
+                    << QString::fromStdString(worker.string())
+                    << QStringLiteral("--model")  << QString::fromStdString(modelp.string())
+                    << QStringLiteral("--voices") << QString::fromStdString(voices.string())
+                    << QStringLiteral("--voice")  << QString::fromStdString(kvoice)
+                    << QStringLiteral("--sample-rate") << QStringLiteral("24000"));
+            } else {
+                // Fall back: cmd.exe /c kokoro_worker.cmd
+                proc->setProgram(QStringLiteral("cmd.exe"));
+                proc->setArguments(QStringList{}
+                    << QStringLiteral("/c")
+                    << QString::fromStdString(piper_exe.string())
+                    << QStringLiteral("--voice") << QString::fromStdString(kvoice));
+            }
+        } else {
+            const auto cfg = voices_dir / name / (name + ".onnx.json");
+            proc->setProgram(QString::fromStdString(piper_exe.string()));
+            proc->setArguments(QStringList{}
+                << "--model"  << QString::fromStdString(model.string())
+                << "--config" << QString::fromStdString(cfg.string())
+                << "--output_raw");
+        }
         proc->start();
-        if (!proc->waitForStarted(5000)) {
-            PM_ERROR("audio.tts: failed to start piper.exe");
+        if (!proc->waitForStarted(15000)) {
+            PM_ERROR("audio.tts: failed to start {} engine", engine);
             proc.reset();
             return false;
         }
+        // Kokoro cold-load: wait until stderr says "ready" (or timeout).
+        if (engine == "kokoro") {
+            QElapsedTimer boot;
+            boot.start();
+            QByteArray err;
+            while (boot.elapsed() < 60000 &&
+                   proc->state() == QProcess::Running) {
+                if (proc->waitForReadyRead(200)) {
+                    err += proc->readAllStandardError();
+                    if (err.contains("kokoro_worker: ready"))
+                        break;
+                } else {
+                    err += proc->readAllStandardError();
+                    if (err.contains("kokoro_worker: ready"))
+                        break;
+                }
+            }
+            if (!err.contains("kokoro_worker: ready")) {
+                PM_WARN("audio.tts: kokoro boot signal not seen yet ({})",
+                        QString::fromUtf8(err.left(200)).toStdString());
+            }
+        }
         proc_voice = name;
-        PM_INFO("audio.tts: persistent piper started (voice '{}')", name);
+        PM_INFO("audio.tts: persistent {} started (voice '{}')", engine, name);
         return true;
     }
 
@@ -194,8 +288,8 @@ struct TtsPiper::Impl {
 
         if (raw.isEmpty()) {
             const QByteArray err = proc->readAllStandardError().left(200);
-            PM_ERROR("audio.tts: piper produced no audio ({})",
-                     QString::fromUtf8(err).toStdString());
+            PM_ERROR("audio.tts: {} produced no audio ({})",
+                     engine, QString::fromUtf8(err).toStdString());
             return false;
         }
         // Piper may emit an odd trailing byte; drop incomplete sample.
@@ -383,17 +477,50 @@ TtsPiper::~TtsPiper() {
 bool TtsPiper::init(const std::filesystem::path& voices_dir,
                     const std::string& default_voice,
                     const std::string& output_device) {
+    d_->output_device = output_device;
+    const auto models_root = voices_dir.parent_path();
+
+    // Prefer Kokoro neural TTS when the engine was set up (setup-kokoro.ps1).
+    // It runs on CPU so it does not compete with the LLM for VRAM, and quality
+    // is far above Piper medium voices.
+    const auto kokoro_cmd = models_root / "kokoro-engine" / "kokoro_worker.cmd";
+    const auto kokoro_voices = models_root / "kokoro";
+    if (std::filesystem::exists(kokoro_cmd) &&
+        std::filesystem::exists(models_root / "kokoro-engine" / "kokoro-v1.0.onnx")) {
+        d_->engine      = "kokoro";
+        d_->engine_sr   = 24000;
+        d_->piper_exe   = kokoro_cmd;
+        d_->voices_dir  = std::filesystem::exists(kokoro_voices)
+                              ? kokoro_voices : voices_dir;
+        // Default voice: prefer caller's if it looks like a kokoro id, else af_sky.
+        std::string dv = default_voice;
+        if (dv.rfind("kokoro-", 0) != 0 && dv.rfind("af_", 0) != 0 &&
+            dv.rfind("am_", 0) != 0 && dv.rfind("bf_", 0) != 0 &&
+            dv.rfind("bm_", 0) != 0) {
+            dv = "kokoro-af_sky";
+        } else if (dv.rfind("kokoro-", 0) != 0) {
+            dv = "kokoro-" + dv;
+        }
+        d_->default_voice = dv;
+        ready_ = true;
+        PM_INFO("audio.tts: Kokoro neural engine at {} (default voice '{}', {} Hz)",
+                d_->piper_exe.string(), d_->default_voice, d_->engine_sr);
+        return ready_;
+    }
+
+    // Fallback: Piper (still neural, lower quality).
+    d_->engine        = "piper";
+    d_->engine_sr     = 22050;
     d_->voices_dir    = voices_dir;
     d_->default_voice = default_voice;
-    d_->output_device = output_device;
-    d_->piper_exe = voices_dir.parent_path() / "piper-engine" / "piper.exe";
+    d_->piper_exe = models_root / "piper-engine" / "piper.exe";
     ready_ = std::filesystem::exists(d_->piper_exe);
     if (ready_)
         PM_INFO("audio.tts: Piper engine at {} (default voice '{}')",
                 d_->piper_exe.string(), default_voice);
     else
-        PM_WARN("audio.tts: piper.exe not found at {} — TTS disabled "
-                "(run scripts/fetch-models.ps1)", d_->piper_exe.string());
+        PM_WARN("audio.tts: no TTS engine found (run scripts/setup-kokoro.ps1 "
+                "or scripts/fetch-models.ps1)");
     return ready_;
 }
 
@@ -521,13 +648,15 @@ bool TtsPiper::speak(const std::string& text, const std::string& voice, bool app
         return false;
     }
 
-    std::string name = voice.empty() ? d_->default_voice : voice;
+    std::string name = d_->mapVoice(voice);
     auto model = d_->resolveModel(name);
-    if (model.empty() && name != d_->default_voice) {
-        name = d_->default_voice;
-        model = d_->resolveModel(name);
+    if (model.empty() && d_->engine != "kokoro") {
+        if (name != d_->default_voice) {
+            name = d_->default_voice;
+            model = d_->resolveModel(name);
+        }
     }
-    if (model.empty()) {
+    if (model.empty() && d_->engine != "kokoro") {
         d_->synth_active.store(false, std::memory_order_release);
         return false;
     }
@@ -581,7 +710,7 @@ void TtsPiper::endStream() {
 
 bool TtsPiper::warmUp(const std::string& voice) {
     if (!ready_) return false;
-    std::string name = voice.empty() ? d_->default_voice : voice;
+    std::string name = d_->mapVoice(voice);
     if (!d_->ensureProc(name)) return false;
     // Force voice load + first-byte path so the next user-visible line is warm.
     std::vector<int16_t> pcm;
