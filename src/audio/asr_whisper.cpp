@@ -4,14 +4,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 
 // whisper.cpp is gated by POLYMATH_HAVE_WHISPER (set by CMake when the
 // third_party/whisper.cpp submodule is present). Without it the module still
 // compiles; transcribe() returns empty so the rest of the pipeline can be wired.
-//
-// Pinned to whisper.cpp post-1.6 (the GGML-backed API with whisper.h providing
-// whisper_init_from_file_with_params / whisper_full). If building against an
-// older release, whisper_init_from_file (no params) is the fallback.
 #if defined(POLYMATH_HAVE_WHISPER)
 #  include "whisper.h"
 #endif
@@ -27,13 +24,28 @@ struct AsrWhisper::Impl {
 AsrWhisper::AsrWhisper() : d_(std::make_unique<Impl>()) {}
 
 AsrWhisper::~AsrWhisper() {
-#if defined(POLYMATH_HAVE_WHISPER)
-    if (d_->ctx) whisper_free(d_->ctx);
-#endif
+    unload();
 }
 
 bool AsrWhisper::load(const std::filesystem::path& model_path, Mode mode) {
-    mode_  = mode;
+    // Already loaded this path — keep the resident context.
+#if defined(POLYMATH_HAVE_WHISPER)
+    if (ready_ && d_->ctx && model_path_ == model_path && mode_ == mode) {
+        return true;
+    }
+    // Path/mode change: free any previous context first.
+    if (d_->ctx) {
+        whisper_free(d_->ctx);
+        d_->ctx = nullptr;
+        ready_ = false;
+        ++unload_count_;
+    }
+#else
+    if (ready_ && model_path_ == model_path && mode_ == mode) return true;
+#endif
+
+    mode_ = mode;
+    model_path_ = model_path;
     ready_ = false;
     if (!std::filesystem::exists(model_path)) {
         PM_WARN("audio.asr: whisper model missing: {} ({} disabled)",
@@ -50,13 +62,28 @@ bool AsrWhisper::load(const std::filesystem::path& model_path, Mode mode) {
         return false;
     }
     ready_ = true;
-    PM_INFO("audio.asr: loaded {} model '{}'",
-            mode == Mode::Ambient ? "ambient" : "command", model_path.filename().string());
+    ++load_count_;
+    PM_INFO("audio.asr: loaded {} model '{}' (load #{})",
+            mode == Mode::Ambient ? "ambient" : "command",
+            model_path.filename().string(), load_count_);
     return true;
 #else
     PM_WARN("audio.asr: built without whisper.cpp; '{}' is a no-op", model_path.string());
     return false;
 #endif
+}
+
+void AsrWhisper::unload() {
+#if defined(POLYMATH_HAVE_WHISPER)
+    if (d_->ctx) {
+        whisper_free(d_->ctx);
+        d_->ctx = nullptr;
+        ++unload_count_;
+        PM_INFO("audio.asr: unloaded {} model (unload #{})",
+                mode_ == Mode::Ambient ? "ambient" : "command", unload_count_);
+    }
+#endif
+    ready_ = false;
 }
 
 std::string AsrWhisper::transcribe(const std::vector<float>& pcm, float* confidence) {
@@ -76,15 +103,14 @@ std::string AsrWhisper::transcribe(const std::vector<float>& pcm, float* confide
     wparams.print_realtime   = false;
     wparams.print_timestamps = false;
     wparams.translate        = false;
-    wparams.single_segment   = (mode_ == Mode::Command); // commands are one phrase
+    wparams.single_segment   = (mode_ == Mode::Command);
     wparams.no_context       = true;
     wparams.suppress_blank   = true;
     wparams.language         = language_.c_str();
     wparams.n_threads        = threads_;
     wparams.temperature      = 0.0f;
-    // Command mode can afford a small beam for accuracy; ambient stays greedy.
     if (mode_ == Mode::Command) {
-        wparams.strategy           = WHISPER_SAMPLING_BEAM_SEARCH;
+        wparams.strategy              = WHISPER_SAMPLING_BEAM_SEARCH;
         wparams.beam_search.beam_size = 5;
     }
 
@@ -107,13 +133,11 @@ std::string AsrWhisper::transcribe(const std::vector<float>& pcm, float* confide
         }
     }
 
-    // Trim leading/trailing whitespace whisper inserts.
     auto not_space = [](unsigned char c){ return !std::isspace(c); };
     text.erase(text.begin(), std::find_if(text.begin(), text.end(), not_space));
     text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
 
     if (confidence && token_count > 0) {
-        // Map mean log-prob to a rough [0,1] confidence.
         const double mean = sum_logprob / token_count;
         *confidence = static_cast<float>(std::exp(mean));
     }

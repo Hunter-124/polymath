@@ -3,16 +3,14 @@
 #include "audio_common.h"
 #include "logging.h"
 
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstring>
 
 // Silero VAD v5 ONNX interface (silero-vad 4.0+ unified export):
 //   inputs : input [1,512] float, state [2,1,128] float, sr int64 (16000)
 //   outputs: output [1,1] float (speech prob), stateN [2,1,128] float
-//
-// (v4 used separate h/c LSTM states [2,1,64]; v5 merged them into one [2,1,128]
-// "state" tensor. We target v5; if a v4 model is supplied, adjust the state
-// tensor name/shape below.)
 
 namespace polymath::audio {
 
@@ -20,6 +18,14 @@ namespace {
 constexpr int kWindow      = 512;
 constexpr int kStateSize   = 2 * 1 * 128;
 constexpr int kWindowMs    = 32;   // 512 / 16000 * 1000
+// Backoff schedule: 1 s, 5 s, 30 s — three attempts then permanent fail + Notice.
+constexpr int kBackoffSec[] = {1, 5, 30};
+constexpr int kMaxReloads   = 3;
+
+int64_t nowMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
 }
 
 struct Vad::Impl {
@@ -29,18 +35,30 @@ struct Vad::Impl {
     std::array<float, kStateSize> state{};
     int64_t sr = kSampleRate;
 
-    // Cached I/O names.
     std::vector<Ort::AllocatedStringPtr> in_names_owned;
     std::vector<Ort::AllocatedStringPtr> out_names_owned;
     std::vector<const char*> in_names;
     std::vector<const char*> out_names;
+
+    void clearNames() {
+        in_names_owned.clear();
+        out_names_owned.clear();
+        in_names.clear();
+        out_names.clear();
+    }
 };
 
 Vad::Vad() : d_(std::make_unique<Impl>()) {}
 Vad::~Vad() = default;
 
 bool Vad::load(const std::filesystem::path& model_path) {
+    model_path_ = model_path;
     ready_ = false;
+    reload_attempts_ = 0;
+    next_retry_ms_ = 0;
+    d_->session.reset();
+    d_->clearNames();
+
     if (!std::filesystem::exists(model_path)) {
         PM_WARN("audio.vad: model missing: {} (VAD disabled)", model_path.string());
         return false;
@@ -71,6 +89,36 @@ bool Vad::load(const std::filesystem::path& model_path) {
     return true;
 }
 
+bool Vad::tryReload() {
+    if (model_path_.empty()) return false;
+    PM_WARN("audio.vad: reloading session (attempt {}/{})",
+            reload_attempts_ + 1, kMaxReloads);
+    d_->session.reset();
+    d_->clearNames();
+    const bool ok = load(model_path_);
+    // load() resets reload_attempts_; restore count so onInferenceError can track.
+    return ok;
+}
+
+void Vad::onInferenceError(const char* what) {
+    PM_ERROR("audio.vad: inference error: {}", what ? what : "?");
+    ready_ = false;
+    d_->session.reset();
+
+    if (reload_attempts_ >= kMaxReloads) {
+        PM_ERROR("audio.vad: reload budget exhausted; VAD disabled");
+        if (notice_fn_)
+            notice_fn_("error", "audio.vad",
+                       "Silero VAD failed after 3 reload attempts; wake/command gating disabled");
+        return;
+    }
+
+    const int delay = kBackoffSec[std::min(reload_attempts_, kMaxReloads - 1)];
+    next_retry_ms_ = nowMs() + int64_t(delay) * 1000;
+    ++reload_attempts_;
+    PM_WARN("audio.vad: will retry session reload in {}s", delay);
+}
+
 void Vad::reset() {
     d_->state.fill(0.0f);
     in_speech_  = false;
@@ -78,6 +126,25 @@ void Vad::reset() {
 }
 
 Vad::Event Vad::process(const float* window512, float* prob) {
+    // Scheduled reload after a previous failure.
+    if (!ready_ && next_retry_ms_ > 0 && nowMs() >= next_retry_ms_) {
+        next_retry_ms_ = 0;
+        const int saved_attempts = reload_attempts_;
+        if (tryReload()) {
+            // Successful reload: keep attempt counter so a flapping session still
+            // exhausts the budget; only a clean load() from outside zeros it.
+            reload_attempts_ = saved_attempts;
+        } else if (reload_attempts_ >= kMaxReloads) {
+            if (notice_fn_)
+                notice_fn_("error", "audio.vad",
+                           "Silero VAD failed after 3 reload attempts; wake/command gating disabled");
+        } else {
+            reload_attempts_ = saved_attempts + 1;
+            const int delay = kBackoffSec[std::min(reload_attempts_ - 1, kMaxReloads - 1)];
+            next_retry_ms_ = nowMs() + int64_t(delay) * 1000;
+        }
+    }
+
     if (!ready_ || window512 == nullptr) return Event::None;
 
     float p = 0.0f;
@@ -91,8 +158,6 @@ Vad::Event Vad::process(const float* window512, float* prob) {
             d_->mem, const_cast<float*>(window512), kWindow, in_shape.data(), in_shape.size()));
         inputs.emplace_back(Ort::Value::CreateTensor<float>(
             d_->mem, d_->state.data(), d_->state.size(), st_shape.data(), st_shape.size()));
-        // Some exports take an explicit sample-rate input; only bind it when the
-        // model actually declares a third input (keeps v4/v5 variants working).
         if (d_->in_names.size() >= 3)
             inputs.emplace_back(Ort::Value::CreateTensor<int64_t>(
                 d_->mem, &d_->sr, 1, sr_shape.data(), sr_shape.size()));
@@ -102,14 +167,16 @@ Vad::Event Vad::process(const float* window512, float* prob) {
             d_->out_names.data(), d_->out_names.size());
 
         p = out[0].GetTensorData<float>()[0];
-        // Second output is the recurrent state to carry forward.
         if (out.size() > 1) {
             const float* st = out[1].GetTensorData<float>();
             std::memcpy(d_->state.data(), st, kStateSize * sizeof(float));
         }
+        ++inference_count_;
+        // Healthy inference clears the backoff counter.
+        reload_attempts_ = 0;
+        next_retry_ms_ = 0;
     } catch (const Ort::Exception& e) {
-        PM_ERROR("audio.vad: inference error: {}", e.what());
-        ready_ = false;
+        onInferenceError(e.what());
         return Event::None;
     }
     if (prob) *prob = p;

@@ -1,9 +1,10 @@
 #pragma once
 //
-// AudioService — the full voice pipeline on one worker thread:
-//   WASAPI capture (miniaudio) -> wake word (openWakeWord/ONNX)
-//   -> VAD (Silero/ONNX) -> ASR (whisper.cpp) -> EventBus::utterance
-// and the playback side: EventBus::speakRequested -> Piper TTS -> device.
+// AudioService — full voice pipeline (04 §3 rework):
+//   WASAPI capture → Silero VAD (always-on gate) → gated openWakeWord
+//   → segment bookkeeping on the pump thread;
+//   whisper_full on a dedicated AsrWorker QThread;
+//   Piper TTS + playback on a dedicated TtsWorker QThread.
 //
 // Privacy: capture stops when privacy.mic_enabled is off; ambient continuous
 // ASR runs only when privacy.ambient_transcription is on.
@@ -37,8 +38,17 @@ signals:
     void listeningStateChanged(bool listening);
     void wakeWordHeard();
 
+    // Internal: post a finished speech segment to the AsrWorker thread.
+    void asrJobQueued(const QVector<float>& pcm, bool ambient);
+    // Internal: post a speak request to the TtsWorker thread.
+    void ttsJobQueued(const QString& text, const QString& voice);
+
+private slots:
+    void onAsrFinished(const QString& text, float conf, bool ambient);
+    void onTtsFinished();
+
 private:
-    struct Impl;                       // pimpl: capture/wakeword/vad/asr/tts
+    struct Impl;
     std::unique_ptr<Impl> d_;
     Database& db_;
 };

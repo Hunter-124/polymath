@@ -2,23 +2,17 @@
 //
 // WakeWord — openWakeWord detector running on ONNX Runtime.
 //
-// openWakeWord is a 3-stage chain shared across all wake phrases:
+// 3-stage chain:
 //   1. melspectrogram.onnx : raw 16 kHz audio -> log-mel features (32 bins)
 //   2. embedding_model.onnx : 76x32 mel window -> 96-dim speech embedding
-//   3. <wakeword>.onnx       : sequence of 16 embeddings -> P(wake)  in [0,1]
+//   3. <wakeword>.onnx       : sequence of 16 embeddings -> P(wake) in [0,1]
 //
-// Stages 1 & 2 are reused for every phrase; only stage 3 swaps per phrase.
-// We feed audio incrementally (80 ms / 1280-sample frames) and emit when the
-// classifier score crosses the threshold (with a small refractory period so a
-// single utterance fires once).
-//
-// Model files are expected under <models>/wakeword/:
-//   melspectrogram.onnx, embedding_model.onnx, <phrase>.onnx
-// The phrase comes from Config keys::WakeWord (default "hey_jarvis").
+// AudioService only feeds frames during VAD speech (+ 640 ms hangover) so idle
+// CPU stays near zero (04 §3.1). ONNX failures use reload backoff (04 §3.6).
 //
 #include <cstdint>
-#include <deque>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -27,38 +21,55 @@ namespace polymath::audio {
 
 class WakeWord {
 public:
+    using NoticeFn = std::function<void(const char* level, const char* source,
+                                        const char* message)>;
+
     WakeWord();
     ~WakeWord();
 
-    // Loads the shared mel+embedding models and the per-phrase classifier from
-    // `model_dir`. `phrase` is the model basename (e.g. "hey_jarvis"). Returns
-    // false if any model is missing/failed to load (detection then disabled).
+    // Loads mel+embedding+classifier from `model_dir`. `phrase` is the model
+    // basename (e.g. "hey_jarvis"). Returns false if any model is missing.
     bool load(const std::filesystem::path& model_dir, const std::string& phrase);
     bool ready() const { return ready_; }
     const std::string& phrase() const { return phrase_; }
 
-    // Detection threshold in [0,1]; default 0.5 (openWakeWord recommendation).
-    void setThreshold(float t) { threshold_ = t; }
+    void setNoticeFn(NoticeFn fn) { notice_fn_ = std::move(fn); }
 
-    // Feed one 1280-sample (80 ms) frame of float PCM. Returns true on the frame
-    // that crosses the threshold (after the refractory period). Returns the
-    // score via *score when non-null.
+    // Detection threshold in [0,1]; default 0.5. Barge-in raises by +0.1.
+    void setThreshold(float t) { threshold_ = t; }
+    float threshold() const    { return threshold_; }
+
+    // Feed float PCM (typically one 1280-sample / 80 ms frame). Returns true on
+    // the frame that crosses the threshold (after the refractory period).
     bool process(const float* frame, int n, float* score = nullptr);
 
-    // Drop accumulated state (call when capture restarts).
+    // Drop accumulated state (call when capture restarts / mode transitions).
     void reset();
 
+    // Diagnostics / tests: how many times process() ran the ONNX chain.
+    size_t processCalls() const { return process_calls_; }
+    void   resetProcessCalls()  { process_calls_ = 0; }
+
 public:
-    struct Impl;   // opaque; defined in the .cpp and named by file-local helpers
+    struct Impl;   // opaque; defined in the .cpp
 private:
+    bool tryReload();
+    void onInferenceError(const char* what);
+
     std::unique_ptr<Impl> d_;
 
+    std::filesystem::path model_dir_;
     std::string  phrase_;
+    NoticeFn     notice_fn_;
     bool         ready_     = false;
     float        threshold_ = 0.5f;
 
-    // Refractory: after a hit, suppress further hits for N frames (~1 s).
     int refractory_left_ = 0;
+
+    int     reload_attempts_ = 0;
+    int64_t next_retry_ms_   = 0;
+
+    size_t process_calls_ = 0;
 };
 
 } // namespace polymath::audio

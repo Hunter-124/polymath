@@ -2,17 +2,16 @@
 //
 // Capture — WASAPI microphone capture via miniaudio.
 //
-// Opens the default capture device, resamples/converts to the canonical
-// 16 kHz mono float pipeline format, and feeds samples into a FloatRing the
-// AudioService worker drains.  The miniaudio data callback runs on a realtime
-// audio thread, so it only does the lock-free ring write — no allocation, no
-// logging, no blocking.
+// Opens a capture device (default or named via audio.input_device), resamples
+// to 16 kHz mono float, and feeds samples into a FloatRing the AudioService
+// pump drains. The miniaudio callback only does the lock-free ring write.
 //
-// Mic-enabled gating: when disabled, the device is fully stopped (released) so
-// the OS mic indicator turns off, honouring privacy.mic_enabled.
+// Mic-enabled gating: when disabled the device is fully stopped so the OS mic
+// indicator turns off (privacy.mic_enabled contract).
 //
 #include "audio_common.h"
 #include <memory>
+#include <string>
 
 namespace polymath::audio {
 
@@ -21,24 +20,34 @@ public:
     Capture();
     ~Capture();
 
-    // Initialises (but does not start) the device. Returns false if no capture
-    // device / device init failed. Safe to call once.
-    bool init();
+    // Initialises (but does not start) the device. `device_name` empty → system
+    // default; otherwise matches a capture device by name substring (case-
+    // insensitive). Returns false if no device / init failed.
+    bool init(const std::string& device_name = {});
 
-    // Start/stop streaming into the ring. start() is idempotent; calling it when
-    // mic is disabled is a no-op. stop() releases the device (mic indicator off).
+    // Tear down and re-init with a (possibly new) device name. Stops capture
+    // first. Used when settings change audio.input_device.
+    bool reinit(const std::string& device_name);
+
+    // Start/stop streaming into the ring. start() is idempotent.
     bool start();
     void stop();
     bool isRunning() const;
 
-    // The ring the worker drains. Stable for the lifetime of the Capture.
+    // Currently selected device name (empty = default).
+    const std::string& deviceName() const { return device_name_; }
+
+    // The ring the worker drains. Stable for the lifetime of the Capture
+    // object (reinit preserves the ring; only clears it).
     FloatRing& ring() { return ring_; }
+    const FloatRing& ring() const { return ring_; }
 
 public:
-    struct Impl;   // opaque; defined in the .cpp and named by the miniaudio callback
+    struct Impl;   // opaque; defined in the .cpp (miniaudio callback needs it)
 private:
     std::unique_ptr<Impl> d_;
-    FloatRing             ring_{1u << 16};   // ~4 s @ 16 kHz
+    FloatRing             ring_{kRingCapacity};   // ~16 s @ 16 kHz
+    std::string           device_name_;
 };
 
 } // namespace polymath::audio
