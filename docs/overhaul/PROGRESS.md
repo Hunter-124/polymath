@@ -18,7 +18,7 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 >>>>>>> 4e9f4b0 (overhaul(A4): VAD-gated wake, lazy ASR, async pipeline, streaming TTS, barge-in)
 
 ## Wave B — GUI packages (parallel after A2)
-- [ ] B1 shell reskin (Main.qml)
+- [x] B1 shell reskin (Main.qml)
 - [ ] B2 Dashboard + Chat
 - [ ] B3 Cameras + Timeline
 - [ ] B4 Tasks + Shopping
