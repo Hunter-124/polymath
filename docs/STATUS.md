@@ -5,8 +5,10 @@ Both builds are verified: **they compile, link, run the tests, and launch.**
 - **CPU build** — `build/cpu` (Visual Studio 2022 generator). Reproduced by
   [`scripts/build-cpu.ps1`](../scripts/build-cpu.ps1).
 - **GPU / CUDA build** — `build/cuda` (Ninja generator + portable CUDA 13.2 toolkit,
-  `sm_86`). Reproduced by [`scripts/build-gpu.ps1`](../scripts/build-gpu.ps1).
-  **GPU inference is verified end-to-end (token generation on the RTX 3080 Ti).**
+  `sm_75` for this machine's RTX 2070 Max-Q). Reproduced by
+  [`scripts/build-gpu.ps1`](../scripts/build-gpu.ps1).
+  **Target GPU: RTX 2070 Max-Q 8 GB (sm_75).** Older notes that claimed a 3080 Ti /
+  sm_86 are wrong for this hardware — see [`docs/overhaul/04_VOICE_RESOURCES.md`](overhaul/04_VOICE_RESOURCES.md).
 
 `Polymath.exe` is built with MSVC 2022 + Qt 6.6.3 + OpenCV 4.9 + ONNX Runtime 1.17
 (CPU) + llama.cpp/whisper.cpp built from source, and confirmed at runtime to:
@@ -26,33 +28,21 @@ per-install OS-protected key) — confirmed active at runtime. See [`SHIP.md`](S
 
 ## GPU build — what was verified (headless, `QT_QPA_PLATFORM=offscreen`)
 
-Observed in `data/logs/polymath.log` and the engine's stderr on an RTX 3080 Ti 12 GB
-(driver 596.36):
+**Target hardware (this machine):** Intel i7-9750H (6C/12T), 32 GB RAM,
+**RTX 2070 Max-Q 8 GB VRAM (sm_75)**. Steady-state budget (Fast @ 4096 ctx + q8 KV +
+Embedding + OS baseline) ≈ 5.7–6.2 GB with ~1.9–2.4 GB headroom — see
+[`docs/overhaul/04_VOICE_RESOURCES.md`](overhaul/04_VOICE_RESOURCES.md) §1.
 
-```
-VramBudget: CUDA device 12287 MiB total, 11100 MiB free, budget 8192 MiB
-InferenceManager starting (CUDA=true)
-LlamaBackend loaded 'gemma-3n-E4B-it-Q4_K_M' role=0 n_ctx=8192 ngl=999 (~5352 MiB)
-llama_kv_cache:  CUDA0 KV buffer size = 256.00 MiB
-sched_reserve:   CUDA0 compute buffer size = 516.00 MiB   (Flash Attention enabled)
-InferenceManager: Fast model resident
-```
+Historical bring-up on a different card (RTX 3080 Ti 12 GB, sm_86) confirmed the
+ggml-CUDA path end-to-end (~108 tok/s tg16 on Gemma 3n E4B). On this Max-Q:
 
-- **GPU detected**, the Fast model offloads **all** layers (`ngl=999`, ~5.3 GB resident),
-  KV-cache + compute graph live in `CUDA0` VRAM. All 8 services start; whisper ASR runs;
-  the process is stable (ran headless, killed after ~50 s, no crash).
-- **Generation smoke test** (`llama-bench -m gemma-3n-E4B -ngl 999 -p 16 -n 16`):
-
-  | model | backend | ngl | test | t/s |
-  |-------|---------|-----|------|-----|
-  | gemma3n E4B Q4_K_M | **CUDA** | 999 | pp16 | 446 |
-  | gemma3n E4B Q4_K_M | **CUDA** | 999 | tg16 | **108** |
-
-  108 tok/s generation on GPU (vs. ~10–20 on CPU) confirms the ggml-cuda path produces
-  tokens. **This is the end-to-end GPU verification.**
-- **ONNX Runtime stays on CPU** by design: we ship the CPU ORT package, so the YOLO/face
-  detectors log a harmless `onnxruntime_providers_shared.dll … error 126` and fall back to
-  CPU. The CUDA build accelerates **llama/whisper (ggml-cuda)**; perception ONNX is CPU.
+- Fast model defaults to **n_ctx=4096** + **KV q8_0** (not 8k fp16) so it fits with
+  browser/video headroom.
+- **Heavy 27B is parked** — not in the default fetch; deep work → agent-session
+  delegation or idle Fast queue.
+- Whisper ASR is **on-demand** (not idle-resident VRAM).
+- **ONNX Runtime stays on CPU** by design (CPU ORT package). The CUDA build accelerates
+  **llama/whisper (ggml-cuda)**; perception ONNX is CPU.
 
 ## How it was built (reproducible)
 
@@ -73,7 +63,7 @@ paths** and the repo lives in `…\Home Assistant`. See `BUILD.md`.
 | Module | Status |
 |--------|--------|
 | core, inference, audio, vision, scheduler, memory, agent, personality, ui/app | ✅ compile + link; verified at runtime (CPU **and** CUDA) |
-| inference (llama.cpp ggml-CUDA) | ✅ GPU offload verified — Gemma 3n E4B at 108 tok/s on `sm_86` |
+| inference (llama.cpp ggml-CUDA) | ✅ GPU path verified; target card RTX 2070 Max-Q 8 GB (`sm_75`), Fast @ 4k + q8 KV |
 | VLM (mtmd / `describeImage`) | ✅ built (`LLAMA_BUILD_TOOLS/COMMON=ON`); `mtmd.dll` linked + deployed |
 | Piper TTS | ✅ drives the prebuilt `piper.exe` via QProcess (detected at runtime) |
 | ESP32-CAM firmware | ✅ complete (compile in Arduino IDE) |
@@ -84,23 +74,25 @@ paths** and the repo lives in `…\Home Assistant`. See `BUILD.md`.
 
 ## Models
 
-`scripts/fetch-models.ps1` downloads the default local set into `data/models/`. All present
-and loaded at runtime: Gemma 3n E4B (Fast), Gemma 3 27B (Heavy), Gemma 3 4B + mmproj (VLM),
-EmbeddingGemma, whisper base/tiny, Piper voices, Silero VAD, openWakeWord, SCRFD, ArcFace,
-and **yolov8n.onnx** (person detection — sourced from a GitHub mirror since the HF
-Xenova/onnx-community mirrors now 401; the detector confirms `in=images out=output0 640x640`).
+`scripts/fetch-models.ps1` downloads the default local set into `data/models/` (see
+[`docs/MODELS.md`](MODELS.md)): Gemma 3n E4B (Fast), EmbeddingGemma, Gemma 3 4B + mmproj
+(VLM), whisper base/tiny, Piper voices, Silero VAD, openWakeWord, SCRFD, ArcFace, and
+**yolov8n.onnx**. **Gemma 3 27B (Heavy) is opt-in** (`-Heavy`); not part of the default
+8 GB Max-Q set.
 
 ## Honest remaining notes
 
 1. **Perception on GPU.** YOLO/SCRFD/ArcFace run on CPU (CPU ORT package). To accelerate
    them, drop in the CUDA ORT package + `onnxruntime_providers_cuda.dll`; the code already
    requests the CUDA EP and falls back cleanly.
-2. **Heavy model on a 12 GB card.** Gemma 3 27B Q4 (~16 GB) still partial-offloads; the
-   VramBudget manager trims `n_gpu_layers` to fit. Fast/VLM/Embedding fit comfortably.
+2. **Heavy model parked on 8 GB.** Gemma 3 27B Q4 (~16 GB) is not fetched by default.
+   Use `-Heavy` only on larger cards; on this machine deep work uses external agent
+   sessions (see overhaul 05) or the Fast idle queue.
 3. **Packaging.** DONE — `scripts/package.ps1 -Flavor {cpu,cuda}` produces portable zips and the
    Inno Setup installers compile for both flavors (`dist/Polymath-0.1.0-win64-{cpu,cuda}-Setup.exe`).
    Bundles ship without models; the first-run wizard fetches them. Remaining ship TODOs (code
    signing, a clean-VM smoke pass) are tracked in [`SHIP.md`](SHIP.md).
+
 
 ## Notes from the bring-up
 

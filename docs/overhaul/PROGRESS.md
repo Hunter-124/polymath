@@ -6,7 +6,7 @@ This file + git history = the resume state for any machine/harness.
 Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/overhaul/results/)
 
 ## Wave A — foundations
-- [ ] A0 repo/docs hygiene (MODELS.md, fetch-models.ps1, STATUS.md hardware)
+- [x] A0 repo/docs hygiene (MODELS.md, fetch-models.ps1, STATUS.md hardware)
 - [ ] A1 GUI foundation (Style, glass primitives, controls, CMake, capture flag)
 - [ ] A2 core foundation (event_bus, config, SettingsController, NotificationsModel, AppController, placeholder QML, stubs)
 - [ ] A3 harness core fixes (memory wiring, deep-task dispatch, schema, countTokens, KV-quant, 4k ctx)

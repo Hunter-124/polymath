@@ -1,31 +1,32 @@
-﻿<#
+<#
 .SYNOPSIS
   Downloads Polymath's default LOCAL model set (Gemma-based) into data/models/,
   in the exact layout the app loads from.
 
 .DESCRIPTION
-  LLMs are Gemma (per preference): Gemma 3n E4B (fast/resident), Gemma 3 27B QAT
-  (heavy/deep-work), Gemma 3 4B QAT + mmproj (vision VLM), EmbeddingGemma (memory).
-  Plus whisper ASR, Piper voices, and the ONNX perception models. All local + free.
+  Default set matches docs/overhaul/04_VOICE_RESOURCES.md §2 and docs/MODELS.md:
+  Gemma 3n E4B (fast/resident), EmbeddingGemma, Gemma 3 4B + mmproj (vision),
+  whisper ASR, Piper voices, ONNX perception. Heavy 27B is PARKED — pass -Heavy
+  only on machines with enough VRAM/RAM (not the 8 GB Max-Q target).
 
 .PARAMETER Root      App data root (default: .\data next to the repo).
-.PARAMETER NoHeavy   Skip the big 27B heavy model (~16 GB).
+.PARAMETER Heavy     Also fetch Gemma 3 27B Q4 (~16 GB). Off by default.
 .PARAMETER NoVlm     Skip the vision VLM (Gemma 3 4B + mmproj, ~3.5 GB).
 .PARAMETER NoLLM     Skip all GGUF LLMs (just perception/voice models).
-.PARAMETER Minimal   The "get running fast" subset (~3.5 GB): Fast LLM +
-                     EmbeddingGemma + whisper + VAD/wake + Piper + vision ONNX.
-                     Equivalent to -NoHeavy -NoVlm. The app self-disables the
-                     Heavy (deep-work) and Vision (image) roles until you add them.
+.PARAMETER Minimal   "Get running fast" subset: Fast + Embedding + whisper +
+                     VAD/wake + Piper + vision ONNX. Skips VLM (and Heavy).
+                     Equivalent to -NoVlm (Heavy already off by default).
 
-.EXAMPLE  pwsh scripts/fetch-models.ps1            # full default set (~28 GB)
-.EXAMPLE  pwsh scripts/fetch-models.ps1 -Minimal   # minimal subset (~3.5 GB)
+.EXAMPLE  pwsh scripts/fetch-models.ps1            # base set (~8 GB, includes VLM)
+.EXAMPLE  pwsh scripts/fetch-models.ps1 -Minimal   # minimal subset (~3.5–4 GB)
+.EXAMPLE  pwsh scripts/fetch-models.ps1 -Heavy     # base + 27B for big cards
 #>
 [CmdletBinding()]
 param([string]$Root = (Join-Path $PSScriptRoot '..\data'),
-      [switch]$NoHeavy, [switch]$NoVlm, [switch]$NoLLM, [switch]$Minimal)
+      [switch]$Heavy, [switch]$NoVlm, [switch]$NoLLM, [switch]$Minimal)
 
-# -Minimal is the friendly alias for "skip the two big optional roles".
-if ($Minimal) { $NoHeavy = $true; $NoVlm = $true }
+# -Minimal skips the optional vision VLM. Heavy stays opt-in via -Heavy.
+if ($Minimal) { $NoVlm = $true }
 
 $ErrorActionPreference = 'Stop'
 $models = Join-Path $Root 'models'
@@ -52,7 +53,7 @@ function Fetch($url, $dest) {
 
 if (-not $NoLLM) {
   Write-Host "Gemma LLMs ->" -ForegroundColor Green
-  # Fast (resident): Gemma 3n E4B, Q4_K_M (~4 GB) — efficient, big-VRAM headroom.
+  # Fast (resident): Gemma 3n E4B, Q4_K_M (~4 GB) — 4k ctx + q8 KV on 8 GB cards.
   Fetch "$HF/unsloth/gemma-3n-E4B-it-GGUF/resolve/main/gemma-3n-E4B-it-Q4_K_M.gguf" "$models/llm/gemma-3n-E4B-it-Q4_K_M.gguf"
   # Vision VLM: Gemma 3 4B Q4 + projector (multimodal). Ungated unsloth mirror
   # (the official google/* QAT repos are gated and 401 without an HF token).
@@ -62,8 +63,9 @@ if (-not $NoLLM) {
   }
   # Embeddings: EmbeddingGemma 300M Q8 (~300 MB).
   Fetch "$HF/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf" "$models/embeddings/embeddinggemma-300M-Q8_0.gguf"
-  # Heavy (on-demand deep-work): Gemma 3 27B Q4_K_M (~16 GB) — partial offload.
-  if (-not $NoHeavy) {
+  # Heavy (parked on 8 GB cards): Gemma 3 27B Q4_K_M (~16 GB) — opt-in only.
+  if ($Heavy) {
+    Write-Host "  [Heavy] fetching Gemma 3 27B (~16 GB) — not for 8 GB VRAM targets" -ForegroundColor Yellow
     Fetch "$HF/unsloth/gemma-3-27b-it-GGUF/resolve/main/gemma-3-27b-it-Q4_K_M.gguf" "$models/llm/gemma-3-27b-it-Q4_K_M.gguf"
   }
 }
@@ -101,3 +103,6 @@ Fetch "$HF/immich-app/buffalo_l/resolve/main/detection/model.onnx"   "$models/sc
 Fetch "$HF/immich-app/buffalo_l/resolve/main/recognition/model.onnx" "$models/arcface_r100.onnx"
 
 Write-Host "`nDone. Launch Polymath — LLMs auto-register on first run (Model Manager to adjust roles)." -ForegroundColor Green
+if (-not $Heavy) {
+  Write-Host "Heavy 27B is parked (use -Heavy on capable machines). See docs/MODELS.md." -ForegroundColor DarkGray
+}
