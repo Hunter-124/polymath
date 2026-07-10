@@ -26,4 +26,14 @@ struct Persona {
 // assistant prompt, all tools allowed) with loaded=false. Never throws.
 Persona loadActivePersona(Database& db);
 
+// Resolve ChatRequest.model_id for a persona: empty string means "use the
+// active Fast/Heavy role default"; any other value is an explicit registry id.
+// AgentLoop uses this for every generation step.
+inline std::string personaModelId(const Persona& p) {
+    if (p.preferred_model == "fast" || p.preferred_model == "heavy" ||
+        p.preferred_model.empty())
+        return {};
+    return p.preferred_model;
+}
+
 } // namespace polymath

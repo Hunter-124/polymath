@@ -4,6 +4,9 @@
 // EventBus::tokenStreamed) into a synchronous "issue request, block until the
 // matching request_id finishes" call usable from the agent worker thread.
 //
+// Used by AgentLoop v2 for every constrained / unconstrained completion
+// (router, plan, tool rounds, reflect, prompt steps, rolling summary).
+//
 // Internal to src/agent (NOT part of the frozen public contract). Mirrors the
 // scheduler's StreamCollector but lives in the agent module so the agent owns
 // no cross-module internals. The bus delivers token chunks from the inference

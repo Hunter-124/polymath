@@ -120,3 +120,13 @@ add_test(NAME j_phase2 COMMAND test_j_phase2_e2e)
 set_tests_properties(j_phase2 PROPERTIES
     TIMEOUT 240
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Overhaul C2 — AgentLoop v2 harness (goals, plan/execute/reflect, context v2).
+# Deterministic suite always runs; model-gated half skip-greens without GGUF.
+add_executable(test_harness_e2e test_harness_e2e.cpp)
+target_link_libraries(test_harness_e2e PRIVATE
+    pm_core pm_agent pm_inference pm_scheduler pm_memory pm_ui Qt6::Core)
+add_test(NAME harness COMMAND test_harness_e2e)
+set_tests_properties(harness PROPERTIES
+    TIMEOUT 300
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

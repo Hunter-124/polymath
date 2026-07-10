@@ -8,6 +8,7 @@ find_package(Qt6 REQUIRED COMPONENTS PrintSupport)
 
 qt_add_library(pm_agent STATIC
     agent_runtime.cpp
+    agent_loop.cpp
     tool_registry.cpp
     turn_collector.cpp
     persona.cpp

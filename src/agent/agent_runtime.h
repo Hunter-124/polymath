@@ -1,11 +1,10 @@
 #pragma once
 //
-// AgentRuntime — drives the LLM<->tools loop for one conversation turn:
-//   1. Build messages (persona system prompt + history + user turn).
-//   2. Offer the allowed tools; constrain output to valid tool-call JSON (GBNF).
-//   3. If the model calls a tool: run it (inline) or queue it (isDeepTask) via
-//      the scheduler, feed the result back, and loop until a final answer.
-//   4. Stream the final answer's tokens to the UI and to TTS.
+// AgentRuntime — thin owner of AgentLoop v2 (overhaul 03 §2 / C2).
+//
+// Wires EventBus / service entry points onto a worker thread, owns the tool
+// registry + TurnCollector + AgentLoop, and serializes interactive turns.
+// All plan/execute/reflect / context assembly lives in AgentLoop.
 //
 #include "service.h"
 #include "tool_registry.h"
@@ -16,7 +15,6 @@
 #include <atomic>
 #include <memory>
 #include <string>
-#include <vector>
 
 namespace polymath {
 
@@ -25,19 +23,22 @@ class InferenceManager;
 class TaskScheduler;
 class MemoryService;
 class TurnCollector;
-struct Persona;
+class AgentLoop;
 
 class AgentRuntime : public QObject, public IService {
     Q_OBJECT
 public:
     AgentRuntime(Database& db, InferenceManager& inf, TaskScheduler& sched,
                  MemoryService* memory = nullptr, QObject* parent = nullptr);
+    ~AgentRuntime() override;
 
     void start() override;
     void stop() override;
     const char* serviceName() const override { return "agent"; }
 
     ToolRegistry& tools() { return registry_; }
+    // Exposed for tests / scheduler resume hooks (null until start()).
+    AgentLoop*    loop() { return loop_.get(); }
 
 public slots:
     // Entry points. Both run the agentic loop on this service's worker thread.
@@ -49,28 +50,8 @@ signals:
     void turnFinished(QString request_id, QString final_text);
 
 private:
-    // Core loop (runs on the agent worker thread; blocks here, never the UI).
+    // Core interactive path (runs on the agent worker thread).
     void runTurn(const std::string& user_text, const QString& request_id, bool from_voice);
-
-    // Build the system message: persona prompt + tool-use protocol + tool catalog.
-    std::string buildSystemPrompt(const Persona& persona,
-                                  const nlohmann::json& tool_specs) const;
-
-    // Final unconstrained generation: stream the answer under request_id, persist
-    // + speak it, and emit turnFinished. `fallback` is replayed if streaming fails.
-    void streamFinalAnswer(std::vector<ChatMessage>& messages,
-                           const Persona& persona,
-                           const QString& request_id,
-                           const std::string& fallback);
-
-    // Pull the last few command-turn transcripts as prior conversation context.
-    // `exclude_text`, if non-empty, drops an exact-match latest row (the current
-    // voice utterance, which AudioService persists before the agent runs).
-    std::vector<ChatMessage> recentHistory(int max_turns,
-                                           const std::string& exclude_text) const;
-
-    // Persist a line into `transcripts` (command turns only; ambient is audio's).
-    void persistTranscript(const std::string& text, bool assistant) const;
 
     Database&                      db_;
     InferenceManager&              inf_;
@@ -78,6 +59,7 @@ private:
     MemoryService*                 memory_ = nullptr;   // nullptr-safe
     ToolRegistry                   registry_;
     std::unique_ptr<TurnCollector> collector_;
+    std::unique_ptr<AgentLoop>     loop_;
     // One turn at a time: tool dispatch spins a nested event loop (Qt Network),
     // so a queued second turn must not interleave with one in flight.
     std::atomic<bool>              busy_{false};
