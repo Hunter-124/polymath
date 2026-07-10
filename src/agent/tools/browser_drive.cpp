@@ -1,6 +1,7 @@
 #include "browser_drive.h"
 #include "event_bus.h"
 #include "logging.h"
+#include "paths.h"
 
 #include <QByteArray>
 #include <QDir>
@@ -13,6 +14,7 @@
 #include <QStringList>
 #include <QTcpSocket>
 #include <QThread>
+#include <QUuid>
 
 #include <algorithm>
 #include <array>
@@ -20,6 +22,10 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <random>
 #include <string>
 #include <vector>
@@ -415,6 +421,130 @@ std::string discoverPageWs(int requestedPort, const QString& profileDir, std::st
     return {};
 }
 
+// ---------------------------------------------------------------------------
+//  Persistent browser session pool (C5): reuse Chrome + CDP across invokes.
+// ---------------------------------------------------------------------------
+struct PersistentBrowser {
+    QProcess proc;
+    std::unique_ptr<CdpSession> cdp;
+    QString profile;
+    int port = 0;
+    bool headless = true;
+
+    bool alive() const {
+        return proc.state() != QProcess::NotRunning && cdp != nullptr;
+    }
+
+    void teardown() {
+        cdp.reset();
+        if (proc.state() != QProcess::NotRunning) {
+            proc.terminate();
+            if (!proc.waitForFinished(3000)) proc.kill();
+            proc.waitForFinished(2000);
+        }
+        if (!profile.isEmpty()) QDir(profile).removeRecursively();
+        profile.clear();
+        port = 0;
+    }
+
+    ~PersistentBrowser() { teardown(); }
+};
+
+std::mutex g_browser_mu;
+std::map<std::string, std::unique_ptr<PersistentBrowser>> g_browsers;
+
+// Launch (or return existing) persistent browser for `key`.
+// On failure, *err is set and nullptr returned.
+PersistentBrowser* acquireBrowser(const std::string& key, bool headless,
+                                  bool force_new, std::string* err) {
+    auto it = g_browsers.find(key);
+    if (!force_new && it != g_browsers.end() && it->second && it->second->alive()) {
+        btrace("reusing persistent browser session");
+        return it->second.get();
+    }
+    if (it != g_browsers.end()) {
+        it->second->teardown();
+        g_browsers.erase(it);
+    }
+
+    const QString chrome = findChrome();
+    if (chrome.isEmpty()) {
+        *err = "no Chrome/Chromium/Edge executable found";
+        return nullptr;
+    }
+
+    auto browser = std::make_unique<PersistentBrowser>();
+    browser->headless = headless;
+    browser->port = 9222 + (static_cast<int>(::time(nullptr)) % 5000);
+    browser->profile =
+        QDir::tempPath() + QStringLiteral("/pm-browser-drive-%1").arg(browser->port);
+    QDir(browser->profile).removeRecursively();
+
+    QStringList chromeArgs = {
+        QStringLiteral("--remote-debugging-port=%1").arg(browser->port),
+        "--remote-allow-origins=*",
+        "--no-first-run", "--no-default-browser-check",
+        "--disable-gpu", "--disable-extensions",
+        QStringLiteral("--user-data-dir=%1").arg(browser->profile),
+        "about:blank",
+    };
+    if (headless) chromeArgs.prepend("--headless=new");
+
+    browser->proc.setProgram(chrome);
+    browser->proc.setArguments(chromeArgs);
+    browser->proc.setStandardOutputFile(QProcess::nullDevice());
+    browser->proc.setStandardErrorFile(QProcess::nullDevice());
+    btrace("launching chrome (persistent session)");
+    browser->proc.start();
+    if (!browser->proc.waitForStarted(8000)) {
+        *err = "failed to start Chrome";
+        return nullptr;
+    }
+
+    std::string discErr;
+    const std::string wsUrl = discoverPageWs(browser->port, browser->profile, discErr);
+    if (wsUrl.empty()) {
+        browser->teardown();
+        *err = discErr;
+        return nullptr;
+    }
+
+    browser->cdp = std::make_unique<CdpSession>();
+    if (!browser->cdp->connectTo(QString::fromStdString(wsUrl))) {
+        *err = browser->cdp->error();
+        browser->teardown();
+        return nullptr;
+    }
+    browser->cdp->call("Page.enable", nlohmann::json::object());
+    browser->cdp->call("Runtime.enable", nlohmann::json::object());
+
+    auto* raw = browser.get();
+    g_browsers[key] = std::move(browser);
+    return raw;
+}
+
+// Save a PNG from base64 CDP data into media/browser/ (or temp).
+std::string saveScreenshotPng(const std::string& b64) {
+    const QByteArray png = QByteArray::fromBase64(QByteArray::fromStdString(b64));
+    if (png.isEmpty()) return {};
+
+    std::filesystem::path dir;
+    if (!Paths::instance().root().empty()) {
+        dir = Paths::instance().media() / "browser";
+    } else {
+        dir = std::filesystem::temp_directory_path() / "polymath_browser";
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    const auto path = dir / (QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString()
+                             + ".png");
+    QFile f(QString::fromStdString(path.string()));
+    if (!f.open(QIODevice::WriteOnly)) return {};
+    f.write(png);
+    f.close();
+    return path.string();
+}
+
 } // namespace
 
 // ===========================================================================
@@ -424,11 +554,11 @@ std::string discoverPageWs(int requestedPort, const QString& profileDir, std::st
 std::string BrowserDriveTool::name() const { return "browser_drive"; }
 
 std::string BrowserDriveTool::description() const {
-    return "Drive a real Chrome browser to automate the web via the DevTools "
-           "Protocol: navigate to a URL, optionally click an element or type into "
-           "a field (CSS selectors), then extract the page's title and readable "
-           "text. Use for logged-in sites or pages that need scripted interaction "
-           "(prefer fetch_page for simple static reads).";
+    return "Drive a real Chrome browser via the DevTools Protocol: navigate, "
+           "optionally click/type (CSS selectors), extract title + text, and "
+           "optionally capture a screenshot into the tool result. Sessions are "
+           "reused across calls (set reuse=false or close=true to tear down). "
+           "Prefer fetch_page for simple static reads.";
 }
 
 nlohmann::json BrowserDriveTool::parametersSchema() const {
@@ -436,7 +566,8 @@ nlohmann::json BrowserDriveTool::parametersSchema() const {
         {"type", "object"},
         {"properties", {
             {"url",       {{"type", "string"},
-                           {"description", "Absolute http(s) URL to navigate to"}}},
+                           {"description", "Absolute http(s) URL to navigate to "
+                                           "(optional if reusing a session on the same page)"}}},
             {"click",     {{"type", "string"},
                            {"description", "Optional CSS selector to click after load"}}},
             {"type_into", {{"type", "string"},
@@ -450,116 +581,95 @@ nlohmann::json BrowserDriveTool::parametersSchema() const {
             {"max_chars", {{"type", "integer"},
                            {"description", "Truncate extracted text to N chars (default 6000)"}}},
             {"headless",  {{"type", "boolean"},
-                           {"description", "Run Chrome headless (default true)"}}},
+                           {"description", "Run Chrome headless (default true; only on new session)"}}},
+            {"reuse",     {{"type", "boolean"},
+                           {"description", "Reuse a persistent browser session (default true)"}}},
+            {"session",   {{"type", "string"},
+                           {"description", "Named session key for reuse (default \"default\")"}}},
+            {"close",     {{"type", "boolean"},
+                           {"description", "Close the browser session after this call (default false)"}}},
+            {"screenshot",{{"type", "boolean"},
+                           {"description", "Capture a PNG screenshot into the result (default true)"}}},
         }},
-        {"required", {"url"}},
+        // url required only when not close-only; enforced in invoke
     };
 }
 
 ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext&) {
+    const bool close_after = args.value("close", false);
+    const bool reuse = args.value("reuse", true);
+    const bool want_shot = args.value("screenshot", true);
+    const bool headless = args.value("headless", true);
+    const std::string session_key = args.value("session", std::string{"default"});
     const std::string url = args.value("url", "");
-    if (url.empty())
-        return {false, {{"error", "url required"}}, "browser_drive: missing url"};
-    if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0 &&
+
+    // close-only: tear down without navigating.
+    if (close_after && url.empty() && !args.contains("click") && !args.contains("type_into")) {
+        std::lock_guard<std::mutex> lock(g_browser_mu);
+        auto it = g_browsers.find(session_key);
+        if (it != g_browsers.end()) {
+            it->second->teardown();
+            g_browsers.erase(it);
+        }
+        return {true, {{"closed", true}, {"session", session_key}},
+                "browser_drive: closed session " + session_key};
+    }
+
+    if (url.empty() && !reuse) {
+        return {false, {{"error", "url required when reuse=false"}},
+                "browser_drive: missing url"};
+    }
+    if (!url.empty() &&
+        url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0 &&
         url.rfind("file://", 0) != 0)
         return {false, {{"error", "url must be http(s)/file"}}, "browser_drive: bad url"};
 
     size_t max_chars = static_cast<size_t>(args.value("max_chars", 6000));
     if (max_chars == 0 || max_chars > 64000) max_chars = 6000;
-    const bool headless = args.value("headless", true);
 
-    const QString chrome = findChrome();
-    if (chrome.isEmpty()) {
+    std::lock_guard<std::mutex> lock(g_browser_mu);
+
+    std::string acqErr;
+    PersistentBrowser* browser = acquireBrowser(
+        session_key, headless, /*force_new=*/!reuse, &acqErr);
+    if (!browser) {
         return {false,
-                {{"error", "no Chrome/Chromium/Edge executable found"},
+                {{"error", acqErr},
                  {"hint", "install Google Chrome; browser_drive launches it with "
                           "--remote-debugging-port"}},
-                "browser_drive: Chrome not installed"};
+                "browser_drive: " + acqErr};
     }
 
-    // --- 1) launch Chrome with a debugging port + throwaway profile -----------
-    const int port = 9222 + (static_cast<int>(::time(nullptr)) % 5000);   // avoid clashes
-    const QString profile =
-        QDir::tempPath() + QStringLiteral("/pm-browser-drive-%1").arg(port);
-    QDir(profile).removeRecursively();
-
-    QStringList chromeArgs = {
-        QStringLiteral("--remote-debugging-port=%1").arg(port),
-        "--remote-allow-origins=*",          // required by modern Chrome for the WS handshake
-        "--no-first-run", "--no-default-browser-check",
-        "--disable-gpu", "--disable-extensions",
-        QStringLiteral("--user-data-dir=%1").arg(profile),
-        "about:blank",
-    };
-    if (headless) chromeArgs.prepend("--headless=new");
-
-    QProcess proc;
-    proc.setProgram(chrome);
-    proc.setArguments(chromeArgs);
-    // Discard Chrome's (verbose) stdout/stderr to the null device. Otherwise the
-    // OS pipe buffer fills, Chrome blocks on a logging write, and the CDP server
-    // goes unresponsive — a classic QProcess deadlock when nobody drains the pipe.
-    proc.setStandardOutputFile(QProcess::nullDevice());
-    proc.setStandardErrorFile(QProcess::nullDevice());
-    btrace("launching chrome");
-    proc.start();
-    if (!proc.waitForStarted(8000)) {
-        return {false, {{"error", "failed to start Chrome"}},
-                "browser_drive: Chrome launch failed"};
-    }
-    btrace("chrome started");
-
-    // Ensure Chrome is always torn down, however we exit.
-    struct Guard {
-        QProcess& p; QString dir;
-        ~Guard() {
-            if (p.state() != QProcess::NotRunning) {
-                p.terminate();
-                if (!p.waitForFinished(3000)) p.kill();
-                p.waitForFinished(2000);
-            }
-            QDir(dir).removeRecursively();
-        }
-    } guard{proc, profile};
+    CdpSession& cdp = *browser->cdp;
+    const bool reused = reuse && browser->alive();  // true once acquired; log intent
+    (void)reused;
 
     EventBus::instance().publishNotice(
         {"info", "browser",
-         QStringLiteral("browser_drive: launched Chrome (port %1), navigating %2")
-             .arg(port).arg(QString::fromStdString(url))});
+         QStringLiteral("browser_drive: session=%1 port=%2 %3")
+             .arg(QString::fromStdString(session_key))
+             .arg(browser->port)
+             .arg(url.empty()
+                      ? QStringLiteral("(no navigate)")
+                      : QStringLiteral("→ %1").arg(QString::fromStdString(url)))});
 
-    // --- 2) discover the page target's WS URL ---------------------------------
-    btrace("discovering page ws");
-    std::string discErr;
-    const std::string wsUrl = discoverPageWs(port, profile, discErr);
-    if (wsUrl.empty())
-        return {false, {{"error", discErr}}, "browser_drive: " + discErr};
-    btrace("got page ws url");
-
-    // --- 3) connect the CDP WebSocket -----------------------------------------
-    CdpSession cdp;
-    if (!cdp.connectTo(QString::fromStdString(wsUrl))) {
-        return {false, {{"error", cdp.error()}, {"ws", wsUrl}},
-                "browser_drive: CDP connect failed (" + cdp.error() + ")"};
+    // --- navigate (optional when reusing) ------------------------------------
+    if (!url.empty()) {
+        auto nav = cdp.call("Page.navigate", {{"url", url}}, 20000);
+        if (!nav.ok) {
+            // Session may be dead — drop it so the next call relaunches.
+            browser->teardown();
+            g_browsers.erase(session_key);
+            return {false, {{"error", nav.error}, {"url", url}},
+                    "browser_drive: navigate failed (" + nav.error + ")"};
+        }
+        btrace("navigated");
+        cdp.waitForEvent("Page.loadEventFired", 15000);
+        btrace("load wait done");
     }
-    btrace("ws connected");
-
-    cdp.call("Page.enable", nlohmann::json::object());
-    cdp.call("Runtime.enable", nlohmann::json::object());
-    btrace("page+runtime enabled");
-
-    // --- 4) navigate + wait for load -----------------------------------------
-    auto nav = cdp.call("Page.navigate", {{"url", url}}, 20000);
-    if (!nav.ok)
-        return {false, {{"error", nav.error}, {"url", url}},
-                "browser_drive: navigate failed (" + nav.error + ")"};
-    btrace("navigated");
-    // Best-effort wait for the load event; proceed on timeout (SPA/no event).
-    cdp.waitForEvent("Page.loadEventFired", 15000);
-    btrace("load wait done");
 
     nlohmann::json actions = nlohmann::json::array();
 
-    // --- 4a) optional type-into (set .value + fire input/change) --------------
     if (args.contains("type_into") && args["type_into"].is_string()) {
         const std::string sel = args["type_into"].get<std::string>();
         const std::string txt = args.value("type_text", "");
@@ -575,7 +685,6 @@ ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext&) {
             r.ok ? r.json["result"].value("value", std::string{"?"}) : std::string{"error"}}});
     }
 
-    // --- 4b) optional click ---------------------------------------------------
     if (args.contains("click") && args["click"].is_string()) {
         const std::string sel = args["click"].get<std::string>();
         const std::string js =
@@ -585,11 +694,10 @@ ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext&) {
                           {{"expression", js}, {"returnByValue", true}});
         actions.push_back({{"click", sel}, {"result",
             r.ok ? r.json["result"].value("value", std::string{"?"}) : std::string{"error"}}});
-        // Give a click-triggered navigation/render a moment.
         cdp.waitForEvent("Page.loadEventFired", 4000);
     }
 
-    // --- 5) extract title + readable text -------------------------------------
+    // --- extract title + text ------------------------------------------------
     const std::string extractSel = args.value("extract_selector", "");
     const std::string textExpr =
         extractSel.empty()
@@ -601,8 +709,11 @@ ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext&) {
 
     auto ext = cdp.call("Runtime.evaluate",
                         {{"expression", extractJs}, {"returnByValue", true}}, 15000);
-    if (!ext.ok)
+    if (!ext.ok) {
+        browser->teardown();
+        g_browsers.erase(session_key);
         return {false, {{"error", ext.error}}, "browser_drive: extract failed (" + ext.error + ")"};
+    }
 
     std::string title, finalUrl, text;
     {
@@ -621,17 +732,51 @@ ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext&) {
         {"title", title},
         {"text", text},
         {"actions", actions},
+        {"session", session_key},
+        {"reused", reuse},
     };
 
-    const std::string label = title.empty() ? url : title;
+    // --- screenshot (Page.captureScreenshot) ---------------------------------
+    if (want_shot) {
+        auto shot = cdp.call("Page.captureScreenshot",
+                             {{"format", "png"}, {"fromSurface", true}}, 15000);
+        if (shot.ok && shot.json.contains("data") && shot.json["data"].is_string()) {
+            const std::string b64 = shot.json["data"].get<std::string>();
+            const std::string path = saveScreenshotPng(b64);
+            if (!path.empty()) {
+                content["screenshot_path"] = path;
+                // Keep a short prefix for model grounding without bloating context.
+                content["screenshot_b64_prefix"] =
+                    b64.substr(0, std::min<size_t>(b64.size(), 120));
+                content["screenshot_bytes"] = static_cast<int>(
+                    QByteArray::fromBase64(QByteArray::fromStdString(b64)).size());
+            } else {
+                content["screenshot_error"] = "failed to write png";
+            }
+        } else {
+            content["screenshot_error"] = shot.ok ? "no data" : shot.error;
+        }
+    }
+
+    if (close_after) {
+        browser->teardown();
+        g_browsers.erase(session_key);
+        content["closed"] = true;
+    }
+
+    const std::string label = title.empty() ? (url.empty() ? session_key : url) : title;
     EventBus::instance().publishNotice(
         {"info", "browser",
-         QStringLiteral("browser_drive: extracted \"%1\" (%2 chars)")
+         QStringLiteral("browser_drive: extracted \"%1\" (%2 chars)%3")
              .arg(QString::fromStdString(label))
-             .arg(static_cast<int>(text.size()))});
+             .arg(static_cast<int>(text.size()))
+             .arg(content.contains("screenshot_path")
+                      ? QStringLiteral(" + screenshot")
+                      : QString())});
 
     return {true, std::move(content),
             "Drove browser to \"" + label + "\" (" + std::to_string(text.size()) + " chars)"};
 }
 
 } // namespace polymath
+

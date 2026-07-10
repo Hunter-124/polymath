@@ -1,11 +1,10 @@
 #pragma once
 //
-// browser_drive — a Phase-2 web-automation ITool. Drives a real Chrome/Chromium
-// via the Chrome DevTools Protocol (CDP): it launches Chrome with
-// `--remote-debugging-port`, discovers the page target's WebSocket debugger URL
-// over CDP's HTTP `/json` endpoint, then speaks CDP over a WebSocket to perform a
-// scripted navigate + extract round-trip (and, where feasible, click / type into
-// form fields). Implementation in browser_drive.cpp.
+// browser_drive — web-automation ITool via Chrome DevTools Protocol (CDP).
+// Launches Chrome with `--remote-debugging-port`, speaks CDP over a minimal
+// RFC6455 WebSocket (QTcpSocket; Qt6::WebSockets not in kit). C5: persistent
+// session reuse across invokes + optional Page.captureScreenshot into the
+// tool result (path + short b64 prefix). Implementation in browser_drive.cpp.
 //
 // Why not Qt6::WebSockets? That module is NOT in the deployed Qt kit (only
 // Qt6::Network is). Rather than pull a large new third-party dependency, the CDP

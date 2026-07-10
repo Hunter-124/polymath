@@ -28,10 +28,16 @@ qt_add_library(pm_agent STATIC
     tools/camera_tools.cpp
     tools/queue_tool.cpp
     tools/skill_tools.cpp
+    # Named uicontrol_tool (not ui_control_tool) so AUTOUIC does not treat
+    # #include "ui_*.h" as a Qt Designer form header.
+    tools/uicontrol_tool.cpp
+    tools/agent_session_tools.cpp
 )
 target_include_directories(pm_agent PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # Qt Core: QFileSystemWatcher / QTimer for SkillRegistry hot-reload.
 # Network: web tools; Gui/PrintSupport: print tools.
+# agent_* tools talk to AgentSessionService via QObject/QMetaObject (no hard
+# link to pm_sessions — that target is added after pm_agent in the root CMake).
 target_link_libraries(pm_agent PUBLIC pm_core pm_inference pm_scheduler pm_memory
     PRIVATE Qt6::Core Qt6::Network Qt6::Gui Qt6::PrintSupport)
 

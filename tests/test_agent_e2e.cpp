@@ -88,16 +88,30 @@ void testAllToolsDirect(const std::filesystem::path& root) {
     ToolRegistry reg;
     registerBuiltinTools(reg);
 
-    // The registry must expose exactly the 17 builtin tools.
-    // (Wave 3 · Card J added browser_drive; count bumped 16 -> 17.)
+    // C5: 17 legacy leaf tools + run_skill/save_skill + 5 agent_* + ui_control = 25.
     const auto names = reg.names();
-    assert(names.size() == 17 && "expected 17 builtin tools");
+    assert(names.size() == 25 && "expected 25 builtin tools");
     for (const char* n : {"shopping_add", "shopping_list", "shopping_remove",
                           "web_search", "fetch_page", "browser_drive", "draft_document",
                           "generate_lab_report", "print_document", "print_image",
                           "set_reminder", "remember", "recall", "search_memory",
-                          "camera_snapshot", "who_is_home", "queue_deep_task"})
+                          "camera_snapshot", "who_is_home", "queue_deep_task",
+                          "run_skill", "save_skill",
+                          "agent_spawn", "agent_send", "agent_status", "agent_stop",
+                          "agent_watch", "ui_control"})
         assert(reg.get(n) != nullptr && "missing builtin tool");
+
+    // Risk metadata (03 §5).
+    assert(reg.riskOf("recall") == ToolRiskClass::Read);
+    assert(reg.riskOf("shopping_add") == ToolRiskClass::WriteLocal);
+    assert(reg.riskOf("web_search") == ToolRiskClass::External);
+    assert(reg.riskOf("browser_drive") == ToolRiskClass::External);
+    assert(reg.riskOf("agent_spawn") == ToolRiskClass::External);
+    assert(reg.riskOf("print_document") == ToolRiskClass::Spend);
+    assert(reg.requiresConfirmation("print_document"));
+    assert(!reg.requiresConfirmation("recall"));
+    assert(reg.riskOf("ui_control") == ToolRiskClass::WriteLocal);
+    assert(reg.riskOf("run_skill") == ToolRiskClass::WriteLocal);
 
     // InferenceManager is required by MemoryService; no GGUF needed for keyword
     // fallback. ToolContext.memory is wired so remember/recall prefer the service.
@@ -550,6 +564,61 @@ void testA3HarnessFixes(const std::filesystem::path& root) {
         assert(inf.countTokens(QString()) == 0);
         db.close();
         std::puts("  [ok] A3 InferenceManager::countTokens (no-model fallback)");
+    }
+
+    // --- C5: ui_control spawn round-trip (tool → EventBus surfaceRequested) ---
+    {
+        ToolRegistry reg;
+        registerBuiltinTools(reg);
+        auto* tool = reg.get("ui_control");
+        assert(tool && "ui_control not registered");
+
+        SurfaceRequest got;
+        bool saw = false;
+        QObject guard;
+        QObject::connect(&EventBus::instance(), &EventBus::surfaceRequested, &guard,
+                         [&](const SurfaceRequest& r) {
+                             got = r;
+                             saw = true;
+                         });
+
+        ToolContext ctx;
+        auto r = tool->invoke(
+            {{"action", "spawn_surface"},
+             {"type", "placeholder"},
+             {"title", "C5 test surface"},
+             {"args", {{"note", "ui_control round-trip"}}}},
+            ctx);
+        assert(r.ok);
+        QCoreApplication::processEvents();
+        assert(saw && "ui_control did not publish SurfaceRequest");
+        assert(got.action == QLatin1String("spawn"));
+        assert(got.type == QLatin1String("placeholder"));
+        assert(got.title == QLatin1String("C5 test surface"));
+        assert(!got.id.isEmpty());
+        assert(got.args_json.contains(QStringLiteral("ui_control round-trip")));
+        assert(r.content.value("published", false) == true);
+
+        // agent_* without service: clear refusal (not a crash).
+        auto* spawn = reg.get("agent_spawn");
+        assert(spawn);
+        setAgentSessionService(nullptr);
+        auto refused = spawn->invoke(
+            {{"provider", "claude-code"},
+             {"cwd", "C:/tmp"},
+             {"prompt", "hi"}},
+            ctx);
+        assert(!refused.ok);
+        assert(refused.content.contains("error"));
+
+        // agent_watch works without sessions service.
+        auto* watch = reg.get("agent_watch");
+        assert(watch);
+        auto w = watch->invoke({{"notify", "toast"}}, ctx);
+        assert(w.ok);
+        assert(w.content["watch"]["active"] == true);
+
+        std::puts("  [ok] C5 ui_control bus round-trip + agent tool inventory");
     }
 
     std::puts("test_agent_e2e: A3 harness fixes asserted");

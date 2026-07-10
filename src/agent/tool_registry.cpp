@@ -3,6 +3,18 @@
 
 namespace polymath {
 
+void ToolRegistry::add(std::shared_ptr<ITool> tool, ToolRiskClass risk) {
+    if (!tool) return;
+    const std::string n = tool->name();
+    tools_[n] = std::move(tool);
+    risks_[n] = risk;
+}
+
+ToolRiskClass ToolRegistry::riskOf(const std::string& name) const {
+    auto it = risks_.find(name);
+    return it == risks_.end() ? ToolRiskClass::Read : it->second;
+}
+
 std::vector<std::string> ToolRegistry::names() const {
     std::vector<std::string> out;
     out.reserve(tools_.size());
@@ -22,6 +34,7 @@ nlohmann::json ToolRegistry::specs(const std::vector<std::string>& allow) const 
                 {"description", tool->description()},
                 {"parameters", tool->parametersSchema()},
             }},
+            {"risk", toolRiskClassName(riskOf(name))},
         });
     }
     return arr;
