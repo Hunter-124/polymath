@@ -12,6 +12,8 @@ qt_add_library(pm_agent STATIC
     tool_registry.cpp
     turn_collector.cpp
     persona.cpp
+    skills/skill.cpp
+    skills/skill_registry.cpp
     tools/register_tools.cpp
     tools/tool_support.cpp
     tools/docx_writer.cpp
@@ -25,7 +27,16 @@ qt_add_library(pm_agent STATIC
     tools/memory_tools.cpp
     tools/camera_tools.cpp
     tools/queue_tool.cpp
+    tools/skill_tools.cpp
 )
 target_include_directories(pm_agent PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+# Qt Core: QFileSystemWatcher / QTimer for SkillRegistry hot-reload.
+# Network: web tools; Gui/PrintSupport: print tools.
 target_link_libraries(pm_agent PUBLIC pm_core pm_inference pm_scheduler pm_memory
-    PRIVATE Qt6::Network Qt6::Gui Qt6::PrintSupport)   # Network: web tools; Gui/PrintSupport: print tools
+    PRIVATE Qt6::Core Qt6::Network Qt6::Gui Qt6::PrintSupport)
+
+# Starter skill bundles live in the source tree under data/skills/. SkillRegistry
+# seeds an empty user skills dir from this path on first load (dev builds).
+target_compile_definitions(pm_agent PRIVATE
+    POLYMATH_SKILLS_DIR="${CMAKE_SOURCE_DIR}/data/skills"
+)

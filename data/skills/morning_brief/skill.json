@@ -1,0 +1,40 @@
+{
+  "name": "morning_brief",
+  "description": "Weather-less morning brief: reminders due today, yesterday summary, and task queue status — delivered spoken",
+  "triggers": [
+    "morning brief",
+    "good morning",
+    "what's on today",
+    "brief me"
+  ],
+  "params": {
+    "type": "object",
+    "properties": {}
+  },
+  "confirm": false,
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "search_memory",
+      "description": "Pull yesterday's notes and daily summaries from memory",
+      "args": {
+        "query": "yesterday summary events notes day",
+        "k": 8,
+        "kind": "summary"
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "recall",
+      "description": "Recall open loops, commitments, and recent household context",
+      "args": {
+        "query": "reminders tasks commitments today",
+        "k": 6
+      }
+    },
+    {
+      "kind": "prompt",
+      "description": "Compose a concise spoken morning brief (under 90 seconds when read aloud). Cover three sections only: (1) reminders due today — use any reminder context available or say none known, (2) yesterday's summary from memory results, (3) current task queue status (active/queued/blocked). Warm and efficient; skip empty sections in one short clause. Do not invent weather."
+    }
+  ]
+}

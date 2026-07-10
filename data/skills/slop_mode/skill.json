@@ -1,0 +1,43 @@
+{
+  "name": "slop_mode",
+  "description": "Ambient YouTube + agent-session babysitting",
+  "triggers": [
+    "slop mode",
+    "put something on and watch my agents",
+    "background youtube and watch agents"
+  ],
+  "params": {
+    "type": "object",
+    "properties": {
+      "topic": {
+        "type": "string",
+        "description": "YouTube search topic / vibe"
+      }
+    },
+    "required": ["topic"]
+  },
+  "confirm": false,
+  "steps": [
+    {
+      "kind": "surface",
+      "description": "Spawn YouTube surface for {topic}",
+      "args": {
+        "action": "spawn",
+        "type": "web",
+        "title": "YouTube",
+        "args": {
+          "url": "https://youtube.com/results?q={topic}",
+          "mode": "video"
+        }
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "agent_watch",
+      "description": "Babysit open agent sessions with voice notify",
+      "args": {
+        "notify": "voice"
+      }
+    }
+  ]
+}

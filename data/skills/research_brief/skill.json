@@ -1,0 +1,72 @@
+{
+  "name": "research_brief",
+  "description": "Research a topic via multiple web searches, fetch a key page, summarize into a document and notification",
+  "triggers": [
+    "research brief",
+    "research this",
+    "deep research",
+    "look into"
+  ],
+  "params": {
+    "type": "object",
+    "properties": {
+      "topic": {
+        "type": "string",
+        "description": "Topic to research"
+      },
+      "angle": {
+        "type": "string",
+        "description": "Optional focus or angle"
+      }
+    },
+    "required": ["topic"]
+  },
+  "confirm": false,
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "web_search",
+      "description": "Broad overview search for {topic}",
+      "args": {
+        "query": "{topic} overview",
+        "max_results": 5
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "web_search",
+      "description": "Recent developments on {topic}",
+      "args": {
+        "query": "{topic} recent developments",
+        "max_results": 5
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "web_search",
+      "description": "Analysis and sources on {topic} ({angle})",
+      "args": {
+        "query": "{topic} {angle} analysis",
+        "max_results": 5
+      }
+    },
+    {
+      "kind": "prompt",
+      "description": "From the three web_search result sets, pick the single most useful URL for deeper reading on {topic} (angle: {angle}). Then use fetch_page on that URL. If none are useful, note why and continue with snippets only."
+    },
+    {
+      "kind": "prompt",
+      "description": "Write a concise research brief on {topic} (focus: {angle}) using the search results and any fetched page. Structure: executive summary, key findings, caveats, open questions, sources (titles + URLs)."
+    },
+    {
+      "kind": "tool",
+      "tool": "draft_document",
+      "description": "Persist the research brief as a document for the user",
+      "args": {
+        "title": "Research brief: {topic}",
+        "summary": "Auto-generated research brief on {topic} (angle: {angle}).",
+        "body": "Replace this body with the full research brief from the previous step."
+      }
+    }
+  ]
+}
