@@ -130,3 +130,11 @@ add_test(NAME harness COMMAND test_harness_e2e)
 set_tests_properties(harness PROPERTIES
     TIMEOUT 300
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Overhaul C3 — skills registry load/validate/param substitution + starter skills.
+add_executable(test_skills test_skills.cpp)
+target_link_libraries(test_skills PRIVATE pm_core pm_agent Qt6::Core)
+add_test(NAME skills COMMAND test_skills)
+set_tests_properties(skills PROPERTIES
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
