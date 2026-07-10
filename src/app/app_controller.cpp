@@ -20,8 +20,10 @@
 #include "task_model.h"
 #include "timeline_model.h"
 #include "notifications_model.h"
+#include "sessions_model.h"
 #include "settings_controller.h"
 #include "camera_image_provider.h"
+#include "agent_session_service.h"
 
 #include "app_bridge.h"
 #include "gateway_service.h"
@@ -80,6 +82,8 @@ bool AppController::initialize() {
     vision_      = std::make_unique<VisionService>(db_, *inference_);
     audio_       = std::make_unique<AudioService>(db_);
     personality_ = std::make_unique<PersonalityManager>(db_);
+    // C4: external agent sessions (Claude Code / Codex / PTY). Needs Config.
+    sessions_    = std::make_unique<AgentSessionService>(db_, *config_);
 
     // --- UI data models (own thread = UI thread; parented to this) ---
     buildModels();
@@ -96,6 +100,7 @@ bool AppController::initialize() {
     threads_.push_back(runOnThread(agent_.get(), agent_.get()));
     threads_.push_back(runOnThread(vision_.get(), vision_.get()));
     threads_.push_back(runOnThread(audio_.get(), audio_.get()));
+    threads_.push_back(runOnThread(sessions_.get(), sessions_.get()));
     personality_->start();   // lightweight: stays on the UI thread
 
     // --- mobile/web gateway (LAN HTTP+WS, optional relay tunnel) ---
@@ -238,6 +243,9 @@ void AppController::buildModels() {
     task_model_     = std::make_unique<TaskModel>(db_, this);
     timeline_model_ = std::make_unique<TimelineModel>(db_, this);
     notifications_model_ = std::make_unique<NotificationsModel>(db_, this);
+    sessions_model_ = std::make_unique<SessionsModel>(db_, this);
+    if (sessions_)
+        sessions_model_->setService(sessions_.get());
     image_provider_ = new CameraImageProvider();   // engine takes ownership later
 
     // SettingsController needs Config (seeded in initialize before buildModels).
@@ -250,6 +258,8 @@ void AppController::buildModels() {
     task_model_->refresh();
     timeline_model_->refresh();
     notifications_model_->refreshFromEvents();
+    // sessions_model_ refreshes after the service thread has ensureSchema'd;
+    // a deferred refresh is triggered from wireModels once the bus is live.
 }
 
 void AppController::wireModels() {
@@ -303,6 +313,12 @@ void AppController::wireModels() {
         connect(&bus, &EventBus::goalUpdated, notifications_model_.get(),
                 &NotificationsModel::onGoalUpdate);
     }
+
+    // C4: external agent sessions → SessionsModel (queued onto UI thread).
+    if (sessions_model_) {
+        connect(&bus, &EventBus::agentSessionEvent, sessions_model_.get(),
+                &SessionsModel::onAgentSessionEvent);
+    }
 }
 
 void AppController::registerWithEngine(QQmlApplicationEngine& engine) {
@@ -326,6 +342,8 @@ void AppController::registerWithEngine(QQmlApplicationEngine& engine) {
     // Overhaul A2 facades.
     ctx->setContextProperty("settings",      settings_.get());
     ctx->setContextProperty("notifications", notifications_model_.get());
+    // C4: external agent session cards.
+    ctx->setContextProperty("agentSessions", sessions_model_.get());
     // Real app enables MultiEffect glass; capture_views forces false.
     ctx->setContextProperty("pmEffectsEnabled", true);
 }
@@ -345,6 +363,7 @@ void AppController::shutdown() {
     if (camera_model_)   disconnect(&bus, nullptr, camera_model_.get(),   nullptr);
     if (task_model_)     disconnect(&bus, nullptr, task_model_.get(),     nullptr);
     if (timeline_model_) disconnect(&bus, nullptr, timeline_model_.get(), nullptr);
+    if (sessions_model_) disconnect(&bus, nullptr, sessions_model_.get(), nullptr);
     // The frame-feed lambda is owned by `this` as the connection context.
     disconnect(&bus, &EventBus::frameReady, this, nullptr);
     image_provider_ = nullptr;   // ownership belongs to the QML engine
@@ -360,6 +379,7 @@ void AppController::shutdown() {
     // Drop the UI models (parented to this, but reset explicitly for order).
     chat_model_.reset(); shopping_model_.reset(); camera_model_.reset();
     task_model_.reset(); timeline_model_.reset();
+    sessions_model_.reset(); notifications_model_.reset(); settings_.reset();
 
     // Gateway first (its thread is already joined above): it holds refs to the
     // bridge, db_ and config_, so it must die before them.
@@ -367,6 +387,7 @@ void AppController::shutdown() {
 
     inference_.reset(); scheduler_.reset(); proactive_.reset(); idle_.reset();
     memory_.reset(); agent_.reset(); vision_.reset(); audio_.reset(); personality_.reset();
+    sessions_.reset();
     config_.reset();   // outlived the gateway; safe to drop before the DB closes
     db_.close();
 }

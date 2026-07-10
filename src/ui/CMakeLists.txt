@@ -84,6 +84,7 @@ qt_add_qml_module(pm_ui
         models/task_model.h           models/task_model.cpp
         models/timeline_model.h       models/timeline_model.cpp
         models/notifications_model.h  models/notifications_model.cpp
+        models/sessions_model.h       models/sessions_model.cpp
         settings_controller.h         settings_controller.cpp
         camera_image_provider.h       camera_image_provider.cpp
 )
@@ -102,7 +103,8 @@ set(_pm_ui_qt Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::Multimedia)
 if(TARGET Qt6::QuickEffects)
     list(APPEND _pm_ui_qt Qt6::QuickEffects)
 endif()
-target_link_libraries(pm_ui PUBLIC pm_core ${_pm_ui_qt})
+# pm_sessions: SessionsModel talks to AgentSessionService (spawn/send/stop).
+target_link_libraries(pm_ui PUBLIC pm_core pm_sessions ${_pm_ui_qt})
 
 # ---------------------------------------------------------------------------
 # capture_views — offscreen screenshot harness (Card F).  Renders every view to

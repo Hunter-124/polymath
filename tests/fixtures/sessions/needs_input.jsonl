@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"sess-need-002","model":"claude-sonnet-4-20250514"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I need to edit a file."},{"type":"tool_use","id":"tu1","name":"AskUserQuestion","input":{"questions":[{"question":"Allow editing src/auth/token.cpp?"}]}}]}}
+{"type":"permission_request","prompt":"Allow this tool to modify files? (y/n)"}

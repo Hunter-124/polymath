@@ -40,6 +40,8 @@ class TimelineModel;
 class CameraImageProvider;
 class SettingsController;
 class NotificationsModel;
+class SessionsModel;
+class AgentSessionService;
 
 class AppController : public QObject {
     Q_OBJECT
@@ -178,6 +180,7 @@ private:
     std::unique_ptr<TaskModel>           task_model_;
     std::unique_ptr<TimelineModel>       timeline_model_;
     std::unique_ptr<NotificationsModel>  notifications_model_;
+    std::unique_ptr<SessionsModel>        sessions_model_;
     std::unique_ptr<SettingsController>  settings_;
     // The QML engine takes ownership of the image provider on registration; we
     // keep a non-owning pointer to push frames into it. Guarded for lifetime by
@@ -198,6 +201,8 @@ private:
     std::unique_ptr<MemoryService>     memory_;
     std::unique_ptr<AgentRuntime>      agent_;
     std::unique_ptr<PersonalityManager> personality_;
+    // C4: external agent CLI sessions (own QThread).
+    std::unique_ptr<AgentSessionService> sessions_;
 
     // Mobile/web gateway: the IAssistantBridge adapter + the service it drives.
     // gateway_ runs on its own QThread (registered in threads_); bridge_ and

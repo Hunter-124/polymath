@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"sess-err-003","model":"claude-sonnet-4-20250514"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Attempting the task…"}]}}
+{"type":"result","subtype":"error","result":"API error: rate limited","is_error":true,"total_cost_usd":0.001}

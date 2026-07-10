@@ -7,6 +7,8 @@ target_include_directories(pm_app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(pm_app PUBLIC
     pm_core pm_inference pm_scheduler pm_audio pm_vision
     pm_memory pm_agent pm_personality
+    # pm_sessions: external agent CLI sessions (Claude Code / Codex / PTY).
+    pm_sessions
     # pm_ui supplies the Wave-3 data models + camera image provider that
     # AppController owns and registers with the QML engine.
     pm_ui

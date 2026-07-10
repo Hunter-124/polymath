@@ -73,6 +73,7 @@ add_subdirectory(src/vision)
 add_subdirectory(src/memory)
 add_subdirectory(src/agent)
 add_subdirectory(src/personality)
+add_subdirectory(src/sessions)
 add_subdirectory(src/app)
 add_subdirectory(src/ui)
 # Mobile/web gateway (HTTP + WebSocket + relay tunnel). Depends only on pm_core +

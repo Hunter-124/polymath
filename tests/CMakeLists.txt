@@ -138,3 +138,14 @@ add_test(NAME skills COMMAND test_skills)
 set_tests_properties(skills PROPERTIES
     TIMEOUT 120
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Overhaul C4 — agent sessions (providers, allowlist, model, bus).
+add_executable(test_sessions_e2e test_sessions_e2e.cpp)
+target_link_libraries(test_sessions_e2e PRIVATE
+    pm_core pm_sessions pm_ui Qt6::Core)
+target_compile_definitions(test_sessions_e2e PRIVATE
+    PM_SESSIONS_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/sessions")
+add_test(NAME sessions COMMAND test_sessions_e2e)
+set_tests_properties(sessions PROPERTIES
+    TIMEOUT 180
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

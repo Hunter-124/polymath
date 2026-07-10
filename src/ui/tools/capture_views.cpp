@@ -19,7 +19,6 @@
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
-#include <QQmlError>
 #include <QQuickWindow>
 #include <QQuickItem>
 #include <QQuickStyle>
@@ -68,21 +67,31 @@ public:
     Q_INVOKABLE void removeItem(int) {}
     Q_INVOKABLE void clearDone() {}
     Q_INVOKABLE void setFilter(const QString&) {}
-    // Dashboard HUD: count rows whose "status" role matches (case-sensitive).
-    Q_INVOKABLE int countByStatus(const QString& status) const {
-        int n = 0;
-        for (const auto& row : rows_) {
-            if (row.toMap().value(QStringLiteral("status")).toString() == status)
-                ++n;
-        }
-        return n;
+    // C4 SessionsModel surface (AgentSessionsView / Dashboard agent count).
+    Q_INVOKABLE QString spawn(const QString&, const QString&, const QString&,
+                              const QString& = {}) { return {}; }
+    Q_INVOKABLE void send(const QString&, const QString&) {}
+    Q_INVOKABLE void stop(const QString&) {}
+    Q_INVOKABLE void clearPing(const QString&) {}
+    Q_INVOKABLE QVariantList availableProviders() const {
+        return {
+            QVariantMap{{"name", "claude-code"}, {"available", true}, {"experimental", false}},
+            QVariantMap{{"name", "codex"}, {"available", false}, {"experimental", true}},
+            QVariantMap{{"name", "pty"}, {"available", true}, {"experimental", false}},
+        };
     }
+    Q_INVOKABLE QStringList eventLog(const QString&) const {
+        return {QStringLiteral("Started: session started"),
+                QStringLiteral("AssistantText: working…")};
+    }
+    Q_INVOKABLE QString lastError() const { return {}; }
 
 private:
     QHash<int, QByteArray> roles_;
     QVariantList rows_;
     Q_OBJECT
     Q_PROPERTY(QString filter MEMBER filter_)
+    Q_PROPERTY(int count READ rowCount CONSTANT)
     QString filter_;
 };
 
@@ -381,6 +390,36 @@ int main(int argc, char* argv[]) {
     auto* notifications = new StubNotifications(notifRows, &stub);
     notifications->setUnread(empty ? 0 : 2);
 
+    // C4: agentSessions model for AgentSessionsView (+ Dashboard agent count).
+    auto agentSessions = empty
+        ? new StubListModel(
+              {"sessionId","provider","title","cwd","status","lastMessage",
+               "costUsd","elapsed","unreadPing","experimental","createdAt","updatedAt"},
+              {}, &stub)
+        : new StubListModel(
+              {"sessionId","provider","title","cwd","status","lastMessage",
+               "costUsd","elapsed","unreadPing","experimental","createdAt","updatedAt"},
+              QVariantList{
+                  QVariantMap{{"sessionId","a1"},{"provider","claude-code"},
+                              {"title","Refactor auth"},{"cwd","C:/work/app"},
+                              {"status","needs_input"},
+                              {"lastMessage","Allow editing src/auth/token.cpp?"},
+                              {"costUsd",0.042},{"elapsed","3m"},
+                              {"unreadPing",true},{"experimental",false}},
+                  QVariantMap{{"sessionId","a2"},{"provider","claude-code"},
+                              {"title","Say READY"},{"cwd","C:/tmp"},
+                              {"status","working"},
+                              {"lastMessage","Running tests…"},
+                              {"costUsd",0.01},{"elapsed","45s"},
+                              {"unreadPing",false},{"experimental",false}},
+                  QVariantMap{{"sessionId","a3"},{"provider","codex"},
+                              {"title","Explore repo"},{"cwd","C:/work/app"},
+                              {"status","done"},
+                              {"lastMessage","Summary written to NOTES.md"},
+                              {"costUsd",0.12},{"elapsed","12m"},
+                              {"unreadPing",false},{"experimental",true}},
+              }, &stub);
+
     // --- helper: render one QML file to PNG ---------------------------------
     auto renderView = [&](const QString& qmlUrl, const QString& outPng, bool isWindow) -> bool {
         QQmlApplicationEngine engine;
@@ -397,16 +436,12 @@ int main(int argc, char* argv[]) {
         ctx->setContextProperty("gateway", &stubGw);
         ctx->setContextProperty("settings", &stubSettings);
         ctx->setContextProperty("notifications", notifications);
+        ctx->setContextProperty("agentSessions", agentSessions);
         // Software capture path: force faux-glass (no MultiEffect blur).
         ctx->setContextProperty("pmEffectsEnabled", false);
 
         if (isWindow) {
             // Main.qml is an ApplicationWindow — load it and grab the window.
-            QObject::connect(&engine, &QQmlApplicationEngine::warnings,
-                             [](const QList<QQmlError>& warnings) {
-                                 for (const auto& w : warnings)
-                                     fprintf(stderr, "  QML: %s\n", qPrintable(w.toString()));
-                             });
             engine.load(QUrl(qmlUrl));
             if (engine.rootObjects().isEmpty()) {
                 fprintf(stderr, "  load failed %s\n", qPrintable(qmlUrl)); return false;
