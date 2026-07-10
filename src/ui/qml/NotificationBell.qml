@@ -1,27 +1,27 @@
 import QtQuick
 import Polymath
 
-// NotificationBell — placeholder titlebar control (full impl: B7).
+// NotificationBell — titlebar control with unread badge (02 §F3).
 PmToolButton {
     id: root
-    property int unreadCount: 0
+    property int unreadCount: (typeof notifications !== "undefined" && notifications)
+                              ? notifications.unreadCount : 0
+    property bool open: false
     iconName: "bell"
-    // Optional badge count for future wiring.
-    Text {
+    tone: Style.accent
+    destructive: false
+
+    // Unread badge
+    PmBadge {
         anchors.right: parent.right
         anchors.top: parent.top
+        anchors.rightMargin: -2
+        anchors.topMargin: -2
         visible: root.unreadCount > 0
         text: root.unreadCount > 9 ? "9+" : String(root.unreadCount)
-        color: Style.accentText
-        font.pixelSize: Style.fsTiny
-        font.bold: true
-        Rectangle {
-            anchors.centerIn: parent
-            z: -1
-            width: parent.width + 6
-            height: parent.height + 4
-            radius: height / 2
-            color: Style.bad
-        }
+        tone: Style.bad
+        filled: true
+        implicitHeight: 16
+        z: 2
     }
 }
