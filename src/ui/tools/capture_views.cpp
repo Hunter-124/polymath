@@ -19,6 +19,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
+#include <QQmlError>
 #include <QQuickWindow>
 #include <QQuickItem>
 #include <QQuickStyle>
@@ -67,6 +68,15 @@ public:
     Q_INVOKABLE void removeItem(int) {}
     Q_INVOKABLE void clearDone() {}
     Q_INVOKABLE void setFilter(const QString&) {}
+    // Dashboard HUD: count rows whose "status" role matches (case-sensitive).
+    Q_INVOKABLE int countByStatus(const QString& status) const {
+        int n = 0;
+        for (const auto& row : rows_) {
+            if (row.toMap().value(QStringLiteral("status")).toString() == status)
+                ++n;
+        }
+        return n;
+    }
     // C4 SessionsModel surface (AgentSessionsView / Dashboard agent count).
     Q_INVOKABLE QString spawn(const QString&, const QString&, const QString&,
                               const QString& = {}) { return {}; }
@@ -442,6 +452,11 @@ int main(int argc, char* argv[]) {
 
         if (isWindow) {
             // Main.qml is an ApplicationWindow — load it and grab the window.
+            QObject::connect(&engine, &QQmlApplicationEngine::warnings,
+                             [](const QList<QQmlError>& warnings) {
+                                 for (const auto& w : warnings)
+                                     fprintf(stderr, "  QML: %s\n", qPrintable(w.toString()));
+                             });
             engine.load(QUrl(qmlUrl));
             if (engine.rootObjects().isEmpty()) {
                 fprintf(stderr, "  load failed %s\n", qPrintable(qmlUrl)); return false;
