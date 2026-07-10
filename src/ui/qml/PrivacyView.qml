@@ -3,57 +3,70 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Polymath
 
+// Privacy — rose glass toggles (01 §5.9).
 Item {
     id: root
     ColumnLayout {
-        anchors.fill: parent; anchors.margins: Style.pad; spacing: Style.gap
+        anchors.fill: parent
+        anchors.margins: Style.pad
+        spacing: Style.gap
 
-        Label {
-            text: "Privacy & Settings"; color: Style.text
-            font.family: Style.fontFamily; font.pixelSize: Style.fsTitle; font.bold: true
-        }
-        Label {
-            text: "Everything runs locally. No telemetry. Toggle any sense off at any time."
-            color: Style.textFaint; font.family: Style.fontFamily; font.pixelSize: Style.fsBody
-            wrapMode: Text.WordWrap; Layout.fillWidth: true
+        PmSectionHeader {
+            Layout.fillWidth: true
+            title: "Privacy & Settings"
+            section: "Privacy"
+            subtitle: "Everything runs locally. No telemetry. Toggle any sense off at any time."
         }
 
-        // First-run opt-in banner — senses are OFF until you allow them. Bound to
-        // the live app.firstRun property; "Got it" acknowledges the flow so the
-        // banner stays hidden on future launches.
-        Rectangle {
+        // First-run opt-in banner
+        GlassCard {
             visible: app.firstRun
             Layout.fillWidth: true
-            radius: Style.radiusSm
-            color: Style.surface2
-            border.width: 1; border.color: Style.accent
-            implicitHeight: optinCol.implicitHeight + 24
+            Layout.preferredHeight: optinCol.implicitHeight + Style.pad
+            section: "Privacy"
+
             ColumnLayout {
                 id: optinCol
-                anchors.fill: parent; anchors.margins: 12; spacing: 6
-                Label {
+                anchors.fill: parent
+                anchors.margins: Style.padSm
+                spacing: 6
+                Text {
                     text: "First-run · choose what Polymath may sense"
-                    color: Style.accent; font.family: Style.fontFamily
-                    font.pixelSize: Style.fsBody; font.bold: true
+                    color: Style.sectionColor("Privacy")
+                    font.family: Style.fontFamily
+                    font.pixelSize: Style.fsBody
+                    font.bold: true
                 }
-                Label {
+                Text {
                     text: "The microphone, cameras and face recognition stay OFF until you switch them on below. Nothing leaves this machine either way."
-                    color: Style.textDim; font.family: Style.fontFamily; font.pixelSize: Style.fsSmall
-                    wrapMode: Text.WordWrap; Layout.fillWidth: true
+                    color: Style.textDim
+                    font.family: Style.fontFamily
+                    font.pixelSize: Style.fsSmall
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
                 }
                 RowLayout {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }
-                    PmButton { text: "Got it, continue"; onClicked: app.completeFirstRun() }
+                    PmButton {
+                        text: "Got it, continue"
+                        accent: true
+                        tone: Style.sectionColor("Privacy")
+                        onClicked: app.completeFirstRun()
+                    }
                 }
             }
         }
 
-        Rectangle {
-            Layout.fillWidth: true; Layout.fillHeight: true
-            radius: Style.radius; color: Style.surface; border.color: Style.borderSoft
+        GlassCard {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            section: "Privacy"
+
             ColumnLayout {
-                anchors.fill: parent; anchors.margins: 8; spacing: 0
+                anchors.fill: parent
+                anchors.margins: Style.gapSm
+                spacing: 0
 
                 component Toggle: Rectangle {
                     property string keyName
@@ -61,31 +74,72 @@ Item {
                     property string sub: ""
                     Layout.fillWidth: true
                     implicitHeight: 56
-                    color: "transparent"
+                    color: rowHover.hovered
+                           ? Style.tint(Style.sectionColor("Privacy"), 0.08)
+                           : "transparent"
                     radius: Style.radiusSm
+                    HoverHandler { id: rowHover }
                     RowLayout {
-                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 12
+                        anchors.fill: parent
+                        anchors.leftMargin: Style.gap
+                        anchors.rightMargin: Style.gap
+                        spacing: Style.gap
                         ColumnLayout {
-                            Layout.fillWidth: true; spacing: 1
-                            Label { text: caption; color: Style.text; font.family: Style.fontFamily; font.pixelSize: Style.fsBody }
+                            Layout.fillWidth: true
+                            spacing: 1
                             Label {
-                                visible: sub.length > 0; text: sub; color: Style.textFaint
-                                font.family: Style.fontFamily; font.pixelSize: Style.fsTiny
+                                text: caption
+                                color: Style.text
+                                font.family: Style.fontFamily
+                                font.pixelSize: Style.fsBody
+                            }
+                            Label {
+                                visible: sub.length > 0
+                                text: sub
+                                color: Style.textFaint
+                                font.family: Style.fontFamily
+                                font.pixelSize: Style.fsTiny
                             }
                         }
                         PmSwitch {
+                            tone: Style.sectionColor("Privacy")
                             checked: app.privacy(keyName)
                             onToggled: app.setPrivacy(keyName, checked)
                         }
                     }
-                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Style.border }
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 1
+                        color: Style.borderSoft
+                    }
                 }
 
-                Toggle { keyName: "privacy.mic_enabled";           caption: "Microphone";          sub: "Wake word + voice commands" }
-                Toggle { keyName: "privacy.ambient_transcription"; caption: "Ambient transcription"; sub: "Feeds daily summaries" }
-                Toggle { keyName: "privacy.face_recognition";      caption: "Face recognition";     sub: "Identify known people on camera" }
-                Toggle { keyName: "privacy.cameras_enabled";       caption: "Cameras";              sub: "ESP32-CAM live tiles + object find" }
-                Toggle { keyName: "privacy.encrypt_at_rest";       caption: "Encrypt database at rest"; sub: "SQLCipher-keyed local store" }
+                Toggle {
+                    keyName: "privacy.mic_enabled"
+                    caption: "Microphone"
+                    sub: "Wake word + voice commands"
+                }
+                Toggle {
+                    keyName: "privacy.ambient_transcription"
+                    caption: "Ambient transcription"
+                    sub: "Feeds daily summaries"
+                }
+                Toggle {
+                    keyName: "privacy.face_recognition"
+                    caption: "Face recognition"
+                    sub: "Identify known people on camera"
+                }
+                Toggle {
+                    keyName: "privacy.cameras_enabled"
+                    caption: "Cameras"
+                    sub: "ESP32-CAM live tiles + object find"
+                }
+                Toggle {
+                    keyName: "privacy.encrypt_at_rest"
+                    caption: "Encrypt database at rest"
+                    sub: "SQLCipher-keyed local store"
+                }
                 Item { Layout.fillHeight: true }
             }
         }
