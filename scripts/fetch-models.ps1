@@ -4,9 +4,9 @@
   in the exact layout the app loads from.
 
 .DESCRIPTION
-  Default set matches docs/overhaul/04_VOICE_RESOURCES.md §2 and docs/MODELS.md:
+  Default set matches docs/overhaul/04_VOICE_RESOURCES.md section 2 and docs/MODELS.md:
   Gemma 3n E4B (fast/resident), EmbeddingGemma, Gemma 3 4B + mmproj (vision),
-  whisper ASR, Piper voices, ONNX perception. Heavy 27B is PARKED — pass -Heavy
+  whisper ASR, Piper voices, ONNX perception. Heavy 27B is PARKED -- pass -Heavy
   only on machines with enough VRAM/RAM (not the 8 GB Max-Q target).
 
 .PARAMETER Root      App data root (default: .\data next to the repo).
@@ -18,12 +18,16 @@
                      Equivalent to -NoVlm (Heavy already off by default).
 
 .EXAMPLE  pwsh scripts/fetch-models.ps1            # base set (~8 GB, includes VLM)
-.EXAMPLE  pwsh scripts/fetch-models.ps1 -Minimal   # minimal subset (~3.5–4 GB)
+.EXAMPLE  pwsh scripts/fetch-models.ps1 -Minimal   # minimal subset (~3.5-4 GB)
 .EXAMPLE  pwsh scripts/fetch-models.ps1 -Heavy     # base + 27B for big cards
 #>
 [CmdletBinding()]
-param([string]$Root = (Join-Path $PSScriptRoot '..\data'),
-      [switch]$Heavy, [switch]$NoVlm, [switch]$NoLLM, [switch]$Minimal)
+param(
+  [string]$Root = $(
+    if ($PSScriptRoot) { Join-Path $PSScriptRoot '..\data' }
+    else { Join-Path (Get-Location) 'data' }
+  ),
+  [switch]$Heavy, [switch]$NoVlm, [switch]$NoLLM, [switch]$Minimal)
 
 # -Minimal skips the optional vision VLM. Heavy stays opt-in via -Heavy.
 if ($Minimal) { $NoVlm = $true }
@@ -32,7 +36,7 @@ $ErrorActionPreference = 'Stop'
 $models = Join-Path $Root 'models'
 $HF = 'https://huggingface.co'
 
-# Layout the C++ code reads from (do not rename — paths are hard-referenced):
+# Layout the C++ code reads from (do not rename -- paths are hard-referenced):
 #   models/llm, models/vlm, models/embeddings        (LLM GGUFs; auto-registered)
 #   models/whisper/*.bin                              (ASR)
 #   models/piper/<voice>/<voice>.onnx(.json)          (TTS)
@@ -53,7 +57,7 @@ function Fetch($url, $dest) {
 
 if (-not $NoLLM) {
   Write-Host "Gemma LLMs ->" -ForegroundColor Green
-  # Fast (resident): Gemma 3n E4B, Q4_K_M (~4 GB) — 4k ctx + q8 KV on 8 GB cards.
+  # Fast (resident): Gemma 3n E4B, Q4_K_M (~4 GB) -- 4k ctx + q8 KV on 8 GB cards.
   Fetch "$HF/unsloth/gemma-3n-E4B-it-GGUF/resolve/main/gemma-3n-E4B-it-Q4_K_M.gguf" "$models/llm/gemma-3n-E4B-it-Q4_K_M.gguf"
   # Vision VLM: Gemma 3 4B Q4 + projector (multimodal). Ungated unsloth mirror
   # (the official google/* QAT repos are gated and 401 without an HF token).
@@ -63,9 +67,9 @@ if (-not $NoLLM) {
   }
   # Embeddings: EmbeddingGemma 300M Q8 (~300 MB).
   Fetch "$HF/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf" "$models/embeddings/embeddinggemma-300M-Q8_0.gguf"
-  # Heavy (parked on 8 GB cards): Gemma 3 27B Q4_K_M (~16 GB) — opt-in only.
+  # Heavy (parked on 8 GB cards): Gemma 3 27B Q4_K_M (~16 GB) -- opt-in only.
   if ($Heavy) {
-    Write-Host "  [Heavy] fetching Gemma 3 27B (~16 GB) — not for 8 GB VRAM targets" -ForegroundColor Yellow
+    Write-Host "  [Heavy] fetching Gemma 3 27B (~16 GB) -- not for 8 GB VRAM targets" -ForegroundColor Yellow
     Fetch "$HF/unsloth/gemma-3-27b-it-GGUF/resolve/main/gemma-3-27b-it-Q4_K_M.gguf" "$models/llm/gemma-3-27b-it-Q4_K_M.gguf"
   }
 }
@@ -90,19 +94,13 @@ Fetch "$oww/embedding_model.onnx"  "$models/wakeword/embedding_model.onnx"
 Fetch "$oww/hey_jarvis_v0.1.onnx"  "$models/wakeword/hey_jarvis.onnx"   # default wake phrase
 
 Write-Host "Vision (YOLO + face) ->" -ForegroundColor Green
-# YOLOv8n person detector. The HF Xenova / onnx-community mirrors now return 401
-# for anonymous downloads; this GitHub-hosted file is the standard Ultralytics
-# yolov8n export the detector expects (input images[1,3,640,640], output
-# output0[1,84,8400], opset 17 — verified loadable by ONNX Runtime 1.17). To
-# regenerate from scratch instead: `pip install ultralytics` then
-# `yolo export model=yolov8n.pt format=onnx opset=17` and copy the .onnx here.
+# YOLOv8n person detector. Standard Ultralytics export layout.
 Fetch "https://github.com/Hyuto/yolov8-onnxruntime-web/raw/master/public/model/yolov8n.onnx" "$models/yolov8n.onnx"
-# InsightFace SCRFD detector + ArcFace recognizer (ONNX, buffalo_l pack). Named
-# to match the code; the architectures are interface-compatible with the loaders.
+# InsightFace SCRFD detector + ArcFace recognizer (ONNX, buffalo_l pack).
 Fetch "$HF/immich-app/buffalo_l/resolve/main/detection/model.onnx"   "$models/scrfd_500m.onnx"
 Fetch "$HF/immich-app/buffalo_l/resolve/main/recognition/model.onnx" "$models/arcface_r100.onnx"
 
-Write-Host "`nDone. Launch Polymath — LLMs auto-register on first run (Model Manager to adjust roles)." -ForegroundColor Green
+Write-Host "`nDone. Launch Polymath -- LLMs auto-register on first run (Model Manager to adjust roles)." -ForegroundColor Green
 if (-not $Heavy) {
   Write-Host "Heavy 27B is parked (use -Heavy on capable machines). See docs/MODELS.md." -ForegroundColor DarkGray
 }

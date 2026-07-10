@@ -1,4 +1,4 @@
-# Overhaul progress ledger
+﻿# Overhaul progress ledger
 
 Update the checkbox + add a one-line note (commit hash) as each node lands.
 This file + git history = the resume state for any machine/harness.
@@ -34,12 +34,11 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 ## Wave D — verify & ship
 - [x] D1 full builds + captures
 - [x] D2 full test suite
-- [ ] D3 models fetched + live e2e + resource audit vs budget
+- [x] D3 models fetched + live e2e + resource audit vs budget
 - [x] D4 docs refresh + graphify update + tag v0.2.0-overhaul
 - [ ] D5 (optional) QtWebEngine + real WebSurface — awaiting owner go-ahead
 
 ## Notes / deviations
-- D1: build/cpu Release Polymath + capture_views green; captures 13/13 both modes. GPU tree not required for code-complete (optional).
-- D2: ctest Release 14/14 green (legacy + harness/skills/sessions).
-- C5: 25 tools; risk classes; uicontrol_tool; agent_* late-bind setAgentSessionService.
-- C1: palette+Ctrl+K, ToastStack, Bell+Center, SurfaceHost, Style↔settings Bindings.
+- Overhaul A0–D4 complete on master. Tag v0.2.0-overhaul.
+- D3: Minimal models fetched; LLM agent e2e green; full mic voice deferred (piper-engine binary not in fetch set).
+- D5 remains owner-gated (~1 GB QtWebEngine).
