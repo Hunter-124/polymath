@@ -1,4 +1,4 @@
-﻿# Overhaul progress ledger
+# Overhaul progress ledger
 
 Update the checkbox + add a one-line note (commit hash) as each node lands.
 This file + git history = the resume state for any machine/harness.
@@ -35,7 +35,7 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 - [x] D1 full builds + captures
 - [x] D2 full test suite
 - [ ] D3 models fetched + live e2e + resource audit vs budget
-- [ ] D4 docs refresh + graphify update + tag v0.2.0-overhaul
+- [x] D4 docs refresh + graphify update + tag v0.2.0-overhaul
 - [ ] D5 (optional) QtWebEngine + real WebSurface — awaiting owner go-ahead
 
 ## Notes / deviations
