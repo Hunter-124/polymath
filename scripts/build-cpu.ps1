@@ -115,8 +115,24 @@ if (-not $SkipTests) {
 # --- deploy Qt runtime + extra DLLs next to the exe --------------------------
 Step "windeployqt + runtime DLLs"
 $bin = "$repo\build\cpu\bin\Release"
+# WebEngine resources (QtWebEngineProcess + locales) come along when the exe
+# links WebEngineQuick; --qmldir still required for Polymath QML.
 & "$qtDir\bin\windeployqt.exe" --qmldir "$repo\src\ui\qml" --no-translations "$bin\Polymath.exe" | Out-Null
 Copy-Item "$qtDir\plugins\platforms\qoffscreen.dll" "$bin\platforms\" -Force -ErrorAction SilentlyContinue
+# Ensure WebEngine process + resources if windeployqt missed them (aqt layouts).
+foreach ($we in @('QtWebEngineProcess.exe','Qt6WebEngineCore.dll','Qt6WebEngineQuick.dll')) {
+  if (-not (Test-Path "$bin\$we") -and (Test-Path "$qtDir\bin\$we")) {
+    Copy-Item "$qtDir\bin\$we" $bin -Force
+  }
+}
+if (Test-Path "$qtDir\resources") {
+  New-Item -ItemType Directory -Force -Path "$bin\resources" | Out-Null
+  Copy-Item "$qtDir\resources\*" "$bin\resources\" -Force -ErrorAction SilentlyContinue
+}
+if (Test-Path "$qtDir\translations\qtwebengine_locales") {
+  New-Item -ItemType Directory -Force -Path "$bin\translations\qtwebengine_locales" | Out-Null
+  Copy-Item "$qtDir\translations\qtwebengine_locales\*" "$bin\translations\qtwebengine_locales\" -Force -ErrorAction SilentlyContinue
+}
 Copy-Item "$deps\opencv\build\x64\vc16\bin\opencv_world*.dll" $bin -Force
 Copy-Item "$deps\opencv\build\x64\vc16\bin\opencv_videoio_ffmpeg*.dll" $bin -Force -ErrorAction SilentlyContinue
 # OpenSSL libcrypto DLL — the SQLCipher codec links it for at-rest encryption.

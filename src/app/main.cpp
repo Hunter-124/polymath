@@ -1,6 +1,7 @@
 #include "app_controller.h"
 #include "paths.h"
 #include "logging.h"
+#include "web_adblock_interceptor.h"
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -12,6 +13,8 @@
 #include <QStandardPaths>
 #include <QCoreApplication>
 #include <QtGlobal>
+#include <QtWebEngineQuick>
+#include <QWebEngineProfile>
 
 #include <exception>
 
@@ -64,6 +67,10 @@ static std::filesystem::path resolveAppRoot() {
 }
 
 int main(int argc, char* argv[]) try {
+    // D5: WebEngine requires shared GL contexts + initialize() before the app.
+    QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+    QtWebEngineQuick::initialize();
+
     QGuiApplication app(argc, argv);
     QCoreApplication::setOrganizationName("Polymath");
     QCoreApplication::setApplicationName("Polymath");
@@ -77,8 +84,13 @@ int main(int argc, char* argv[]) try {
 
     qInstallMessageHandler(qtMessageToLog);   // Qt/QML diagnostics -> our log
 
+    // D5: adblock interceptor on the default profile (all WebSurface views).
+    auto* adblock = new WebAdblockInterceptor(&app);
+    QWebEngineProfile::defaultProfile()->setUrlRequestInterceptor(adblock);
+
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("app", &controller);
+    engine.rootContext()->setContextProperty("webAdblock", adblock);
 
     // Register the Wave-3 data models (context properties) and the camera image
     // provider ("image://cameras/<id>") before the QML is loaded.

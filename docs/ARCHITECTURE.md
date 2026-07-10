@@ -176,8 +176,10 @@ Module: `src/sessions/`. Service on its own QThread.
   `WebSurface`).
 - **`ui_control` tool** publishes requests; demo path `spawnSurfaceDemo` on
   AppController.
-- **QtWebEngine is optional** (DAG D5). Without it, web type is a graceful
-  placeholder (kit Qt 6.6.3 without WebEngine module).
+- **QtWebEngine (D5)** is required at build time (`Qt6::WebEngineQuick`).
+  `WebSurface` uses `WebEngineView`; `WebAdblockInterceptor` on the default
+  profile blocks ad/tracker hosts; YouTube gets clean-mode JS (hide ad chrome,
+  auto-skip, mute mid-rolls). `video` surface type maps to the same component.
 
 ---
 

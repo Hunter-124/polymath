@@ -87,6 +87,8 @@ qt_add_qml_module(pm_ui
         models/sessions_model.h       models/sessions_model.cpp
         settings_controller.h         settings_controller.cpp
         camera_image_provider.h       camera_image_provider.cpp
+        # D5: adblock interceptor for QtWebEngine surfaces
+        web_adblock_interceptor.h     web_adblock_interceptor.cpp
 )
 
 # Headers are consumed by pm_app (AppController) and by the QML engine wiring,
@@ -98,8 +100,11 @@ target_include_directories(pm_ui PUBLIC
 
 # pm_core: Database, EventBus, Config. Qt Multimedia: QMediaDevices for settings
 # audio pickers. QuickEffects optional for GlassSurface blur (not required A1/A2).
+# D5: WebEngineQuick required for real WebSurface / YouTube.
 find_package(Qt6 QUIET COMPONENTS QuickEffects)
-set(_pm_ui_qt Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::Multimedia)
+find_package(Qt6 REQUIRED COMPONENTS WebEngineQuick WebEngineCore)
+set(_pm_ui_qt Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::Multimedia
+              Qt6::WebEngineQuick Qt6::WebEngineCore)
 if(TARGET Qt6::QuickEffects)
     list(APPEND _pm_ui_qt Qt6::QuickEffects)
 endif()

@@ -19,7 +19,12 @@ target_link_libraries(pm_app PUBLIC
 )
 
 qt_add_executable(Polymath WIN32 main.cpp)
-target_link_libraries(Polymath PRIVATE pm_app pm_ui Qt6::Quick Qt6::QuickControls2)
+# WebEngine comes transitively via pm_ui (PUBLIC); re-find for main.cpp headers.
+find_package(Qt6 REQUIRED COMPONENTS WebEngineQuick WebEngineCore)
+target_link_libraries(Polymath PRIVATE
+    pm_app pm_ui
+    Qt6::Quick Qt6::QuickControls2
+    Qt6::WebEngineQuick Qt6::WebEngineCore)
 
 # Deploy runtime DLLs (Qt via windeployqt, ONNX Runtime, CUDA) — see docs/PACKAGING.md.
 if(WIN32 AND DEFINED ONNXRuntime_RUNTIME_DLL AND EXISTS "${ONNXRuntime_RUNTIME_DLL}")

@@ -17,7 +17,8 @@ Item {
         "placeholder": "surfaces/PlaceholderSurface.qml",
         "image":       "surfaces/ImageSurface.qml",
         "web":         "surfaces/WebSurface.qml",
-        "video":       "surfaces/PlaceholderSurface.qml",
+        // video → WebSurface (YouTube clean-mode via args.mode=video)
+        "video":       "surfaces/WebSurface.qml",
         "monitor":     "surfaces/PlaceholderSurface.qml"
     })
 

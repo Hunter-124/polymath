@@ -51,7 +51,7 @@ build/cpu/bin/Release/capture_views.exe <outdir> [--empty]
 
 | Area | Landed |
 |------|--------|
-| **GUI** | Holographic aurora design system (`Style.qml` tokens only); glass primitives + `Pm*` controls; frameless shell; Settings; command palette (Ctrl+K); toast/bell/notification center; SurfaceHost (placeholder/image/web surfaces — real QtWebEngine is optional D5) |
+| **GUI** | Holographic aurora design system (`Style.qml` tokens only); glass primitives + `Pm*` controls; frameless shell; Settings; command palette (Ctrl+K); toast/bell/notification center; SurfaceHost (placeholder/image/web/video); real QtWebEngine WebSurface with adblock + YouTube clean-mode (D5) |
 | **Harness v2** | `AgentLoop` plan → execute → reflect; SQLite goals/plan_steps; token-budgeted context + memory injection; TaskScheduler tool/summarizer dispatch + delivery |
 | **Skills** | `SkillRegistry` + `run_skill` / `save_skill`; starters `slop_mode`, `morning_brief`, `research_brief` under `data/skills/` |
 | **Agent sessions** | `AgentSessionService` + Claude Code / Codex / generic PTY providers; `SessionsModel` + Agents view; tools `agent_spawn` / `send` / `status` / `stop` / `watch` |
@@ -115,8 +115,8 @@ agent-session e2e are **not** claimed green in this doc.
    drop-in later step; code already requests the CUDA EP and falls back cleanly.
 3. **Heavy model parked on 8 GB.** Deep work uses external agent sessions (overhaul 05) or
    the Fast idle queue.
-4. **Web surfaces.** QtWebEngine is **not** in the Qt 6.6.3 kit used here; `WebSurface` is a
-   graceful placeholder. Optional node **D5** installs QtWebEngine + real embed.
+4. **Web surfaces.** **D5 landed:** QtWebEngine installed into the 6.6.3 kit; `WebSurface`
+   embeds `WebEngineView` with a shared adblock interceptor and YouTube clean-mode script.
 5. **Packaging.** `scripts/package.ps1 -Flavor {cpu,cuda}` produces zips/installers.
    Remaining ship TODOs (code signing, clean-VM smoke) in [`SHIP.md`](SHIP.md).
 

@@ -100,6 +100,34 @@ Fetch "https://github.com/Hyuto/yolov8-onnxruntime-web/raw/master/public/model/y
 Fetch "$HF/immich-app/buffalo_l/resolve/main/detection/model.onnx"   "$models/scrfd_500m.onnx"
 Fetch "$HF/immich-app/buffalo_l/resolve/main/recognition/model.onnx" "$models/arcface_r100.onnx"
 
+# Piper engine (Windows amd64 prebuilt) — required for TTS (voices alone are not enough).
+Write-Host "Piper engine ->" -ForegroundColor Green
+$piperEngine = Join-Path $models 'piper-engine'
+$piperExe = Join-Path $piperEngine 'piper.exe'
+if (-not (Test-Path $piperExe)) {
+  $zip = Join-Path $env:TEMP 'piper_windows_amd64.zip'
+  $url = 'https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip'
+  Write-Host "  [get ] piper_windows_amd64.zip" -ForegroundColor Cyan
+  & curl.exe -L --fail --retry 3 -o $zip $url
+  if ($LASTEXITCODE -eq 0 -and (Test-Path $zip)) {
+    $extract = Join-Path $env:TEMP 'piper_extract'
+    if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
+    Expand-Archive -Path $zip -DestinationPath $extract -Force
+    $src = Join-Path $extract 'piper'
+    if (Test-Path $src) {
+      New-Item -ItemType Directory -Force -Path $piperEngine | Out-Null
+      Copy-Item -Path (Join-Path $src '*') -Destination $piperEngine -Recurse -Force
+      Write-Host "  [ok  ] piper.exe + espeak-ng-data" -ForegroundColor DarkGray
+    } else {
+      Write-Warning "    piper archive layout unexpected"
+    }
+  } else {
+    Write-Warning "    failed to download piper engine"
+  }
+} else {
+  Write-Host "  [skip] piper.exe" -ForegroundColor DarkGray
+}
+
 Write-Host "`nDone. Launch Polymath -- LLMs auto-register on first run (Model Manager to adjust roles)." -ForegroundColor Green
 if (-not $Heavy) {
   Write-Host "Heavy 27B is parked (use -Heavy on capable machines). See docs/MODELS.md." -ForegroundColor DarkGray

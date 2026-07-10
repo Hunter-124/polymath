@@ -36,9 +36,10 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 - [x] D2 full test suite
 - [x] D3 models fetched + live e2e + resource audit vs budget
 - [x] D4 docs refresh + graphify update + tag v0.2.0-overhaul
-- [ ] D5 (optional) QtWebEngine + real WebSurface — awaiting owner go-ahead
+- [x] D5 QtWebEngine + real WebSurface (adblock + YouTube clean-mode)
 
 ## Notes / deviations
-- Overhaul A0–D4 complete on master. Tag v0.2.0-overhaul.
-- D3: Minimal models fetched; LLM agent e2e green; full mic voice deferred (piper-engine binary not in fetch set).
-- D5 remains owner-gated (~1 GB QtWebEngine).
+- Full overhaul A0-D5 complete on master.
+- D5: aqt installed qtwebengine/qtwebchannel/qtpositioning; WebAdblockInterceptor; WebSurface WebEngineView; video type maps to WebSurface; windeployqt deploys resources.
+- Piper engine: fetch-models.ps1 now downloads piper_windows_amd64; TTS ready in audio e2e.
+- GPU CUDA tree: portable toolkit not present on this machine; build-gpu.ps1 defaults arch=75 (2070 Max-Q) + VS18 vcvars.

@@ -28,7 +28,7 @@
      /Zc:char8_t- reach C/C++ but never CUDA). Nothing to do here, noted for context.
 
 .PARAMETER CudaToolkit  Portable CUDA root (default: build/deps/cuda/toolkit).
-.PARAMETER Arch         CUDA arch (default 86 = RTX 30-series / 3080 Ti).
+.PARAMETER Arch         CUDA arch (default 75 = RTX 20-series / 2070 Max-Q).
 .PARAMETER QtDir        Qt msvc kit root (default C:\Qt\6.6.3\msvc2019_64).
 .PARAMETER Junction     No-space working path for the build (default C:\pm). Only
                         used when the repo path itself contains a space.
@@ -39,7 +39,7 @@
 [CmdletBinding()]
 param(
   [string]$CudaToolkit = (Join-Path $PSScriptRoot '..\build\deps\cuda\toolkit'),
-  [string]$Arch        = '86',
+  [string]$Arch        = '75',
   [string]$QtDir       = 'C:\Qt\6.6.3\msvc2019_64',
   [string]$Junction    = 'C:\pm',
   [switch]$SkipDeploy
@@ -76,8 +76,12 @@ if (-not (Test-Path "$cuda\bin\nvcc.exe")) { throw "nvcc not found at $cuda\bin 
 $ninja = (Get-Command ninja -ErrorAction SilentlyContinue).Source
 if (-not $ninja) { $ninja = "$env:LOCALAPPDATA\Microsoft\WinGet\Links\ninja.exe" }
 if (-not (Test-Path $ninja)) { throw "ninja not found (install: winget install Ninja-build.Ninja)" }
-$vcvars = 'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat'
-if (-not (Test-Path $vcvars)) { throw "vcvars64.bat not found at $vcvars" }
+$vcvarsCandidates = @(
+  'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat',
+  'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat'
+)
+$vcvars = $vcvarsCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $vcvars) { throw "vcvars64.bat not found (looked for VS 18 / 2022 Community)" }
 
 $qtF   = ($QtDir -replace '\\','/')
 $bin   = "$work\build\cuda\bin"

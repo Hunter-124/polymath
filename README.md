@@ -20,7 +20,7 @@ CLIs when the hard work needs a bigger brain.
 - **External agent sessions** — spawn/monitor Claude Code (and Codex / generic PTY adapters)
   as live cards; voice/toast when a session needs input; reply from chat or voice.
 - **Surfaces** — the AI can compose on-screen content (`ui_control` + SurfaceHost:
-  placeholder, image, web). Real embedded browser is optional (QtWebEngine install).
+  placeholder, image, web/video). Real embedded browser via QtWebEngine with adblock + YouTube clean-mode.
 - **Holographic UI** — frameless shell, aurora glass theme, per-section hues, command
   palette (**Ctrl+K**), settings page, notification center + toasts, dashboard HUD.
 - **Personalities** — drop-in historical personas (`persona.json` bundles); ships with
