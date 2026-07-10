@@ -74,9 +74,11 @@ qt_add_qml_module(pm_ui
         qml/controls/PmDialog.qml
         qml/controls/PmSlider.qml
     # Bundle the Inter (SIL OFL) UI font so QFontDatabase always finds a family
-    # and the app renders identically headless and on any machine.
+    # and the app renders identically headless and on any machine. Tray icon is
+    # used by Main.qml's SystemTrayIcon so close/minimize is recoverable.
     RESOURCES
         fonts/Inter.ttf
+        icons/tray.png
     SOURCES
         models/chat_model.h           models/chat_model.cpp
         models/shopping_model.h       models/shopping_model.cpp

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import Qt.labs.platform as Platform
 import Polymath
 
 // Main shell — frameless holographic chrome (01 §4).
@@ -13,7 +14,11 @@ ApplicationWindow {
     visible: true
     title: "Polymath — Local AI Home Assistant"
     color: "transparent"
+    // Keep minimize/system-menu hints so Windows still gives us a stable
+    // taskbar button + restore path even though the chrome is frameless.
     flags: Qt.Window | Qt.FramelessWindowHint
+           | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint
+           | Qt.WindowSystemMenuHint
 
     // Bundle Inter (SIL OFL) app-wide.
     FontLoader {
@@ -24,8 +29,56 @@ ApplicationWindow {
     Component.onCompleted: {
         if (inter.status === FontLoader.Ready)
             Style.fontFamily = inter.font.family
+        // Ensure we land on a real monitor (multi-display / off-screen restore).
+        if (x < -width + 80 || y < -40) {
+            x = 80; y = 60
+        }
     }
     font.family: Style.fontFamily
+
+    // --- restore helpers (taskbar / tray) ------------------------------------
+    function restoreWindow() {
+        if (!window.visible)
+            window.show()
+        if (window.visibility === Window.Minimized)
+            window.showNormal()
+        window.raise()
+        window.requestActivate()
+    }
+
+    // Close / Alt+F4 hide to tray instead of killing the process. Real quit is
+    // via the tray menu (or when the tray is unavailable).
+    onClosing: function (close) {
+        if (tray.available) {
+            close.accepted = false
+            window.hide()
+        }
+    }
+
+    Platform.SystemTrayIcon {
+        id: tray
+        visible: true
+        tooltip: "Polymath — Local AI Home Assistant"
+        icon.source: "qrc:/qt/qml/Polymath/icons/tray.png"
+        onActivated: function (reason) {
+            // Trigger = single left click; DoubleClick also restores.
+            if (reason === Platform.SystemTrayIcon.Trigger
+                    || reason === Platform.SystemTrayIcon.DoubleClick
+                    || reason === Platform.SystemTrayIcon.MiddleClick) {
+                window.restoreWindow()
+            }
+        }
+        menu: Platform.Menu {
+            Platform.MenuItem {
+                text: qsTr("Show Polymath")
+                onTriggered: window.restoreWindow()
+            }
+            Platform.MenuItem {
+                text: qsTr("Quit")
+                onTriggered: Qt.quit()
+            }
+        }
+    }
 
     // --- page registry (icon + group for grouped rail) ----------------------
     readonly property var pages: [
@@ -667,6 +720,8 @@ ApplicationWindow {
                 ChromeBtn {
                     glyph: "x"
                     isClose: true
+                    // Hide to tray (onClosing intercepts). Holds process alive so
+                    // models stay warm; Quit is on the tray menu.
                     onActivated: window.close()
                 }
             }

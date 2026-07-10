@@ -75,6 +75,9 @@ int main(int argc, char* argv[]) try {
     QCoreApplication::setOrganizationName("Polymath");
     QCoreApplication::setApplicationName("Polymath");
     QQuickStyle::setStyle("Basic");   // self-contained style -> static-friendly
+    // Main.qml hides to the system tray on close; without this, the last window
+    // disappearing would still quit the process and look like a "crash".
+    QGuiApplication::setQuitOnLastWindowClosed(false);
 
     Paths::instance().setRoot(resolveAppRoot());
 
@@ -83,6 +86,10 @@ int main(int argc, char* argv[]) try {
         return 1;
 
     qInstallMessageHandler(qtMessageToLog);   // Qt/QML diagnostics -> our log
+
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &app, [] {
+        PM_INFO("Polymath shutting down (aboutToQuit)");
+    });
 
     // D5: adblock interceptor on the default profile (all WebSurface views).
     auto* adblock = new WebAdblockInterceptor(&app);
