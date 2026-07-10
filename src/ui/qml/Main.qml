@@ -325,7 +325,9 @@ ApplicationWindow {
                         section: "Dashboard"
                         ColumnLayout {
                             id: statusInner
-                            anchors.fill: parent
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
                             anchors.margins: Style.gapSm
                             spacing: 4
                             RowLayout {
@@ -367,7 +369,6 @@ ApplicationWindow {
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                             }
-                            Item { Layout.fillHeight: true }
                         }
                     }
 

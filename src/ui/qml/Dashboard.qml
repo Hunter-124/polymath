@@ -82,13 +82,18 @@ Item {
         GlassCard {
             visible: !root.hasModels
             Layout.fillWidth: true
-            Layout.preferredHeight: coldCol.implicitHeight + Style.padSm
+            // Height from content only — top/left/right anchors, never fill,
+            // so Layouts doesn't cycle preferredHeight ↔ implicitHeight.
+            Layout.preferredHeight: coldRow.implicitHeight + Style.padSm * 2
             section: "Dashboard"
             tintColor: Style.warn
             tintAlpha: 0.12
 
             RowLayout {
-                anchors.fill: parent
+                id: coldRow
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
                 anchors.margins: Style.padSm
                 spacing: Style.gap
                 Rectangle {
@@ -333,7 +338,9 @@ Item {
 
             ColumnLayout {
                 id: vramCol
-                anchors.fill: parent
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
                 anchors.margins: Style.padSm
                 spacing: Style.gapSm
                 RowLayout {

@@ -10,13 +10,14 @@ Item {
     property string section: ""
     default property alias actions: actionRow.data
 
+    // Height from content only. Do NOT bind implicitWidth to parent.width —
+    // that creates a Layouts cycle (parent sizes children from implicit sizes).
     implicitHeight: col.implicitHeight
-    implicitWidth: parent ? parent.width : 400
+    implicitWidth: col.implicitWidth
 
     ColumnLayout {
         id: col
-        anchors.left: parent.left
-        anchors.right: parent.right
+        width: root.width > 0 ? root.width : col.implicitWidth
         spacing: 4
 
         RowLayout {
