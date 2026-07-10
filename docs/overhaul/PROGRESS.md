@@ -29,7 +29,7 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 - [x] C3 skills system + starter skills
 - [x] C4 agent sessions (service, providers, model, view)
 - [ ] C5 tool registration + ui_control + browser_drive improvements
-- [ ] C1 shell integration (Main.qml wiring)
+- [x] C1 shell integration (Main.qml wiring)
 
 ## Wave D — verify & ship
 - [ ] D1 full builds + captures
@@ -42,7 +42,8 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 - BV: capture 13/13 both modes; SettingsView onCompleted, PmTooltip hover, ModelManager radius, Dashboard taskCount.
 - A3: schema v2 goals/plan_steps; ToolContext.memory; task scheduler tool dispatch; taskFinished→notice/chat; countTokens; n_ctx 4096; KV q8_0.
 - A4: VAD-gated oWW, lazy whisper + idle unload, AsrWorker/TtsWorker, 16s ring, persistent streaming Piper, barge-in v1, ONNX reload backoff, device selection.
-- B1–B9: QML packages landed; C1 still owns Main.qml feature wiring (palette/toasts/bell/surfaces/Style bindings).
+- B1–B9: QML packages landed; C1 wires Main.qml (palette/toasts/bell/surfaces/Style bindings).
+- C1: Main.qml palette registry+Ctrl+K, ToastStack, Bell+Center, SurfaceHost, Style↔settings Bindings; openSettings(section).
 - C2: AgentLoop v2 plan/execute/reflect + context budgets.
 - C3: SkillRegistry + starter skills (registration in C5).
 - C4: pm_sessions + SessionsModel + AgentSessionsView; tools registration deferred to C5.

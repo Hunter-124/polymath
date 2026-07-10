@@ -4,8 +4,8 @@ import QtQuick.Layouts
 import Polymath
 
 // Main shell — frameless holographic chrome (01 §4).
-// Feature wiring (palette registry, ToastStack, bell/center, SurfaceHost,
-// Style↔settings Bindings) lands in C1 — see // C1 HOOK markers below.
+// C1: palette registry + Ctrl+K, ToastStack, bell/center, SurfaceHost,
+// Style↔settings Bindings (02 execution-order step 3).
 ApplicationWindow {
     id: window
     width: 1280
@@ -24,9 +24,6 @@ ApplicationWindow {
     Component.onCompleted: {
         if (inter.status === FontLoader.Ready)
             Style.fontFamily = inter.font.family
-        // Capture path sets pmEffectsEnabled=false; live app true. C1 adds full settings bridge.
-        if (typeof pmEffectsEnabled !== "undefined")
-            Style.effectsEnabled = pmEffectsEnabled
     }
     font.family: Style.fontFamily
 
@@ -51,6 +48,106 @@ ApplicationWindow {
     property int currentPage: 0
     readonly property bool isMaximized: window.visibility === Window.Maximized
 
+    // AI / future-registered palette actions (02 §F2)
+    property var dynamicActions: []
+
+    // Combined action list for CommandPalette (rebinds when dynamicActions changes)
+    readonly property var paletteActions: {
+        var dyn = dynamicActions
+        var acts = []
+        var i
+        for (i = 0; i < pages.length; ++i) {
+            var p = pages[i]
+            acts.push({
+                id: "nav." + String(p.name).toLowerCase().replace(/ /g, "_"),
+                title: "Go to " + p.name,
+                section: "Navigate",
+                run: (function (name) {
+                    return function () { window.goToPage(name) }
+                })(p.name)
+            })
+        }
+        acts.push({
+            id: "ptt.toggle",
+            title: "Toggle push-to-talk",
+            section: "Voice",
+            run: function () {
+                if (typeof app !== "undefined")
+                    app.pushToTalk(!app.listening)
+            }
+        })
+        acts.push({
+            id: "chat.focus",
+            title: "Focus chat input",
+            section: "Chat",
+            run: function () {
+                window.goToPage("Chat")
+                Qt.callLater(function () {
+                    var item = window.pageLoaderItem("Chat")
+                    if (item && typeof item.focusInput === "function")
+                        item.focusInput()
+                    else if (item)
+                        item.forceActiveFocus()
+                })
+            }
+        })
+        acts.push({
+            id: "shop.add",
+            title: "Add shopping item…",
+            section: "Create",
+            run: function () { window.goToPage("Shopping") }
+        })
+        acts.push({
+            id: "settings.appearance",
+            title: "Settings: Appearance",
+            section: "Settings",
+            run: function () { window.openSettings("appearance") }
+        })
+        acts.push({
+            id: "settings.audio",
+            title: "Settings: Audio",
+            section: "Settings",
+            run: function () { window.openSettings("audio") }
+        })
+        acts.push({
+            id: "settings.agents",
+            title: "Settings: Agents",
+            section: "Settings",
+            run: function () { window.openSettings("agents") }
+        })
+        acts.push({
+            id: "ui.effects.toggle",
+            title: "Toggle glass effects",
+            section: "Appearance",
+            run: function () {
+                if (typeof settings !== "undefined")
+                    settings.effects = !settings.effects
+            }
+        })
+        acts.push({
+            id: "surface.demo",
+            title: "Spawn placeholder surface",
+            section: "Dev",
+            run: function () {
+                if (typeof app !== "undefined")
+                    app.spawnSurfaceDemo()
+            }
+        })
+        acts.push({
+            id: "agent.spawn",
+            title: "New agent session…",
+            section: "Agents",
+            run: function () { window.goToPage("Agents") }
+        })
+        acts.push({
+            id: "app.quit",
+            title: "Quit Polymath",
+            section: "System",
+            run: function () { Qt.quit() }
+        })
+        return acts.concat(dyn)
+    }
+
     function pageIndexOf(name) {
         for (var i = 0; i < pages.length; ++i)
             if (pages[i].name === name) return i
@@ -60,10 +157,42 @@ ApplicationWindow {
         var i = pageIndexOf(name)
         if (i >= 0) currentPage = i
     }
-    // C1 HOOK: openSettings(section) deep-link for palette / surface host
+    // Resolve always-active PageHost Loader item by page name
+    function pageLoaderItem(name) {
+        var idx = pageIndexOf(name)
+        if (idx < 0) return null
+        var kids = pageHost.children
+        for (var i = 0; i < kids.length; ++i) {
+            var c = kids[i]
+            if (c && c.index === idx)
+                return c.item
+        }
+        return null
+    }
+    // Deep-link Settings to a section (SettingsView.focusSection)
     function openSettings(section) {
         goToPage("Settings")
-        // C1: set focusSection on Settings loader item when wired
+        Qt.callLater(function () {
+            var item = window.pageLoaderItem("Settings")
+            if (item && section)
+                item.focusSection = section
+        })
+    }
+    function registerAction(a) {
+        if (!a || !a.id) return
+        var next = dynamicActions.slice()
+        for (var i = 0; i < next.length; ++i) {
+            if (next[i].id === a.id) {
+                next[i] = a
+                dynamicActions = next
+                return
+            }
+        }
+        next.push(a)
+        dynamicActions = next
+    }
+    function unregisterAction(id) {
+        dynamicActions = dynamicActions.filter(function (a) { return a.id !== id })
     }
     function toggleMaximize() {
         if (isMaximized) window.showNormal()
@@ -472,10 +601,7 @@ ApplicationWindow {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    // C1 HOOK: palette.open() / openPalette()
-                    onClicked: {
-                        // C1: commandPalette.openPalette()
-                    }
+                    onClicked: commandPalette.openPalette()
                 }
             }
 
@@ -488,12 +614,14 @@ ApplicationWindow {
                 pulsing: app.listening
             }
 
-            // C1 HOOK: NotificationBell + NotificationCenter
-            // NotificationBell {
-            //     id: notifBell
-            //     unreadCount: typeof notifications !== "undefined" ? notifications.unreadCount : 0
-            //     onClicked: notifCenter.open = !notifCenter.open
-            // }
+            NotificationBell {
+                id: notifBell
+                Layout.alignment: Qt.AlignVCenter
+                unreadCount: (typeof notifications !== "undefined" && notifications)
+                             ? notifications.unreadCount : 0
+                open: notifCenter.open
+                onClicked: notifCenter.open = !notifCenter.open
+            }
 
             // Window chrome
             Row {
@@ -546,63 +674,98 @@ ApplicationWindow {
     }
 
     // =====================================================================
-    // Z3 — overlays (C1 wires real components; interim toast kept for notices)
+    // Z3 — overlays (toasts, palette, surfaces, notification center)
     // =====================================================================
 
-    // C1 HOOK: ToastStack { id: toastStack; anchors.fill: parent; z: 3 }
-    // C1 HOOK: CommandPalette { id: commandPalette; actions: paletteActions; z: 3 }
-    // C1 HOOK: SurfaceHost { id: surfaceHost; anchors.fill: parent; z: 3 }
-    // C1 HOOK: Style↔settings Bindings (accent, fontScale, effects, reduceMotion)
-    // C1 HOOK: Shortcut { sequence: "Ctrl+K"; onActivated: commandPalette.openPalette() }
-    // C1 HOOK: paletteActions registry + registerAction / unregisterAction
+    // Style ↔ settings bridge (02 §F1). Capture sets pmEffectsEnabled=false.
+    Binding {
+        target: Style
+        property: "accent"
+        value: settings.accent
+        when: typeof settings !== "undefined"
+    }
+    Binding {
+        target: Style
+        property: "fontScale"
+        value: settings.fontScale
+        when: typeof settings !== "undefined"
+    }
+    Binding {
+        target: Style
+        property: "effectsEnabled"
+        value: settings.effects && (typeof pmEffectsEnabled === "undefined" ? true : pmEffectsEnabled)
+        when: typeof settings !== "undefined"
+    }
+    Binding {
+        target: Style
+        property: "effectsIntensity"
+        value: settings.effectsIntensity
+        when: typeof settings !== "undefined"
+    }
+    Binding {
+        target: Style
+        property: "reduceMotion"
+        value: settings.reduceMotion
+        when: typeof settings !== "undefined"
+    }
 
-    // Interim toast (pre-C1) — preserves app.onNoticePosted contract.
-    Connections {
-        target: app
-        function onNoticePosted(level, source, message) {
-            toast.accentColor = level === "error" ? Style.bad
-                               : level === "warn" ? Style.warn : Style.accent
-            toast.text = source + ": " + message
-            toast.visible = true
-            toastTimer.restart()
+    ToastStack {
+        id: toastStack
+        anchors.fill: parent
+        z: 3
+    }
+
+    NotificationCenter {
+        id: notifCenter
+        anchors.top: titlebar.bottom
+        anchors.right: parent.right
+        anchors.topMargin: Style.gapSm
+        anchors.rightMargin: Style.gap
+        z: 3
+        onNavigateRequest: function (category, id) {
+            notifCenter.open = false
+            if (category === "task")
+                window.goToPage("Tasks")
+            else if (category === "reminder")
+                window.goToPage("Timeline")
         }
     }
-    Rectangle {
-        id: toast
-        property alias text: toastLabel.text
-        property color accentColor: Style.accent
-        visible: false
+
+    SurfaceHost {
+        id: surfaceHost
+        anchors.fill: parent
         z: 3
-        anchors {
-            bottom: parent.bottom
-            horizontalCenter: parent.horizontalCenter
-            bottomMargin: Style.pad
-        }
-        width: toastRow.implicitWidth + Style.pad
-        height: Style.controlH + 6
-        radius: Style.radiusSm
-        color: Style.surface3
-        border.width: 1
-        border.color: Style.border
-        RowLayout {
-            id: toastRow
-            anchors.centerIn: parent
-            spacing: Style.gapSm
-            Rectangle {
-                width: 6; height: 20; radius: 3
-                color: toast.accentColor
+    }
+
+    CommandPalette {
+        id: commandPalette
+        anchors.fill: parent
+        actions: window.paletteActions
+        z: 3
+    }
+
+    Shortcut {
+        sequence: "Ctrl+K"
+        context: Qt.ApplicationShortcut
+        onActivated: commandPalette.openPalette()
+    }
+
+    // open_page surface actions navigate the shell (SurfaceHost leaves this to C1)
+    Connections {
+        target: typeof app !== "undefined" ? app : null
+        ignoreUnknownSignals: true
+        function onSurfaceRequested(id, action, type, title, argsJson) {
+            if (action !== "open_page")
+                return
+            var page = title || type || ""
+            if ((!page || page.length === 0) && argsJson && argsJson.length > 0) {
+                try {
+                    var args = JSON.parse(argsJson)
+                    page = args.page || args.name || ""
+                } catch (e) { /* ignore */ }
             }
-            Label {
-                id: toastLabel
-                color: Style.text
-                font.family: Style.fontFamily
-                font.pixelSize: Style.fsBody
-            }
-        }
-        Timer {
-            id: toastTimer
-            interval: 4000
-            onTriggered: toast.visible = false
+            if (page && page.length > 0)
+                window.goToPage(page)
         }
     }
 
