@@ -253,9 +253,14 @@ void AgentLoop::recoverOnStartup() {
     ensureSummariesTable();
     const int64_t now = to_unix(Clock::now());
     // Crash recovery (03 §1): running steps → pending so goals resume.
+    // Only log when something was actually stuck mid-flight (quiet restarts).
+    int running = 0;
+    db_.query("SELECT COUNT(*) FROM plan_steps WHERE status='running'", {},
+              [&](const Row& r) { running = static_cast<int>(r.i64(0)); });
+    if (running <= 0) return;
     db_.exec("UPDATE plan_steps SET status='pending', updated_at=?1 "
              "WHERE status='running'", {now});
-    PM_INFO("AgentLoop: recovered running plan_steps → pending");
+    PM_INFO("AgentLoop: recovered {} running plan_steps → pending", running);
 }
 
 // ---------------------------------------------------------------------------

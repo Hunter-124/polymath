@@ -119,20 +119,39 @@ void InferenceManager::autoDiscoverModels() {
                      fname.find("70b") != std::string::npos)
                 role = "heavy";
 
-            const std::string path = e.path().string();
+            // Normalize path separators so restarts don't re-insert the same
+            // file under a slash-variant path (UNIQUE on id then spams WARN).
+            std::string path = e.path().string();
+            for (char& c : path) if (c == '\\') c = '/';
+            const std::string id = e.path().stem().string();
+
             bool exists = false;
-            db_.query("SELECT 1 FROM models WHERE path=?1", {path},
+            // Match by id (PK) or path. Path is slash-normalized above so
+            // Windows `\` vs `/` restarts no longer re-insert the same model.
+            db_.query("SELECT 1 FROM models WHERE id=?1 OR path=?2",
+                      {id, path},
                       [&](const Row&) { exists = true; });
+            if (!exists) {
+                // Legacy rows may still have backslashes in path.
+                std::string winPath = path;
+                for (char& c : winPath) if (c == '/') c = '\\';
+                db_.query("SELECT 1 FROM models WHERE path=?1", {winPath},
+                          [&](const Row&) { exists = true; });
+            }
             if (exists) continue;
 
-            const std::string id = e.path().stem().string();
             // is_active=1 only if no other model of this role exists yet.
+            // INSERT OR IGNORE: never warn on race / leftover id collisions.
             db_.exec(
-                "INSERT INTO models(id,display_name,path,role,n_ctx,n_gpu_layers,"
+                "INSERT OR IGNORE INTO models(id,display_name,path,role,n_ctx,n_gpu_layers,"
                 "chat_template,mmproj_path,is_active) VALUES(?1,?1,?2,?3,?4,999,'',?5,"
                 "(SELECT CASE WHEN EXISTS(SELECT 1 FROM models WHERE role=?3) THEN 0 ELSE 1 END))",
                 {id, path, role, n_ctx, role == "vision" ? mmproj : std::string()});
-            ++inserted;
+            // Count only if the row is actually present now under this id.
+            bool now = false;
+            db_.query("SELECT 1 FROM models WHERE id=?1", {id},
+                      [&](const Row&) { now = true; });
+            if (now) ++inserted;
         }
     }
     if (inserted)

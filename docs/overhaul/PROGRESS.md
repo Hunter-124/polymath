@@ -45,3 +45,4 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 - **GPU CUDA tree shipped** (`build/cuda`): CUDA 13.3 + VS 2026 (`-allow-unsupported-compiler`), arch=75, `ggml-cuda`, n_batch=2048, flash-attn ENABLED. Verified: `CUDA=true`, ngl=36, ~5.9 GB VRAM resident.
 - **Kokoro neural TTS** (preferred over Piper): `scripts/setup-kokoro.ps1` + `tools/kokoro_worker/`; real-time sentence streaming from AgentLoop. Piper remains fallback.
 - Nav rail scrollbar chrome removed (AlwaysOff). Router heuristic skips LLM classify for almost all turns.
+- Post-ship polish: model auto-register UNIQUE spam fixed; plan recovery log only when needed; nav status card layout cycle fixed; Inter font load in C++/QML; STATUS.md + WIRING.md closed to match reality.

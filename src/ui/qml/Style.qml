@@ -92,7 +92,8 @@ QtObject {
     readonly property int   railWidthCollapsed: 64
 
     // --- type ---------------------------------------------------------------
-    property string fontFamily: ""
+    // Default to Inter; Main.qml FontLoader confirms / falls back to Segoe UI.
+    property string fontFamily: "Inter"
     property real   fontScale: 1.0
     readonly property int   fsDisplay: 30
     readonly property int   fsTitle:   24

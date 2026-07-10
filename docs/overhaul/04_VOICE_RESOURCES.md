@@ -41,7 +41,7 @@ baseline). Machine profile: dedicated to Polymath + YouTube + web research.
 | Vision | gemma-3-4b-it-Q4_K_M + mmproj-f16 | ~3.5 GB | on-demand (cameras kept) |
 | Heavy | — (parked; `-Heavy` flag re-adds 27B for capable machines) | — | — |
 | ASR | whisper ggml-base.en (+ tiny.en only if ambient enabled) | 140/75 MB | on-demand GPU |
-| TTS | Piper en_US-amy-medium (+alan) | small | persistent CPU process |
+| TTS | **Kokoro-82M** (`af_sky` default; Piper fallback) | ~300 MB | persistent CPU process (no LLM VRAM) |
 | Wake/VAD | openWakeWord trio (hey_jarvis) + silero_vad | tiny | CPU resident |
 
 `docs/MODELS.md` is stale (Qwen-era) — rewrite to match this table (node A0).

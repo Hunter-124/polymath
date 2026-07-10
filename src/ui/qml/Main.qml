@@ -20,21 +20,31 @@ ApplicationWindow {
            | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint
            | Qt.WindowSystemMenuHint
 
-    // Bundle Inter (SIL OFL) app-wide.
+    // Bundle Inter (SIL OFL) app-wide. Prefer the stable "Inter" family name —
+    // variable-font family strings ("Inter Variable") trip DirectWrite on some
+    // Windows builds and flood the log with CreateFontFaceFromHDC failures.
     FontLoader {
         id: inter
         source: "qrc:/qt/qml/Polymath/fonts/Inter.ttf"
-        onStatusChanged: if (status === FontLoader.Ready) Style.fontFamily = inter.font.family
+        onStatusChanged: {
+            if (status !== FontLoader.Ready) return
+            var fam = inter.font.family
+            Style.fontFamily = (fam && fam.indexOf("Inter") === 0) ? "Inter" : (fam || "Segoe UI")
+        }
     }
     Component.onCompleted: {
-        if (inter.status === FontLoader.Ready)
-            Style.fontFamily = inter.font.family
+        if (inter.status === FontLoader.Ready) {
+            var fam = inter.font.family
+            Style.fontFamily = (fam && fam.indexOf("Inter") === 0) ? "Inter" : (fam || "Segoe UI")
+        } else if (!Style.fontFamily) {
+            Style.fontFamily = "Segoe UI"
+        }
         // Ensure we land on a real monitor (multi-display / off-screen restore).
         if (x < -width + 80 || y < -40) {
             x = 80; y = 60
         }
     }
-    font.family: Style.fontFamily
+    font.family: Style.fontFamily || "Segoe UI"
 
     // --- restore helpers (taskbar / tray) ------------------------------------
     function restoreWindow() {
@@ -305,21 +315,22 @@ ApplicationWindow {
                         }
                     }
 
-                    // Listening / persona status card
+                    // Listening / persona status card.
+                    // Fixed preferred heights (not bound to child.implicitHeight)
+                    // so Layouts never sees a preferredHeight ↔ implicitHeight
+                    // cycle ("recursive rearrange").
                     GlassCard {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: statusInner.implicitHeight + Style.gap
+                        Layout.preferredHeight: window.railCollapsed ? 52 : 78
                         section: "Dashboard"
-                        visible: !window.railCollapsed || true
                         ColumnLayout {
                             id: statusInner
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.fill: parent
                             anchors.margins: Style.gapSm
                             spacing: 4
                             RowLayout {
                                 spacing: Style.gapSm
+                                Layout.fillWidth: true
                                 Layout.alignment: Qt.AlignHCenter
                                 PmStatusDot {
                                     tone: app.listening ? Style.good : Style.textFaint
@@ -356,6 +367,7 @@ ApplicationWindow {
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                             }
+                            Item { Layout.fillHeight: true }
                         }
                     }
 

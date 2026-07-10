@@ -1,43 +1,47 @@
 # Build status
 
-**Overhaul v0.2.0** (waves A–C + D1/D2 verify). Hardware truth and resource budget
-live in [`docs/overhaul/04_VOICE_RESOURCES.md`](overhaul/04_VOICE_RESOURCES.md) §1.
+**Overhaul v0.2.0 complete** (waves A–D including D5 WebEngine). Hardware truth and
+resource budget live in [`docs/overhaul/04_VOICE_RESOURCES.md`](overhaul/04_VOICE_RESOURCES.md) §1.
 Execution ledger: [`docs/overhaul/PROGRESS.md`](overhaul/PROGRESS.md).
 
-## Hardware (this machine)
+## Hardware (target / this machine)
 
 | Resource | Value |
 |---|---|
 | CPU | Intel i7-9750H, 6C/12T (laptop) |
 | RAM | 32 GB |
-| GPU | **RTX 2070 Max-Q, 8 GB VRAM (sm_75)** |
+| GPU | **RTX 2070 Max-Q, 8 GB VRAM (sm_75)** — deploy target is 8 GB+ cards |
 | Use profile | Dedicated to Polymath + browser/video research |
 
-Older notes that claimed a **RTX 3080 Ti / sm_86** are wrong for this hardware.
 Steady-state VRAM budget (Fast @ 4096 ctx + q8 KV + Embedding + OS baseline) ≈
-**5.7–6.2 GB** with ~1.9–2.4 GB headroom. **Heavy 27B is parked** (not in the default
-fetch); deep work → external agent sessions or the Fast idle queue.
+**5.7–6.2 GB** with ~1.9–2.4 GB headroom. **Heavy 27B is parked**.
 
 ## Build / verify (Wave D)
 
 | Gate | Status | Notes |
 |------|--------|--------|
-| **D1** CPU Release build + captures | ✅ green | `build/cpu` Release; `capture_views` **13/13** (shell + 12 feature views) |
-| **D2** ctest | ✅ green | **14/14** suites (see below) |
-| **D3** models + live e2e + resource audit | ⏳ pending | `fetch-models.ps1` + live voice / barge-in / agent_spawn — **not claimed done here** |
-| **D4** docs refresh + graphify + tag prep | ✅ this pass | Tag `v0.2.0-overhaul` is orchestrator-owned (not pushed from this node) |
+| **D1** CPU Release build + captures | ✅ green | `build/cpu`; `capture_views` 13/13 |
+| **D2** ctest | ✅ green | 14/14 suites |
+| **D3** models + live e2e | ✅ green | Minimal models + live LLM path |
+| **D4** docs + tag prep | ✅ green | `v0.2.0-overhaul` |
+| **D5** QtWebEngine WebSurface | ✅ green | adblock + YouTube clean-mode |
+| **GPU tree** | ✅ green | `build/cuda`, CUDA 13.3, `CUDA=true`, ngl=36, ~5.9 GB VRAM |
+| **Kokoro TTS** | ✅ green | `scripts/setup-kokoro.ps1`; real-time sentence stream |
 
-- **CPU build** — `build/cpu` (Visual Studio 2022 generator). Reproduced by
-  [`scripts/build-cpu.ps1`](../scripts/build-cpu.ps1).
-- **GPU / CUDA build** — `build/cuda` (Ninja + portable CUDA toolkit, **sm_75**).
-  Reproduced by [`scripts/build-gpu.ps1`](../scripts/build-gpu.ps1).
+- **CPU build** — `scripts/build-cpu.ps1` → `build/cpu/bin/Release/Polymath.exe`
+- **GPU build (preferred)** — `scripts/build-gpu.ps1` → `build/cuda/bin/Polymath.exe`
+  (CUDA 13.3 / VS 2026 host with `-allow-unsupported-compiler`, arch=75)
 
-`Polymath.exe` is built with MSVC 2022 + Qt 6.6.3 + OpenCV 4.9 + ONNX Runtime 1.17
-(CPU) + llama.cpp/whisper.cpp from source. Service threads (each on its own
-`QThread`, EventBus only):
+Service threads (EventBus only): Inference · Scheduler · Proactive · Idle ·
+Memory · Agent · Vision · Audio · Sessions · Gateway.
 
-Inference · Scheduler · Proactive · Idle · Memory · Agent · Vision · Audio ·
-**Sessions** (external CLI agents).
+## Known non-blockers
+
+| Item | Notes |
+|------|--------|
+| Vision ONNX CUDA EP | CPU ORT package; YOLO/face fall back to CPU (LLM is CUDA) |
+| Gateway relay deploy | Optional operator step — see `WIRING.md` §E |
+| mDNS / PWA icons / mobile push | Nice-to-have — `WIRING.md` §F |
 
 UI-only iteration (no CUDA):
 

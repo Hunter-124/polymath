@@ -7,6 +7,8 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QFont>
+#include <QFontDatabase>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -78,6 +80,34 @@ int main(int argc, char* argv[]) try {
     // Main.qml hides to the system tray on close; without this, the last window
     // disappearing would still quit the process and look like a "crash".
     QGuiApplication::setQuitOnLastWindowClosed(false);
+
+    // Load Inter before any QML paints so Qt never falls through to broken
+    // "MS Sans Serif" / "Inter Variable" DirectWrite paths on first frame.
+    {
+        const int fid = QFontDatabase::addApplicationFont(
+            QStringLiteral(":/qt/qml/Polymath/fonts/Inter.ttf"));
+        QString family = QStringLiteral("Inter");
+        if (fid >= 0) {
+            const auto families = QFontDatabase::applicationFontFamilies(fid);
+            if (!families.isEmpty()) {
+                // Prefer a non-"Variable" family name when the TTF reports one.
+                for (const auto& f : families) {
+                    if (f.startsWith(QStringLiteral("Inter")) &&
+                        !f.contains(QStringLiteral("Variable"), Qt::CaseInsensitive)) {
+                        family = f;
+                        break;
+                    }
+                }
+                if (family == QStringLiteral("Inter") && !families.isEmpty())
+                    family = families.first().contains(QStringLiteral("Variable"))
+                                 ? QStringLiteral("Inter")
+                                 : families.first();
+            }
+        }
+        QFont appFont(family, 10);
+        appFont.setStyleStrategy(QFont::PreferAntialias);
+        app.setFont(appFont);
+    }
 
     Paths::instance().setRoot(resolveAppRoot());
 
