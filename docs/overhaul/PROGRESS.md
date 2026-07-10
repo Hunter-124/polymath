@@ -25,7 +25,7 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 - [x] B5 Personalities + Models + Privacy + Mobile
 - [x] B6 SettingsView
 - [x] B7 notifications QML (ToastStack, Bell, Center)
-- [ ] B8 CommandPalette
+- [x] B8 CommandPalette
 - [ ] B9 SurfaceHost + surfaces
 - [ ] BV wave-B build + capture verify + fix round
 
