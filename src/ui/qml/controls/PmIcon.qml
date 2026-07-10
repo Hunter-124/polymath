@@ -138,6 +138,17 @@ Canvas {
         case "x":
             line(6.5, 6.5, 17.5, 17.5); line(17.5, 6.5, 6.5, 17.5)
             break
+        case "bell":
+            ctx.moveTo(12, 4)
+            ctx.bezierCurveTo(9, 4, 7, 6.5, 7, 9.5)
+            ctx.lineTo(7, 13)
+            ctx.lineTo(5, 16)
+            ctx.lineTo(19, 16)
+            ctx.lineTo(17, 13)
+            ctx.lineTo(17, 9.5)
+            ctx.bezierCurveTo(17, 6.5, 15, 4, 12, 4)
+            line(10, 18, 14, 18)
+            break
         case "check":
             ctx.moveTo(5, 12.5); ctx.lineTo(10, 17.5); ctx.lineTo(19, 7)
             break

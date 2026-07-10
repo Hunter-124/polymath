@@ -30,6 +30,33 @@ struct FindObjectResult  { QString query; QString answer; int camera_id; int64_t
 struct PrivacyChanged    { QString key; bool enabled; };
 struct Notice            { QString level; QString source; QString message; };
 
+// --- Overhaul payloads (A2): surfaces, goals, external agent sessions ----------
+// action: spawn|close|arrange|open_page
+// type:   placeholder|image|web|video|monitor
+struct SurfaceRequest {
+    QString id;
+    QString action;
+    QString type;
+    QString title;
+    QString args_json;
+};
+// Goal terminal/progress update for NotificationsModel + chat delivery.
+struct GoalUpdate {
+    QString goal_id;
+    QString title;
+    QString status;    // running|done|failed|cancelled
+    QString summary;
+};
+// Normalized external-agent session event (Claude Code / Codex / PTY).
+struct AgentSessionEvent {
+    QString session_id;
+    QString kind;      // Started|Thinking|ToolUse|AssistantText|NeedsInput|...
+    QString text;
+    QString raw_json;
+    double  cost_usd = 0;
+    qint64  ts = 0;
+};
+
 class EventBus : public QObject {
     Q_OBJECT
 public:
@@ -49,6 +76,9 @@ public:
     void publishReminder(const ReminderFired& r)        { emit reminderFired(r); }
     void publishPrivacy(const PrivacyChanged& p)        { emit privacyChanged(p); }
     void publishNotice(const Notice& n)                 { emit notice(n); }
+    void publishSurfaceRequest(const SurfaceRequest& r) { emit surfaceRequested(r); }
+    void publishGoalUpdate(const GoalUpdate& g)         { emit goalUpdated(g); }
+    void publishAgentSessionEvent(const AgentSessionEvent& e) { emit agentSessionEvent(e); }
 
 signals:
     // --- audio ---
@@ -69,6 +99,10 @@ signals:
     // --- system ---
     void privacyChanged(const polymath::PrivacyChanged&);
     void notice(const polymath::Notice&);               // log/toast surface
+    // --- overhaul: surfaces / goals / external sessions ---
+    void surfaceRequested(const polymath::SurfaceRequest&);
+    void goalUpdated(const polymath::GoalUpdate&);
+    void agentSessionEvent(const polymath::AgentSessionEvent&);
 
 private:
     EventBus();
@@ -89,3 +123,6 @@ Q_DECLARE_METATYPE(polymath::TaskEvent)
 Q_DECLARE_METATYPE(polymath::ReminderFired)
 Q_DECLARE_METATYPE(polymath::PrivacyChanged)
 Q_DECLARE_METATYPE(polymath::Notice)
+Q_DECLARE_METATYPE(polymath::SurfaceRequest)
+Q_DECLARE_METATYPE(polymath::GoalUpdate)
+Q_DECLARE_METATYPE(polymath::AgentSessionEvent)

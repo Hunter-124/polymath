@@ -38,6 +38,8 @@ class CameraModel;
 class TaskModel;
 class TimelineModel;
 class CameraImageProvider;
+class SettingsController;
+class NotificationsModel;
 
 class AppController : public QObject {
     Q_OBJECT
@@ -56,6 +58,9 @@ class AppController : public QObject {
     Q_PROPERTY(QObject* cameraModel   READ cameraModel   CONSTANT)
     Q_PROPERTY(QObject* taskModel     READ taskModel     CONSTANT)
     Q_PROPERTY(QObject* timelineModel READ timelineModel CONSTANT)
+    // Overhaul A2: VRAM HUD + wake pulse + settings/notifications facades.
+    Q_PROPERTY(int vramUsedMiB  READ vramUsedMiB  NOTIFY vramChanged)
+    Q_PROPERTY(int vramTotalMiB READ vramTotalMiB NOTIFY vramChanged)
 public:
     explicit AppController(QObject* parent = nullptr);
     ~AppController() override;
@@ -87,6 +92,9 @@ public:
     QObject* cameraModel() const;
     QObject* taskModel() const;
     QObject* timelineModel() const;
+
+    int vramUsedMiB() const { return vram_used_mib_; }
+    int vramTotalMiB() const { return vram_total_mib_; }
 
     // --- QML-callable actions ---
     Q_INVOKABLE void sendText(const QString& text);
@@ -137,6 +145,9 @@ public:
     // opt-in banner from then on, even before any model is added).
     Q_INVOKABLE void completeFirstRun();
 
+    // Dev/demo: publish a placeholder SurfaceRequest (bus → surfaceRequested).
+    Q_INVOKABLE void spawnSurfaceDemo();
+
 signals:
     void listeningChanged();
     void activePersonalityChanged();
@@ -146,6 +157,11 @@ signals:
     void assistantToken(QString request_id, QString text, bool done);  // -> chat view
     void noticePosted(QString level, QString source, QString message); // -> toasts/log
     void findObjectAnswered(QString query, QString answer);
+    void vramChanged();
+    void wakeWordPulse();
+    void surfaceRequested(QString id, QString action, QString type,
+                          QString title, QString argsJson);
+    void goalUpdated(QString goalId, QString title, QString status, QString summary);
 
 private:
     void wireEventBus();
@@ -161,6 +177,8 @@ private:
     std::unique_ptr<CameraModel>         camera_model_;
     std::unique_ptr<TaskModel>           task_model_;
     std::unique_ptr<TimelineModel>       timeline_model_;
+    std::unique_ptr<NotificationsModel>  notifications_model_;
+    std::unique_ptr<SettingsController>  settings_;
     // The QML engine takes ownership of the image provider on registration; we
     // keep a non-owning pointer to push frames into it. Guarded for lifetime by
     // disconnecting the feed in shutdown().
@@ -192,6 +210,8 @@ private:
     bool    listening_ = false;
     QString active_personality_ = "Assistant";
     QString model_status_ = "no model loaded";
+    int     vram_used_mib_ = 0;
+    int     vram_total_mib_ = 0;
 };
 
 } // namespace polymath

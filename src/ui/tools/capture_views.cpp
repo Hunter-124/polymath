@@ -87,6 +87,8 @@ class StubApp : public QObject {
     Q_PROPERTY(bool hasModels READ hasModels NOTIFY changed)
     Q_PROPERTY(bool firstRun READ firstRun NOTIFY changed)
     Q_PROPERTY(QObject* chatModel READ chatModel CONSTANT)
+    Q_PROPERTY(int vramUsedMiB READ vramUsedMiB NOTIFY vramChanged)
+    Q_PROPERTY(int vramTotalMiB READ vramTotalMiB NOTIFY vramChanged)
 public:
     bool populated = true;
 
@@ -99,6 +101,8 @@ public:
     bool firstRun() const { return !populated; }
     QObject* chatModel() const { return chat_; }
     void setChat(QObject* m) { chat_ = m; }
+    int vramUsedMiB() const { return populated ? 5400 : 0; }
+    int vramTotalMiB() const { return 8192; }
 
     Q_INVOKABLE QStringList personalities() const {
         return populated ? QStringList{"Assistant", "Marcus Aurelius", "Ada Lovelace"}
@@ -114,8 +118,8 @@ public:
             m["path"] = "data/models/" + name + ".gguf";
             return QVariant(m);
         };
-        out << mk("gemma-3n-E4B-it-Q4_K_M", "fast", 8192, 999, true);
-        out << mk("gemma-3-27b-it-Q4_K_M", "heavy", 8192, 46, false);
+        out << mk("gemma-3n-E4B-it-Q4_K_M", "fast", 4096, 999, true);
+        out << mk("gemma-3-27b-it-Q4_K_M", "heavy", 4096, 46, false);
         out << mk("gemma-3-4b-it-Q4_K_M", "vision", 4096, 999, false);
         out << mk("embeddinggemma-Q8_0", "embedding", 2048, 0, false);
         return out;
@@ -142,6 +146,7 @@ public:
     Q_INVOKABLE void completeFirstRun() {}
     Q_INVOKABLE bool addModel(const QString&, const QString&) { return true; }
     Q_INVOKABLE void setModelRole(const QString&, const QString&) {}
+    Q_INVOKABLE void spawnSurfaceDemo() {}
 signals:
     void changed();
     void modelsChanged();
@@ -149,8 +154,98 @@ signals:
     void assistantToken(QString, QString, bool);
     void noticePosted(QString, QString, QString);
     void findObjectAnswered(QString, QString);
+    void vramChanged();
+    void wakeWordPulse();
+    void surfaceRequested(QString, QString, QString, QString, QString);
+    void goalUpdated(QString, QString, QString, QString);
 private:
     QObject* chat_ = nullptr;
+};
+
+// ---------------------------------------------------------------------------
+// Stub `settings` — SettingsController surface for Style bridge / SettingsView.
+// ---------------------------------------------------------------------------
+class StubSettings : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(QString accent READ accent WRITE setAccent NOTIFY accentChanged)
+    Q_PROPERTY(bool effects READ effects WRITE setEffects NOTIFY effectsChanged)
+    Q_PROPERTY(double effectsIntensity READ effectsIntensity WRITE setEffectsIntensity
+               NOTIFY effectsIntensityChanged)
+    Q_PROPERTY(double fontScale READ fontScale WRITE setFontScale NOTIFY fontScaleChanged)
+    Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY reduceMotionChanged)
+public:
+    QString accent() const { return accent_; }
+    bool effects() const { return effects_; }
+    double effectsIntensity() const { return intensity_; }
+    double fontScale() const { return scale_; }
+    bool reduceMotion() const { return reduce_; }
+    void setAccent(const QString& v) { if (accent_ == v) return; accent_ = v; emit accentChanged(); emit settingChanged("ui.accent", v); }
+    void setEffects(bool v) { if (effects_ == v) return; effects_ = v; emit effectsChanged(); emit settingChanged("ui.effects", v); }
+    void setEffectsIntensity(double v) { if (intensity_ == v) return; intensity_ = v; emit effectsIntensityChanged(); }
+    void setFontScale(double v) { if (scale_ == v) return; scale_ = v; emit fontScaleChanged(); }
+    void setReduceMotion(bool v) { if (reduce_ == v) return; reduce_ = v; emit reduceMotionChanged(); }
+
+    Q_INVOKABLE QString getString(const QString&, const QString& def = {}) const { return def; }
+    Q_INVOKABLE int getInt(const QString&, int def = 0) const { return def; }
+    Q_INVOKABLE bool getBool(const QString&, bool def = false) const { return def; }
+    Q_INVOKABLE double getReal(const QString&, double def = 0.0) const { return def; }
+    Q_INVOKABLE void setString(const QString& k, const QString& v) { emit settingChanged(k, v); }
+    Q_INVOKABLE void setInt(const QString& k, int v) { emit settingChanged(k, v); }
+    Q_INVOKABLE void setBool(const QString& k, bool v) { emit settingChanged(k, v); }
+    Q_INVOKABLE void setReal(const QString& k, double v) { emit settingChanged(k, v); }
+    Q_INVOKABLE QVariantList audioInputDevices() const {
+        return {QVariantMap{{"id",""},{"label","System default"}},
+                QVariantMap{{"id","mic0"},{"label","Microphone (Realtek)"}}};
+    }
+    Q_INVOKABLE QVariantList audioOutputDevices() const {
+        return {QVariantMap{{"id",""},{"label","System default"}},
+                QVariantMap{{"id","spk0"},{"label","Speakers"}}};
+    }
+signals:
+    void accentChanged();
+    void effectsChanged();
+    void effectsIntensityChanged();
+    void fontScaleChanged();
+    void reduceMotionChanged();
+    void settingChanged(QString, QVariant);
+private:
+    QString accent_ = QStringLiteral("#33E1FF");
+    bool effects_ = true;
+    double intensity_ = 0.6;
+    double scale_ = 1.0;
+    bool reduce_ = false;
+};
+
+// ---------------------------------------------------------------------------
+// Stub `notifications` — NotificationsModel surface.
+// ---------------------------------------------------------------------------
+class StubNotifications : public StubListModel {
+    Q_OBJECT
+    Q_PROPERTY(int unreadCount READ unreadCount NOTIFY unreadCountChanged)
+public:
+    StubNotifications(QVariantList rows, QObject* parent = nullptr)
+        : StubListModel(
+              {"id","severity","source","title","body","timestamp","timeLabel","read","category"},
+              std::move(rows), parent) {}
+    int unreadCount() const {
+        int n = 0;
+        // rows_ is private in base — approximate from seeded data via data() API.
+        for (int i = 0; i < rowCount(); ++i) {
+            if (!data(index(i, 0), Qt::UserRole + 8).toBool()) // read role
+                ++n;
+        }
+        // Role mapping: Id=UserRole+1 ... Read=UserRole+8. Safer: store count.
+        return unread_;
+    }
+    void setUnread(int n) { unread_ = n; emit unreadCountChanged(); }
+    Q_INVOKABLE void markAllRead() { unread_ = 0; emit unreadCountChanged(); }
+    Q_INVOKABLE void markRead(const QString&) {}
+    Q_INVOKABLE void clearAll() {}
+    Q_INVOKABLE void refreshFromEvents() {}
+signals:
+    void unreadCountChanged();
+private:
+    int unread_ = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -261,6 +356,21 @@ int main(int argc, char* argv[]) {
             QVariantMap{{"category","transcript"},{"kind","ambient"},{"text","\"...let's plan the trip this weekend...\""},{"timeLabel","14:58"}},
         }, &stub);
 
+    StubSettings stubSettings;
+    auto notifRows = empty ? QVariantList{} : QVariantList{
+        QVariantMap{{"id","n1"},{"severity","info"},{"source","system"},{"title","Welcome"},
+                    {"body","Polymath is online."},{"timestamp",0},{"timeLabel","16:00"},
+                    {"read",false},{"category","notice"}},
+        QVariantMap{{"id","n2"},{"severity","good"},{"source","tasks"},{"title","Lab report"},
+                    {"body","done — weekly synthesis ready"},{"timestamp",0},{"timeLabel","15:40"},
+                    {"read",false},{"category","task"}},
+        QVariantMap{{"id","n3"},{"severity","warn"},{"source","reminders"},{"title","Reminder"},
+                    {"body","Take out the recycling"},{"timestamp",0},{"timeLabel","14:00"},
+                    {"read",true},{"category","reminder"}},
+    };
+    auto* notifications = new StubNotifications(notifRows, &stub);
+    notifications->setUnread(empty ? 0 : 2);
+
     // --- helper: render one QML file to PNG ---------------------------------
     auto renderView = [&](const QString& qmlUrl, const QString& outPng, bool isWindow) -> bool {
         QQmlApplicationEngine engine;
@@ -275,6 +385,8 @@ int main(int argc, char* argv[]) {
         // headless harness we feed a stub seeded with a sample pairing payload so
         // the QR encoder + payload box render populated (and scannable).
         ctx->setContextProperty("gateway", &stubGw);
+        ctx->setContextProperty("settings", &stubSettings);
+        ctx->setContextProperty("notifications", notifications);
         // Software capture path: force faux-glass (no MultiEffect blur).
         ctx->setContextProperty("pmEffectsEnabled", false);
 
@@ -334,6 +446,8 @@ int main(int argc, char* argv[]) {
         {"ModelManagerView.qml",  "09-models",       false},
         {"PrivacyView.qml",       "10-privacy",      false},
         {"MobileAccessView.qml",  "11-mobile-access",false},
+        {"SettingsView.qml",      "12-settings",     false},
+        {"AgentSessionsView.qml", "13-agents",       false},
     };
 
     int failures = 0;

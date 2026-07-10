@@ -33,6 +33,24 @@ namespace keys {
     // First-run flow acknowledged ("1" once the user has been through setup).
     // Absent/"0" => still first run (drives the cold-start + opt-in banners).
     inline constexpr const char* FirstRunDone          = "app.first_run_done";
+
+    // --- Overhaul (A2): UI / audio / agents / inference knobs -----------------
+    inline constexpr const char* UiAccent              = "ui.accent";
+    inline constexpr const char* UiEffects             = "ui.effects";
+    inline constexpr const char* UiEffectsIntensity    = "ui.effects_intensity";
+    inline constexpr const char* UiFontScale           = "ui.font_scale";
+    inline constexpr const char* UiReduceMotion        = "ui.reduce_motion";
+    inline constexpr const char* AudioInputDevice      = "audio.input_device";
+    inline constexpr const char* AudioOutputDevice     = "audio.output_device";
+    inline constexpr const char* AudioAsrIdleUnloadS   = "audio.asr_idle_unload_s";
+    inline constexpr const char* AppStartMinimized     = "app.start_minimized";
+    inline constexpr const char* AppLaunchOnLogin      = "app.launch_on_login";
+    inline constexpr const char* AgentsAllowedDirs     = "agents.allowed_dirs";
+    inline constexpr const char* AgentsMaxConcurrent   = "agents.max_concurrent";
+    inline constexpr const char* AgentsSpeakNeedsInput = "agents.speak_needs_input";
+    inline constexpr const char* LlmKvQuant            = "llm.kv_quant";          // q8_0 | f16
+    inline constexpr const char* AgentGoalTimeoutMin   = "agent.goal_timeout_min";
+    inline constexpr const char* AgentSpeakResults     = "agent.speak_results";
 }
 
 class Config {

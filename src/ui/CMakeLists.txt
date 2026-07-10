@@ -34,6 +34,18 @@ qt_add_qml_module(pm_ui
         qml/ModelManagerView.qml
         qml/PrivacyView.qml
         qml/MobileAccessView.qml
+        # Overhaul A2 placeholders (full UI in wave B/C).
+        qml/SettingsView.qml
+        qml/SettingsSection.qml
+        qml/ToastStack.qml
+        qml/NotificationBell.qml
+        qml/NotificationCenter.qml
+        qml/CommandPalette.qml
+        qml/SurfaceHost.qml
+        qml/AgentSessionsView.qml
+        qml/surfaces/PlaceholderSurface.qml
+        qml/surfaces/ImageSurface.qml
+        qml/surfaces/WebSurface.qml
         # Self-contained QR encoder (MIT) for the Mobile Access pairing QR; pure
         # ECMAScript usable from the Canvas, no extra Qt module / C++ dependency.
         qml/qrcode.js
@@ -66,12 +78,14 @@ qt_add_qml_module(pm_ui
     RESOURCES
         fonts/Inter.ttf
     SOURCES
-        models/chat_model.h        models/chat_model.cpp
-        models/shopping_model.h    models/shopping_model.cpp
-        models/camera_model.h      models/camera_model.cpp
-        models/task_model.h        models/task_model.cpp
-        models/timeline_model.h    models/timeline_model.cpp
-        camera_image_provider.h    camera_image_provider.cpp
+        models/chat_model.h           models/chat_model.cpp
+        models/shopping_model.h       models/shopping_model.cpp
+        models/camera_model.h         models/camera_model.cpp
+        models/task_model.h           models/task_model.cpp
+        models/timeline_model.h       models/timeline_model.cpp
+        models/notifications_model.h  models/notifications_model.cpp
+        settings_controller.h         settings_controller.cpp
+        camera_image_provider.h       camera_image_provider.cpp
 )
 
 # Headers are consumed by pm_app (AppController) and by the QML engine wiring,
@@ -81,15 +95,14 @@ target_include_directories(pm_ui PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/models
 )
 
-# pm_core gives the models the Database wrapper, EventBus payload types, types.h
-# and the spdlog logging macros; Qt Gui supplies QImage for the image provider.
-# QuickEffects (optional) powers MultiEffect blur on GlassSurface live path.
+# pm_core: Database, EventBus, Config. Qt Multimedia: QMediaDevices for settings
+# audio pickers. QuickEffects optional for GlassSurface blur (not required A1/A2).
 find_package(Qt6 QUIET COMPONENTS QuickEffects)
+set(_pm_ui_qt Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::Multimedia)
 if(TARGET Qt6::QuickEffects)
-    target_link_libraries(pm_ui PUBLIC pm_core Qt6::Quick Qt6::QuickControls2 Qt6::Gui Qt6::QuickEffects)
-else()
-    target_link_libraries(pm_ui PUBLIC pm_core Qt6::Quick Qt6::QuickControls2 Qt6::Gui)
+    list(APPEND _pm_ui_qt Qt6::QuickEffects)
 endif()
+target_link_libraries(pm_ui PUBLIC pm_core ${_pm_ui_qt})
 
 # ---------------------------------------------------------------------------
 # capture_views — offscreen screenshot harness (Card F).  Renders every view to

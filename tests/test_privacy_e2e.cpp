@@ -92,9 +92,19 @@ static void test_gating() {
     assert(!cfg.getBool(keys::MicEnabled));
     assert(cfg.getBool(keys::CamerasEnabled));     // unrelated sense unaffected
 
+    // Overhaul A2: new UI/audio/agent keys seed and round-trip via Config.
+    assert(cfg.getStr(keys::UiAccent, "") == "#33E1FF");
+    assert(cfg.getStr(keys::LlmKvQuant, "") == "q8_0");
+    assert(cfg.getInt(keys::AgentGoalTimeoutMin, 0) == 30);
+    cfg.set(keys::UiAccent, "#FF00AA");
+    assert(cfg.getStr(keys::UiAccent, "") == "#FF00AA");
+    cfg.set(keys::UiFontScale, "1.25");
+    assert(cfg.getStr(keys::UiFontScale, "") == "1.25");
+
     db.close();
     std::filesystem::remove(tmp);
     std::puts("  [1] gating: master kill-switch + per-feature toggles OK");
+    std::puts("  [1b] A2 settings keys seed + get/set round-trip OK");
 }
 
 // --- 2. Retention sweeper purges expired, keeps fresh -----------------------

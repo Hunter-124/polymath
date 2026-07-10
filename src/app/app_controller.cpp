@@ -19,6 +19,8 @@
 #include "camera_model.h"
 #include "task_model.h"
 #include "timeline_model.h"
+#include "notifications_model.h"
+#include "settings_controller.h"
 #include "camera_image_provider.h"
 
 #include "app_bridge.h"
@@ -158,6 +160,29 @@ void AppController::wireEventBus() {
                 emit modelsChanged();
                 emit firstRunChanged();
             });
+
+    // VRAM HUD (first consumer of InferenceManager::vramChanged).
+    connect(inference_.get(), &InferenceManager::vramChanged, this,
+            [this](int used, int total) {
+                vram_used_mib_ = used;
+                vram_total_mib_ = total;
+                emit vramChanged();
+            });
+
+    // Wake-word pulse for dashboard HUD.
+    connect(audio_.get(), &AudioService::wakeWordHeard, this, [this]() {
+        emit wakeWordPulse();
+    });
+
+    // SurfaceHost / goal delivery relays (bus → QML-friendly signals).
+    connect(&bus, &EventBus::surfaceRequested, this,
+            [this](const SurfaceRequest& r) {
+                emit surfaceRequested(r.id, r.action, r.type, r.title, r.args_json);
+            });
+    connect(&bus, &EventBus::goalUpdated, this,
+            [this](const GoalUpdate& g) {
+                emit goalUpdated(g.goal_id, g.title, g.status, g.summary);
+            });
 }
 
 // --- Wave-3 UI data layer ------------------------------------------------
@@ -168,13 +193,19 @@ void AppController::buildModels() {
     camera_model_   = std::make_unique<CameraModel>(db_, this);
     task_model_     = std::make_unique<TaskModel>(db_, this);
     timeline_model_ = std::make_unique<TimelineModel>(db_, this);
+    notifications_model_ = std::make_unique<NotificationsModel>(db_, this);
     image_provider_ = new CameraImageProvider();   // engine takes ownership later
+
+    // SettingsController needs Config (seeded in initialize before buildModels).
+    if (config_)
+        settings_ = std::make_unique<SettingsController>(db_, *config_, this);
 
     // Initial population from SQLite (tables are the source of truth).
     shopping_model_->refresh();
     camera_model_->refresh();
     task_model_->refresh();
     timeline_model_->refresh();
+    notifications_model_->refreshFromEvents();
 }
 
 void AppController::wireModels() {
@@ -214,6 +245,20 @@ void AppController::wireModels() {
     connect(&bus, &EventBus::notice, timeline_model_.get(), [this](const Notice& n) {
         if (n.source == QLatin1String("memory")) timeline_model_->refresh();
     });
+
+    // Notifications center: bus consumers (independent of toast chain).
+    if (notifications_model_) {
+        connect(&bus, &EventBus::notice, notifications_model_.get(),
+                &NotificationsModel::onNotice);
+        connect(&bus, &EventBus::taskUpdated, notifications_model_.get(),
+                &NotificationsModel::onTask);
+        connect(&bus, &EventBus::reminderFired, notifications_model_.get(),
+                &NotificationsModel::onReminder);
+        connect(&bus, &EventBus::detection, notifications_model_.get(),
+                &NotificationsModel::onDetection);
+        connect(&bus, &EventBus::goalUpdated, notifications_model_.get(),
+                &NotificationsModel::onGoalUpdate);
+    }
 }
 
 void AppController::registerWithEngine(QQmlApplicationEngine& engine) {
@@ -234,6 +279,11 @@ void AppController::registerWithEngine(QQmlApplicationEngine& engine) {
     // thread-safe (auth pair-code store is mutex-guarded; the relay toggle
     // marshals onto the gateway thread).
     ctx->setContextProperty("gateway",       gateway_.get());
+    // Overhaul A2 facades.
+    ctx->setContextProperty("settings",      settings_.get());
+    ctx->setContextProperty("notifications", notifications_model_.get());
+    // Real app enables MultiEffect glass; capture_views forces false.
+    ctx->setContextProperty("pmEffectsEnabled", true);
 }
 
 QObject* AppController::chatModel() const     { return chat_model_.get(); }
@@ -497,6 +547,16 @@ void AppController::setModelRole(const QString& id, const QString& role) {
 void AppController::completeFirstRun() {
     db_.setSetting(std::string(keys::FirstRunDone), "1");
     emit firstRunChanged();
+}
+
+void AppController::spawnSurfaceDemo() {
+    SurfaceRequest r;
+    r.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    r.action = QStringLiteral("spawn");
+    r.type = QStringLiteral("placeholder");
+    r.title = QStringLiteral("Demo surface");
+    r.args_json = QStringLiteral("{\"note\":\"spawnSurfaceDemo\"}");
+    EventBus::instance().publishSurfaceRequest(r);
 }
 
 } // namespace polymath
