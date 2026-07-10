@@ -12,7 +12,7 @@ Item {
     property bool open: false
 
     anchors.fill: parent
-    hoverEnabled: true
+    // Hover is handled by HoverHandler below (Item has no hoverEnabled).
 
     Timer {
         id: showTimer

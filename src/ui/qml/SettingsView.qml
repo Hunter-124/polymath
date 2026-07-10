@@ -36,10 +36,6 @@ Item {
     }
 
     onFocusSectionChanged: Qt.callLater(function () { root.scrollToSection(root.focusSection) })
-    Component.onCompleted: {
-        if (focusSection.length > 0)
-            Qt.callLater(function () { root.scrollToSection(root.focusSection) })
-    }
 
     // Local mirrors for free-form keys (reload on settingChanged)
     property string wakeWord: settings.getString("audio.wake_word", "hey_jarvis")
@@ -88,7 +84,11 @@ Item {
         return 0
     }
 
-    Component.onCompleted: refreshDevices()
+    Component.onCompleted: {
+        refreshDevices()
+        if (focusSection.length > 0)
+            Qt.callLater(function () { root.scrollToSection(root.focusSection) })
+    }
 
     Connections {
         target: settings

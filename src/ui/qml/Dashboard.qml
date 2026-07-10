@@ -22,36 +22,15 @@ Item {
         // Prefer role-aware count if model exposes helper; else scan rows defensively.
         if (typeof taskModel.countByStatus === "function")
             return taskModel.countByStatus(status)
-        var n = 0
-        var rows = taskModel.rowCount ? taskModel.rowCount() : (taskModel.count || 0)
-        for (var i = 0; i < rows; ++i) {
-            var st = ""
-            if (typeof taskModel.data === "function") {
-                // Role lookup is opaque from QML without role id; skip scan.
-                break
-            }
-        }
-        // Fallback: use count property if present on stub lists.
         if (status === "running" && taskModel.runningCount !== undefined)
             return taskModel.runningCount
         if (status === "queued" && taskModel.queuedCount !== undefined)
             return taskModel.queuedCount
-        return n
+        return 0
     }
 
-    readonly property int runningTasks: {
-        if (typeof taskModel !== "undefined" && taskModel && taskModel.runningCount !== undefined)
-            return taskModel.runningCount
-        return 0
-    }
-    readonly property int queuedTasks: {
-        if (typeof taskModel !== "undefined" && taskModel && taskModel.queuedCount !== undefined)
-            return taskModel.queuedCount
-        // Stub list models often expose only count.
-        if (typeof taskModel !== "undefined" && taskModel && taskModel.count !== undefined)
-            return Math.max(0, taskModel.count - runningTasks)
-        return 0
-    }
+    readonly property int runningTasks: root.taskCount("running")
+    readonly property int queuedTasks: root.taskCount("queued")
 
     property var modelRows: []
     function reloadModels() {

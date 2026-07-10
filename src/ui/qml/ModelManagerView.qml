@@ -72,9 +72,10 @@ Item {
                     section: "Models"
                     radius: Style.radiusSm
                     // Active / resident emphasis via border glow
+                    // (content lives in GlassPanel's contentHolder — use mrow.radius, not parent.radius)
                     Rectangle {
                         anchors.fill: parent
-                        radius: parent.radius
+                        radius: mrow.radius
                         color: "transparent"
                         border.width: modelData.active === true ? 1 : 0
                         border.color: Style.good

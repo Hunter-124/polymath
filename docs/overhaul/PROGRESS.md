@@ -22,7 +22,7 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 - [x] B7 notifications QML (ToastStack, Bell, Center)
 - [x] B8 CommandPalette
 - [x] B9 SurfaceHost + surfaces
-- [ ] BV wave-B build + capture verify + fix round
+- [x] BV wave-B build + capture verify + fix round
 
 ## Wave C — harness features
 - [ ] C2 AgentLoop v2 (goals, plan/execute/reflect, context v2)
@@ -39,6 +39,7 @@ Legend: [ ] pending · [~] in progress · [x] done · [!] blocked (see docs/over
 - [ ] D5 (optional) QtWebEngine + real WebSurface — awaiting owner go-ahead
 
 ## Notes / deviations
+- BV: capture 13/13 both modes; SettingsView onCompleted, PmTooltip hover, ModelManager radius, Dashboard taskCount.
 - A3: schema v2 goals/plan_steps; ToolContext.memory; task scheduler tool dispatch; taskFinished→notice/chat; countTokens; n_ctx 4096; KV q8_0.
 - A4: VAD-gated oWW, lazy whisper + idle unload, AsrWorker/TtsWorker, 16s ring, persistent streaming Piper, barge-in v1, ONNX reload backoff, device selection.
 - B1–B9: QML packages landed; C1 still owns Main.qml feature wiring (palette/toasts/bell/surfaces/Style bindings).
