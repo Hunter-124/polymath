@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <thread>
 #include <vector>
 
 // llama.cpp is an optional vendored dependency (third_party/llama.cpp). When it
@@ -121,9 +122,18 @@ bool LlamaBackend::load(const ModelSpec& spec) {
     // --- context ---
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx   = static_cast<uint32_t>(std::max(spec.n_ctx, 0));
-    cparams.n_batch = std::min<uint32_t>(cparams.n_ctx ? cparams.n_ctx : 2048, 2048);
-    cparams.n_threads       = 0;   // 0 => llama picks a sane default
-    cparams.n_threads_batch = 0;
+    // Larger batch helps prompt eval; cap so we don't over-allocate on 8 GB machines.
+    cparams.n_batch = std::min<uint32_t>(cparams.n_ctx ? cparams.n_ctx : 2048, 512);
+    // Pin thread counts: llama's "0 = default" is often too low on Windows. Leave
+    // one logical core for the UI / audio pump. 6C/12T → 11 worker threads.
+    {
+        unsigned hc = std::thread::hardware_concurrency();
+        if (hc == 0) hc = 8;
+        const int n = static_cast<int>(hc > 2 ? hc - 1 : hc);
+        cparams.n_threads       = n;
+        cparams.n_threads_batch = n;
+        PM_INFO("LlamaBackend: n_threads={} n_batch={}", n, cparams.n_batch);
+    }
     // KV-cache quantization (04 §1): type_k/type_v behind llm.kv_quant.
     // Default q8_0 ≈ 50 % KV memory vs fp16 with negligible quality loss here.
     {

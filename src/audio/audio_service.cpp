@@ -119,10 +119,16 @@ public:
         : QObject(parent), tts_(tts) {}
 
 public slots:
-    void process(const QString& text, const QString& voice) {
-        tts_.speak(text.toStdString(), voice.toStdString());
-        emit finished();
+    void process(const QString& text, const QString& voice, bool append, bool flush) {
+        if (!text.isEmpty())
+            tts_.speak(text.toStdString(), voice.toStdString(), append);
+        if (flush || !append)
+            tts_.endStream();
+        // Only release barge-in / speaking state after a non-append turn or flush.
+        if (flush || !append)
+            emit finished();
     }
+    void warmUp() { tts_.warmUp(); }
     void cancel() { tts_.stop(); }
 
 signals:
@@ -707,6 +713,8 @@ void AudioService::start() {
     connect(d_->tts_worker, &TtsWorker::finished, this, &AudioService::onTtsFinished,
             Qt::QueuedConnection);
     d_->tts_thread->start();
+    // Warm Piper so the first spoken reply is not a cold espeak load miss.
+    QMetaObject::invokeMethod(d_->tts_worker, "warmUp", Qt::QueuedConnection);
 
     connect(&EventBus::instance(), &EventBus::privacyChanged, this,
             [this](const PrivacyChanged& p) {
@@ -754,8 +762,9 @@ void AudioService::stop() {
     PM_INFO("AudioService stopped (ring drops={})", d_->capture.ring().drops());
 }
 
-void AudioService::speak(const QString& text, const QString& voice) {
-    if (text.isEmpty()) return;
+void AudioService::speak(const QString& text, const QString& voice,
+                         bool append, bool flush) {
+    if (text.isEmpty() && !flush) return;
     if (!d_->tts.ready()) {
         PM_WARN("audio.tts: not ready; dropping speak request");
         return;
@@ -769,10 +778,15 @@ void AudioService::speak(const QString& text, const QString& voice) {
     if (d_->tts_worker) {
         QMetaObject::invokeMethod(d_->tts_worker, "process", Qt::QueuedConnection,
                                   Q_ARG(QString, text),
-                                  Q_ARG(QString, voice));
+                                  Q_ARG(QString, voice),
+                                  Q_ARG(bool, append),
+                                  Q_ARG(bool, flush));
     } else {
         // Fallback: block on this thread (tests without full start()).
-        d_->tts.speak(text.toStdString(), voice.toStdString());
+        if (!text.isEmpty())
+            d_->tts.speak(text.toStdString(), voice.toStdString(), append);
+        if (flush || !append)
+            d_->tts.endStream();
         d_->speaking.store(false, std::memory_order_release);
         d_->applyBargeInThresholds(false);
     }

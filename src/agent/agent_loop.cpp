@@ -625,7 +625,48 @@ std::string AgentLoop::unconstrainedComplete(const std::vector<ChatMessage>& mes
     req.sampling   = persona.sampling;
     req.sampling.grammar.clear();
     bool local_ok = false;
-    std::string out = collector_.run(inf_, req, kStepTimeoutMs, &local_ok);
+
+    // Real-time TTS: as the user-visible answer streams, speak each finished
+    // sentence immediately (append to the playback queue). Flush when done.
+    TurnCollector::TokenHook hook;
+    std::string speak_buf;
+    if (stream) {
+        const QString voice = QString::fromStdString(persona.voice);
+        const QString rid = request_id;
+        hook = [voice, rid, &speak_buf](const std::string& delta, bool done) {
+            auto& bus = EventBus::instance();
+            speak_buf += delta;
+            auto isEnd = [](char c) {
+                return c == '.' || c == '!' || c == '?' || c == ';' || c == '\n';
+            };
+            size_t start = 0;
+            for (size_t i = 0; i < speak_buf.size(); ++i) {
+                if (!isEnd(speak_buf[i])) continue;
+                // Include trailing space after punctuation when present.
+                size_t end = i + 1;
+                while (end < speak_buf.size() && speak_buf[end] == ' ') ++end;
+                const std::string sentence = speak_buf.substr(start, end - start);
+                start = end;
+                // Skip tiny fragments (abbrev noise).
+                if (sentence.size() < 4) continue;
+                bus.publishSpeak({QString::fromStdString(sentence), voice, rid,
+                                  /*append*/ true, /*flush*/ false});
+            }
+            if (start > 0)
+                speak_buf.erase(0, start);
+            if (done) {
+                if (!speak_buf.empty()) {
+                    bus.publishSpeak({QString::fromStdString(speak_buf), voice, rid,
+                                      /*append*/ true, /*flush*/ false});
+                    speak_buf.clear();
+                }
+                bus.publishSpeak({QString(), voice, rid,
+                                  /*append*/ true, /*flush*/ true});
+            }
+        };
+    }
+
+    std::string out = collector_.run(inf_, req, kStepTimeoutMs, &local_ok, std::move(hook));
     if (ok) *ok = local_ok;
     return out;
 }
@@ -679,7 +720,23 @@ TurnRoute AgentLoop::classifyRouteHeuristic(const std::string& user_text) {
 TurnRoute AgentLoop::classifyRoute(const std::string& user_text,
                                    const Persona& persona,
                                    const QString& request_id) {
-    // Cheap grammar: three synthetic tools.
+    // Fast path: skip a full LLM round-trip when the heuristic is confident.
+    // On CPU this alone saves ~5–15 s of prefill; on GPU it still cuts latency.
+    const TurnRoute heuristic = classifyRouteHeuristic(user_text);
+    const std::string lower = toLower(user_text);
+    const bool shortMsg = user_text.size() < 120;
+    const bool clearlyQuick =
+        heuristic == TurnRoute::Quick && shortMsg &&
+        !containsAny(lower, {"plan", "research", "multi", "and then", "step by"});
+    const bool clearlyCommand = heuristic == TurnRoute::Command;
+    const bool clearlyGoal    = heuristic == TurnRoute::Goal && user_text.size() > 40;
+    if (clearlyQuick || clearlyCommand || clearlyGoal) {
+        PM_INFO("AgentLoop: router heuristic fast-path → {} (skip LLM)",
+                turnRouteToString(heuristic));
+        return heuristic;
+    }
+
+    // Ambiguous: one cheap constrained classify.
     std::vector<grammar::ToolDef> defs = {
         {"quick",   {{"type","object"},{"properties",
             {{"reason",{{"type","string"}}}}}}},
@@ -713,9 +770,8 @@ TurnRoute AgentLoop::classifyRoute(const std::string& user_text,
             return r;
         }
     }
-    const TurnRoute h = classifyRouteHeuristic(user_text);
-    PM_INFO("AgentLoop: router fallback heuristic → {}", turnRouteToString(h));
-    return h;
+    PM_INFO("AgentLoop: router fallback heuristic → {}", turnRouteToString(heuristic));
+    return heuristic;
 }
 
 // ---------------------------------------------------------------------------
@@ -878,13 +934,11 @@ std::string AgentLoop::runQuick(const std::string& user_text,
         answer = finalAnswer.empty()
                      ? std::string("Sorry, I couldn't complete that.")
                      : finalAnswer;
-        // Stream path didn't emit — publish whole answer.
+        // Stream path didn't emit — publish whole answer (+ speak).
         streamOrPublishAnswer(answer, persona, request_id, /*speak*/ true);
     } else {
+        // Tokens (+ streaming TTS sentences) already went out under request_id.
         persistTranscript(answer, /*assistant*/ true);
-        bus.publishSpeak({QString::fromStdString(answer),
-                          QString::fromStdString(persona.voice),
-                          request_id});
     }
     (void)from_voice;
     return answer;

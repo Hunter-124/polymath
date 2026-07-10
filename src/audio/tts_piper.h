@@ -41,7 +41,15 @@ public:
     // Synthesises `text` with `voice` (empty -> default), sentence-chunks it,
     // and plays via the persistent queue. Blocks until playback of all chunks
     // finishes or stop() is called. Returns false on hard failure.
-    bool speak(const std::string& text, const std::string& voice);
+    // When `append` is true, does not clear the playback queue (streaming TTS)
+    // and does not wait for drain — call endStream() when the reply is done.
+    bool speak(const std::string& text, const std::string& voice, bool append = false);
+
+    // Wait until the playback queue is empty (end of a streamed reply).
+    void endStream();
+
+    // Pre-spawn piper + warm the voice so the first real sentence is not cold.
+    bool warmUp(const std::string& voice = {});
 
     // Cancel current / pending playback (barge-in). Thread-safe.
     void stop();

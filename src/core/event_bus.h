@@ -20,7 +20,15 @@ namespace polymath {
 
 // Payloads that need richer shape than types.h provides.
 struct WakeWordEvent     { QString phrase; int64_t ts; };
-struct SpeakRequest      { QString text; QString voice; QString request_id; };
+// append=true: enqueue more speech without cutting current playback (streaming TTS).
+// flush=true: wait until the playback queue drains (end of streamed reply).
+struct SpeakRequest {
+    QString text;
+    QString voice;
+    QString request_id;
+    bool append = false;
+    bool flush  = false;
+};
 struct TokenChunk        { QString request_id; QString text; bool done; };
 struct ToolCallEvent     { QString request_id; QString tool; QString args_json; };
 struct ToolResultEvent   { QString request_id; QString tool; QString result_json; bool ok; };

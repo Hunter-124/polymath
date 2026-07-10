@@ -32,8 +32,11 @@ namespace {
 
 // How long to wait for more raw PCM after a write before declaring the
 // utterance complete (piper blocks on the next stdin line when done).
-constexpr int kUtteranceIdleMs = 180;
-constexpr int kUtteranceMaxMs  = 60000;
+// First-byte budget is larger: persistent piper still pays espeak load on the
+// very first synth after spawn, which used to look like "produced no audio".
+constexpr int kUtteranceIdleMs    = 220;
+constexpr int kFirstByteMs        = 12000;
+constexpr int kUtteranceMaxMs     = 90000;
 
 bool isSentenceEnd(char c) {
     return c == '.' || c == '!' || c == '?' || c == ';' || c == '\n';
@@ -144,6 +147,9 @@ struct TtsPiper::Impl {
         if (line.empty()) return true;
         if (!proc || proc->state() != QProcess::Running) return false;
 
+        // Drain stale stderr so load banners don't confuse diagnostics.
+        proc->readAllStandardError();
+
         QByteArray payload = QByteArray::fromStdString(line);
         if (!payload.endsWith('\n')) payload.append('\n');
         if (proc->write(payload) < 0) {
@@ -164,7 +170,7 @@ struct TtsPiper::Impl {
                 raw += proc->readAllStandardOutput();
                 break;
             }
-            if (proc->waitForReadyRead(30)) {
+            if (proc->waitForReadyRead(40)) {
                 raw += proc->readAllStandardOutput();
                 last_data_ms = timer.elapsed();
             } else {
@@ -176,8 +182,14 @@ struct TtsPiper::Impl {
                 } else if (last_data_ms >= 0 &&
                            (timer.elapsed() - last_data_ms) >= kUtteranceIdleMs) {
                     break;   // utterance complete
+                } else if (last_data_ms < 0 && timer.elapsed() > kFirstByteMs) {
+                    // Cold start never produced PCM — fail so caller can restart.
+                    break;
                 }
             }
+            // Keep stderr drained (piper logs "Loaded voice" there).
+            if (proc->bytesAvailable() == 0)
+                proc->readAllStandardError();
         }
 
         if (raw.isEmpty()) {
@@ -186,8 +198,10 @@ struct TtsPiper::Impl {
                      QString::fromUtf8(err).toStdString());
             return false;
         }
-        out.resize(static_cast<size_t>(raw.size()) / sizeof(int16_t));
-        std::memcpy(out.data(), raw.constData(), out.size() * sizeof(int16_t));
+        // Piper may emit an odd trailing byte; drop incomplete sample.
+        const size_t n = static_cast<size_t>(raw.size()) / sizeof(int16_t);
+        out.resize(n);
+        std::memcpy(out.data(), raw.constData(), n * sizeof(int16_t));
         return !out.empty();
     }
 
@@ -493,12 +507,13 @@ bool TtsPiper::synthesizeSentences(const std::string& text, const std::string& v
     return !chunks.empty();
 }
 
-bool TtsPiper::speak(const std::string& text, const std::string& voice) {
+bool TtsPiper::speak(const std::string& text, const std::string& voice, bool append) {
     if (!ready_ || text.empty()) return false;
 
     d_->cancel.store(false, std::memory_order_release);
     d_->synth_active.store(true, std::memory_order_release);
-    d_->clearQueue();
+    if (!append)
+        d_->clearQueue();
 
     const auto sentences = splitSentences(text);
     if (sentences.empty()) {
@@ -523,7 +538,7 @@ bool TtsPiper::speak(const std::string& text, const std::string& voice) {
     }
 
     bool any = false;
-    const bool persistent_ok = d_->ensureProc(name);
+    bool persistent_ok = d_->ensureProc(name);
 
     for (const auto& s : sentences) {
         if (d_->cancel.load(std::memory_order_acquire)) break;
@@ -534,7 +549,8 @@ bool TtsPiper::speak(const std::string& text, const std::string& voice) {
             if (!ok) {
                 // Watchdog: restart and retry once.
                 d_->killProc();
-                if (d_->ensureProc(name))
+                persistent_ok = d_->ensureProc(name);
+                if (persistent_ok)
                     ok = d_->synthLine(s, pcm);
             }
         }
@@ -550,9 +566,33 @@ bool TtsPiper::speak(const std::string& text, const std::string& voice) {
     d_->synth_active.store(false, std::memory_order_release);
     if (!any) return false;
 
-    d_->waitUntilDrained();
-    PM_DEBUG("audio.tts: spoke {} sentence chunk(s)", sentences.size());
+    if (!append) {
+        d_->waitUntilDrained();
+        PM_DEBUG("audio.tts: spoke {} sentence chunk(s)", sentences.size());
+    } else {
+        PM_DEBUG("audio.tts: streamed {} sentence chunk(s)", sentences.size());
+    }
     return !d_->cancel.load(std::memory_order_acquire);
+}
+
+void TtsPiper::endStream() {
+    d_->waitUntilDrained();
+}
+
+bool TtsPiper::warmUp(const std::string& voice) {
+    if (!ready_) return false;
+    std::string name = voice.empty() ? d_->default_voice : voice;
+    if (!d_->ensureProc(name)) return false;
+    // Force voice load + first-byte path so the next user-visible line is warm.
+    std::vector<int16_t> pcm;
+    const bool ok = d_->synthLine("Ready.", pcm);
+    if (!ok || pcm.empty()) {
+        d_->killProc();
+        if (!d_->ensureProc(name)) return false;
+        return d_->synthLine("Ready.", pcm) && !pcm.empty();
+    }
+    PM_INFO("audio.tts: warmed voice '{}'", name);
+    return true;
 }
 
 void TtsPiper::stop() {

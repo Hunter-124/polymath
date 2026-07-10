@@ -29,7 +29,10 @@ public:
     const char* serviceName() const override { return "audio"; }
 
 public slots:
-    void speak(const QString& text, const QString& voice);  // EventBus::speakRequested
+    // EventBus::speakRequested. append=true streams more audio; flush=true waits
+    // for the playback queue to drain (end of a streamed reply).
+    void speak(const QString& text, const QString& voice,
+               bool append = false, bool flush = false);
     void setMicEnabled(bool on);
     void setAmbientEnabled(bool on);
     void pushToTalk(bool down);   // UI button: open mic without wake word
@@ -41,7 +44,7 @@ signals:
     // Internal: post a finished speech segment to the AsrWorker thread.
     void asrJobQueued(const QVector<float>& pcm, bool ambient);
     // Internal: post a speak request to the TtsWorker thread.
-    void ttsJobQueued(const QString& text, const QString& voice);
+    void ttsJobQueued(const QString& text, const QString& voice, bool append, bool flush);
 
 private slots:
     void onAsrFinished(const QString& text, float conf, bool ambient);

@@ -361,16 +361,30 @@ ApplicationWindow {
 
                     // Grouped nav entries
                     Flickable {
+                        id: navFlick
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         contentHeight: navCol.implicitHeight
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
-                        ScrollBar.vertical: PmScrollBar { tone: Style.accent }
+                        // Keep the rail clean: no scrollbar chrome sitting on top of
+                        // tab labels. Wheel/drag still works; only show a thin bar
+                        // when content actually overflows, inset from the labels.
+                        ScrollBar.vertical: PmScrollBar {
+                            id: navScroll
+                            tone: Style.accent
+                            policy: navFlick.contentHeight > navFlick.height + 2
+                                    ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: 4
+                        }
 
                         ColumnLayout {
                             id: navCol
-                            width: parent.width
+                            // Reserve a few px so labels never sit under the bar.
+                            width: parent.width - (navScroll.policy === ScrollBar.AlwaysOff ? 0 : 8)
                             spacing: 2
 
                             Repeater {

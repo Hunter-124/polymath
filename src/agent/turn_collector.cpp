@@ -15,24 +15,36 @@ TurnCollector::TurnCollector(QObject* parent) : QObject(parent) {
 }
 
 void TurnCollector::onToken(const TokenChunk& chunk) {
-    std::lock_guard<std::mutex> lk(mtx_);
-    if (active_request_id_.empty() ||
-        chunk.request_id.toStdString() != active_request_id_)
-        return;                                  // not the request we're awaiting
-    buffer_ += chunk.text.toStdString();
-    if (chunk.done) {
-        done_ = true;
-        cv_.notify_all();
+    TokenHook hook_copy;
+    std::string delta;
+    bool is_done = false;
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (active_request_id_.empty() ||
+            chunk.request_id.toStdString() != active_request_id_)
+            return;                                  // not the request we're awaiting
+        delta = chunk.text.toStdString();
+        buffer_ += delta;
+        is_done = chunk.done;
+        if (chunk.done) {
+            done_ = true;
+            cv_.notify_all();
+        }
+        hook_copy = hook_;
     }
+    // Run hook outside the lock so TTS / bus work cannot deadlock the wait.
+    if (hook_copy)
+        hook_copy(delta, is_done);
 }
 
 std::string TurnCollector::run(InferenceManager& inf, const ChatRequest& req,
-                               int timeout_ms, bool* ok) {
+                               int timeout_ms, bool* ok, TokenHook hook) {
     {
         std::lock_guard<std::mutex> lk(mtx_);
         active_request_id_ = req.request_id;
         buffer_.clear();
         done_ = false;
+        hook_ = std::move(hook);
     }
 
     inf.generate(req);   // async; tokens arrive on tokenStreamed (DirectConnection)
@@ -42,6 +54,7 @@ std::string TurnCollector::run(InferenceManager& inf, const ChatRequest& req,
                                        [this] { return done_; });
     std::string result = buffer_;
     active_request_id_.clear();
+    hook_ = {};
     if (ok) *ok = finished;
     if (!finished)
         PM_WARN("TurnCollector: timed out after {} ms for request '{}'",

@@ -143,8 +143,14 @@ void AppController::wireEventBus() {
     // ASR -> agent ; agent speak -> TTS  (worker-to-worker, queued automatically)
     connect(&bus, &EventBus::utterance, agent_.get(), &AgentRuntime::handleUtterance);
     connect(&bus, &EventBus::speakRequested, audio_.get(),
-            [this](const SpeakRequest& s) { QMetaObject::invokeMethod(audio_.get(), "speak",
-                Qt::QueuedConnection, Q_ARG(QString, s.text), Q_ARG(QString, s.voice)); });
+            [this](const SpeakRequest& s) {
+                QMetaObject::invokeMethod(audio_.get(), "speak",
+                    Qt::QueuedConnection,
+                    Q_ARG(QString, s.text),
+                    Q_ARG(QString, s.voice),
+                    Q_ARG(bool, s.append),
+                    Q_ARG(bool, s.flush));
+            });
 
     // Idle detector -> scheduler
     connect(idle_.get(), &IdleDetector::idleChanged, scheduler_.get(), &TaskScheduler::onIdleChanged);
