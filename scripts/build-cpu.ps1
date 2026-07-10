@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-  One-command CPU build of Hearth (the recipe verified during bring-up).
+  One-command CPU build of Polymath (the recipe verified during bring-up).
 
 .DESCRIPTION
   Idempotent. Fetches the prebuilt dependencies if missing, builds the small
@@ -115,12 +115,12 @@ if (-not $SkipTests) {
 # --- deploy Qt runtime + extra DLLs next to the exe --------------------------
 Step "windeployqt + runtime DLLs"
 $bin = "$repo\build\cpu\bin\Release"
-& "$qtDir\bin\windeployqt.exe" --qmldir "$repo\src\ui\qml" --no-translations "$bin\Hearth.exe" | Out-Null
+& "$qtDir\bin\windeployqt.exe" --qmldir "$repo\src\ui\qml" --no-translations "$bin\Polymath.exe" | Out-Null
 Copy-Item "$qtDir\plugins\platforms\qoffscreen.dll" "$bin\platforms\" -Force -ErrorAction SilentlyContinue
 Copy-Item "$deps\opencv\build\x64\vc16\bin\opencv_world*.dll" $bin -Force
 Copy-Item "$deps\opencv\build\x64\vc16\bin\opencv_videoio_ffmpeg*.dll" $bin -Force -ErrorAction SilentlyContinue
 # OpenSSL libcrypto DLL — the SQLCipher codec links it for at-rest encryption.
 Copy-Item "$vcpkg\installed\x64-windows\bin\libcrypto-3-x64.dll" $bin -Force -ErrorAction SilentlyContinue
 
-Write-Host "`nDone -> $bin\Hearth.exe" -ForegroundColor Green
-Write-Host "Next: pwsh scripts/fetch-models.ps1  (download local models), then run Hearth.exe" -ForegroundColor Green
+Write-Host "`nDone -> $bin\Polymath.exe" -ForegroundColor Green
+Write-Host "Next: pwsh scripts/fetch-models.ps1  (download local models), then run Polymath.exe" -ForegroundColor Green

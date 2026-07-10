@@ -336,6 +336,15 @@ public:
                 best_logit = arr.data[i].logit;
                 best = arr.data[i].id;
             }
+
+        // Grammar dead-end: the grammar rejected the ENTIRE vocabulary, so there
+        // is no legal continuation. `best` is still the illegal main-chain pick;
+        // accepting it would feed an illegal token to the grammar, empty its
+        // stacks, and trip GGML_ASSERT(!stacks.empty()) -> GGML_ABORT on the next
+        // apply (the 0xC0000409 fast-fail — observed on gemma-3n). Signal
+        // end-of-generation instead so the caller breaks BEFORE accepting.
+        if (best_logit == -INFINITY)
+            return llama_vocab_eos(vocab_);
         return best;
     }
 

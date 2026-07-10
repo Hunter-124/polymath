@@ -20,11 +20,8 @@ if(TARGET whisper)
     target_compile_definitions(pm_audio PRIVATE POLYMATH_HAVE_WHISPER=1)
 endif()
 
-# Piper (TTS) — vendored as `piper` (or `libpiper`) under third_party.
-if(TARGET piper)
-    target_link_libraries(pm_audio PRIVATE piper)
-    target_compile_definitions(pm_audio PRIVATE POLYMATH_HAVE_PIPER=1)
-elseif(TARGET libpiper)
-    target_link_libraries(pm_audio PRIVATE libpiper)
+# Piper (TTS) — driven as a subprocess (piper.exe) so we do NOT link against it.
+# The piper target is built via third_party/ for runtime deployment.
+if(TARGET piper OR EXISTS ${CMAKE_SOURCE_DIR}/third_party/piper/src/cpp/piper.cpp)
     target_compile_definitions(pm_audio PRIVATE POLYMATH_HAVE_PIPER=1)
 endif()

@@ -164,11 +164,11 @@ public:
     Q_INVOKABLE QString pairingPayloadJson() const {
         return QStringLiteral(
             "{\"relay_url\":\"\",\"home_id\":\"5b80f020-571e-4293-a5ae-0e19c9b814c9\","
-            "\"pair_code\":\"482915\",\"lan_host\":\"hearth.local\",\"lan_port\":8765}");
+            "\"pair_code\":\"482915\",\"lan_host\":\"polymath.local\",\"lan_port\":8765}");
     }
     Q_INVOKABLE QString pairingDeepLink() const {
         return QStringLiteral("polymath://pair?home_id=5b80f020-571e-4293-a5ae-0e19c9b814c9"
-                              "&code=482915&host=hearth.local&port=8765");
+                              "&code=482915&host=polymath.local&port=8765");
     }
     Q_INVOKABLE bool remoteEnabled() const { return false; }
     Q_INVOKABLE void setRemoteEnabled(bool) {}

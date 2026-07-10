@@ -1,16 +1,16 @@
-<#
+﻿<#
 .SYNOPSIS
-  Hearth first-run wizard — guides a fresh user from "just unzipped / just
+  Polymath first-run wizard — guides a fresh user from "just unzipped / just
   installed" to a working assistant: GPU/driver check, guided model download
   (minimal vs full), then launch. Never drops the user into a dead, model-less app.
 
 .DESCRIPTION
-  Hearth loads its LLM/voice/vision models from data\models\ at runtime and
+  Polymath loads its LLM/voice/vision models from data\models\ at runtime and
   self-disables any feature whose model is absent. On a clean box that folder is
   empty, so the very first thing a user needs is models. This wizard:
 
     1. Locates the app + its data\models\ folder (portable bundle layout, or an
-       installed layout under %LOCALAPPDATA%\Hearth).
+       installed layout under %LOCALAPPDATA%\Polymath).
     2. Detects whether models are already present — if so, it just offers to
        launch (idempotent; safe to re-run).
     3. Runs the GPU/driver check (scripts\check-gpu.ps1) and tells the user
@@ -23,13 +23,13 @@
          [3] Skip     — bring your own GGUF/ONNX (prints the layout) or do it
                        later from the in-app Model Manager.
        …then drives scripts\fetch-models.ps1 with the matching flags.
-    5. Launches Hearth.exe.
+    5. Launches Polymath.exe.
 
   This wizard lives entirely in scripts\ and calls fetch-models.ps1 directly, so
   it needs no new backend invokable. (A future in-app wizard could call a backend
   fetchModels()/openModelsFolder() — see docs\sessions\contract-requests.md.)
 
-.PARAMETER AppDir     Folder containing Hearth.exe (default: the script's parent
+.PARAMETER AppDir     Folder containing Polymath.exe (default: the script's parent
                       — works for both the repo's build tree and a bundle where
                       this script sits beside the exe via package.ps1).
 .PARAMETER DataDir    App data root holding models\ (default: <AppDir>\data).
@@ -58,19 +58,19 @@ function Warn($t)  { Write-Host "  $t" -ForegroundColor Yellow }
 
 # --- Resolve where the app + its data live -----------------------------------
 # Default AppDir = the dir holding this script (bundle layout puts first-run.ps1
-# beside Hearth.exe). In the repo, fall back to the CPU build's bin dir.
+# beside Polymath.exe). In the repo, fall back to the CPU build's bin dir.
 if (-not $AppDir) {
-  if (Test-Path (Join-Path $PSScriptRoot 'Hearth.exe')) {
+  if (Test-Path (Join-Path $PSScriptRoot 'Polymath.exe')) {
     $AppDir = $PSScriptRoot
   } else {
     $repo = Resolve-Path (Join-Path $PSScriptRoot '..')
     foreach ($c in "$repo\build\cuda\bin", "$repo\build\cpu\bin\Release") {
-      if (Test-Path (Join-Path $c 'Hearth.exe')) { $AppDir = $c; break }
+      if (Test-Path (Join-Path $c 'Polymath.exe')) { $AppDir = $c; break }
     }
     if (-not $AppDir) { $AppDir = "$repo\build\cpu\bin\Release" }  # best-effort
   }
 }
-$exe = Join-Path $AppDir 'Hearth.exe'
+$exe = Join-Path $AppDir 'Polymath.exe'
 if (-not $DataDir) { $DataDir = Join-Path $AppDir 'data' }
 $modelsDir = Join-Path $DataDir 'models'
 
@@ -90,7 +90,7 @@ Write-Host @"
 Info "App:    $exe"
 Info "Models: $modelsDir"
 if (-not (Test-Path $exe)) {
-  Warn "Hearth.exe not found at $AppDir — pass -AppDir <folder with Hearth.exe>."
+  Warn "Polymath.exe not found at $AppDir — pass -AppDir <folder with Polymath.exe>."
 }
 
 # --- 1. Already have models? --------------------------------------------------
@@ -105,7 +105,7 @@ if (Test-HasModels $modelsDir) {
   Title "Models already present"
   Good "Found at least one Fast LLM in $modelsDir — setup looks complete."
   if (-not $NoLaunch -and -not $NonInteractive -and (Test-Path $exe)) {
-    $go = Read-Host "  Launch Hearth now? [Y/n]"
+    $go = Read-Host "  Launch Polymath now? [Y/n]"
     if ($go -notmatch '^[nN]') { Start-Process $exe -WorkingDirectory $AppDir }
   }
   return
@@ -122,7 +122,7 @@ if (Test-Path $gpuChk) {
 # --- 3. Choose a model set ----------------------------------------------------
 Title "Download models"
 Write-Host @"
-  Hearth needs local models to think, hear, speak and see. Pick a set:
+  Polymath needs local models to think, hear, speak and see. Pick a set:
 
    [1] Minimal  (~3.5 GB)  Fast LLM (Gemma 3n E4B) + embeddings + whisper ASR +
                            Piper voices + VAD/wake-word + vision detectors.
@@ -181,12 +181,12 @@ switch ($sel) {
 
 # --- 4. Launch ----------------------------------------------------------------
 if ($NoLaunch -or $NonInteractive) { Info "Done (no launch)."; return }
-if (-not (Test-Path $exe)) { Warn "Skipping launch — Hearth.exe missing."; return }
+if (-not (Test-Path $exe)) { Warn "Skipping launch — Polymath.exe missing."; return }
 
 Title "Launch"
 if (-not (Test-HasModels $modelsDir)) {
   Warn "Launching without a Fast model: the app will start but show the cold-start banner and the Model Manager guide until you add one."
 }
-$go = Read-Host "  Launch Hearth now? [Y/n]"
+$go = Read-Host "  Launch Polymath now? [Y/n]"
 if ($go -notmatch '^[nN]') { Start-Process $exe -WorkingDirectory $AppDir; Good "Started." }
-else { Info "Launch it any time with Run-Hearth.cmd (or Hearth.exe)." }
+else { Info "Launch it any time with Run-Polymath.cmd (or Polymath.exe)." }

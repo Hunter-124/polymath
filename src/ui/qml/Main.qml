@@ -7,7 +7,7 @@ ApplicationWindow {
     id: window
     width: 1280; height: 820
     visible: true
-    title: "Hearth — Local AI Home Assistant"
+    title: "Polymath — Local AI Home Assistant"
     color: Style.bg
 
     // Bundle Inter (SIL OFL) app-wide. This also silences the
@@ -52,7 +52,7 @@ ApplicationWindow {
                 spacing: 6
 
                 Label {
-                    text: "HEARTH"; color: Style.accent
+                    text: "POLYMATH"; color: Style.accent
                     font.family: Style.fontFamily
                     font.pixelSize: 20; font.bold: true; font.letterSpacing: 2
                     Layout.bottomMargin: 4

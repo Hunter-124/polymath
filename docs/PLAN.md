@@ -38,7 +38,7 @@ Key product decisions already made with the user:
 Single process, two halves wired by Qt signals/slots over a thread‑safe **event bus**:
 
 ```
-┌───────────────────────────────  Hearth.exe  ───────────────────────────────┐
+┌───────────────────────────────  Polymath.exe  ───────────────────────────────┐
 │  Qt Quick / QML Frontend  (UI thread)                                       │
 │   Dashboard │ Cameras │ Chat │ Task Queue │ Memory/Timeline │ Shopping │     │
 │   Personalities │ Model Manager │ Privacy/Settings                          │
@@ -288,7 +288,7 @@ Views, each backed by a C++ context object / `QAbstractListModel`:
   (`cudart`, `cublas`, `cublasLt`), `onnxruntime.dll`, and **model/data files** (GGUF, ONNX, Piper
   voices) which are loaded from `models/` — these are *data*, not code, and cannot live inside the
   `.exe`.
-- **Deliverable:** one primary `Hearth.exe` + a small set of runtime DLLs + `models/`,
+- **Deliverable:** one primary `Polymath.exe` + a small set of runtime DLLs + `models/`,
   `personalities/`, `firmware/` folders, wrapped as a **portable zip** and/or an installer. That is
   the practical maximum of "one compiled binary" for a CUDA + Qt Quick app; documented in `/docs`.
 
@@ -346,7 +346,7 @@ A final integration agent compiles, fixes link/threading issues, and produces a 
 
 ## 16. Verification (end‑to‑end)
 
-1. **Build:** `cmake --preset cuda-release && cmake --build` → produces `Hearth.exe`; launches to
+1. **Build:** `cmake --preset cuda-release && cmake --build` → produces `Polymath.exe`; launches to
    the QML Dashboard.
 2. **Inference:** Model Manager loads the Fast GGUF; a text chat returns a streamed reply; a tool
    call (e.g. `shopping_add "milk"`) round‑trips and the item appears in the Shopping view.

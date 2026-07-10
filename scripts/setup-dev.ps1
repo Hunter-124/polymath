@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-  One-shot developer bootstrap for Hearth on Windows.
+  One-shot developer bootstrap for Polymath on Windows.
 
 .DESCRIPTION
   Checks prerequisites, initializes git submodules, sets up vcpkg, helps locate

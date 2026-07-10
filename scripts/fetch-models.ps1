@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-  Downloads Hearth's default LOCAL model set (Gemma-based) into data/models/,
+  Downloads Polymath's default LOCAL model set (Gemma-based) into data/models/,
   in the exact layout the app loads from.
 
 .DESCRIPTION
@@ -100,4 +100,4 @@ Fetch "https://github.com/Hyuto/yolov8-onnxruntime-web/raw/master/public/model/y
 Fetch "$HF/immich-app/buffalo_l/resolve/main/detection/model.onnx"   "$models/scrfd_500m.onnx"
 Fetch "$HF/immich-app/buffalo_l/resolve/main/recognition/model.onnx" "$models/arcface_r100.onnx"
 
-Write-Host "`nDone. Launch Hearth — LLMs auto-register on first run (Model Manager to adjust roles)." -ForegroundColor Green
+Write-Host "`nDone. Launch Polymath — LLMs auto-register on first run (Model Manager to adjust roles)." -ForegroundColor Green

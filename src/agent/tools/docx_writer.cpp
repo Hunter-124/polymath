@@ -196,7 +196,7 @@ std::string coreProps(const std::string& title) {
          "xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" "
          "xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
       << "<dc:title>" << xmlEscape(title) << "</dc:title>"
-      << "<dc:creator>Hearth</dc:creator>"
+      << "<dc:creator>Polymath</dc:creator>"
       << "</cp:coreProperties>";
     return s.str();
 }

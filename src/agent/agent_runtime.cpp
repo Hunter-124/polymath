@@ -212,6 +212,11 @@ void AgentRuntime::runTurn(const std::string& user_text, const QString& request_
         ~BusyGuard() { b.store(false); }
     } guard{busy_};
 
+    // Never let an exception escape this worker-thread slot: an uncaught throw
+    // here would call std::terminate -> abort (a 0xC0000409 crash). Log it, tell
+    // the UI the turn ended, and keep the app alive.
+    try {
+
     // 1) Active personality.
     const Persona persona = loadActivePersona(db_);
 
@@ -344,6 +349,19 @@ void AgentRuntime::runTurn(const std::string& user_text, const QString& request_
     // 5) Final answer. Prefer one unconstrained pass (streams to the UI under the
     // real request_id); fall back to the final_answer text if that yields nothing.
     streamFinalAnswer(messages, persona, request_id, finalAnswer);
+
+    } catch (const std::exception& e) {
+        PM_ERROR("agent: turn '{}' aborted: {}", request_id.toStdString(), e.what());
+        bus.publishNotice({"error", "agent",
+                           QStringLiteral("Sorry — that request failed (%1).")
+                               .arg(QString::fromStdString(e.what()))});
+        bus.publishToken({request_id, QString(), true});   // unblock the UI stream
+        emit turnFinished(request_id, QString());
+    } catch (...) {
+        PM_ERROR("agent: turn '{}' aborted: unknown error", request_id.toStdString());
+        bus.publishToken({request_id, QString(), true});
+        emit turnFinished(request_id, QString());
+    }
 }
 
 // Issue the closing unconstrained generation (or replay `fallback`), stream it to

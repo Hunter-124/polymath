@@ -133,7 +133,7 @@ Item {
                     glyph: "●"
                     glyphColor: Style.accent
                     title: "No models registered yet"
-                    hint: "Hearth needs at least a Fast model to think. Run  scripts/fetch-models.ps1  to download the default local set (Gemma 3n, embeddings, voices), or drop a .gguf into data/models/ and click Refresh."
+                    hint: "Polymath needs at least a Fast model to think. Run  scripts/fetch-models.ps1  to download the default local set (Gemma 3n, embeddings, voices), or drop a .gguf into data/models/ and click Refresh."
                     actionVisible: true
                     actionText: "Open models folder"
                     onActionTriggered: app.openModelsFolder()

@@ -1,4 +1,4 @@
-# WIRING — integrating the mobile gateway into Hearth.exe
+# WIRING — integrating the mobile gateway into Polymath.exe
 
 The mobile stack ships as three self-contained pieces that are **done and
 verified independently**:
@@ -98,7 +98,7 @@ a discrete step. Copy-pasteable snippets live in
 
 ### Verify after wiring
 
-1. Build `Hearth.exe` (CUDA preset). On launch, the gateway binds `:8765`.
+1. Build `Polymath.exe` (CUDA preset). On launch, the gateway binds `:8765`.
 2. `cd app && npm run dev`, open `http://localhost:5173` (the dev server proxies
    `/api` → `:8765`). Pair using the desktop QR, confirm chat streams, cameras
    load, lists sync.

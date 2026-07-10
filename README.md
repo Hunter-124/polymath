@@ -1,12 +1,8 @@
-# Hearth — a fully-local AI home assistant
+# Polymath — a fully-local AI home assistant
 
-Hearth is an always-on, **100% local** AI home assistant for Windows: one C++/Qt Quick
+Polymath is an always-on, **100% local** AI home assistant for Windows: one C++/Qt Quick
 application — no cloud, no telemetry, no account. It listens, sees, remembers, and acts, entirely
 on your own machine and GPU.
-
-> The product is **Hearth**. Internally the engine still carries the project's original codename,
-> `Polymath`, so you'll see it throughout the code and build files — the `polymath` C++ namespace,
-> `pm_*` targets, `POLYMATH_*` build options, the `polymath://` URL scheme, and so on.
 
 - **Voice loop** — wake word → speech-to-text (whisper.cpp) → a local LLM (llama.cpp) → text-to-speech
   (Piper). Push-to-talk or hands-free.
@@ -29,10 +25,10 @@ on your own machine and GPU.
 
 Grab the latest installer from the repo's **Releases** and run it:
 
-- `Hearth-<version>-win64-cuda-Setup.exe` — NVIDIA GPU build (CUDA, much faster).
-- `Hearth-<version>-win64-cpu-Setup.exe` — CPU-only build (works anywhere, slower).
+- `Polymath-<version>-win64-cuda-Setup.exe` — NVIDIA GPU build (CUDA, much faster).
+- `Polymath-<version>-win64-cpu-Setup.exe` — CPU-only build (works anywhere, slower).
 
-On first launch with no models, Hearth guides you through a model fetch + a GPU/driver check rather
+On first launch with no models, Polymath guides you through a model fetch + a GPU/driver check rather
 than dropping you into a dead app. Models are **not** bundled (they're ~GBs); the first-run wizard
 downloads them. See [`docs/PACKAGING.md`](docs/PACKAGING.md) for the minimal (~few GB) vs full (~28 GB)
 model sets and how to bring your own GGUF/ONNX.
@@ -51,10 +47,10 @@ pwsh scripts/build-cpu.ps1
 pwsh scripts/fetch-models.ps1            # add -Minimal to skip the big optional ones
 
 # GPU / CUDA build (NVIDIA, sm_86+). Assumes the CPU prereqs above exist.
-pwsh scripts/build-gpu.ps1               # -> build/cuda/bin/Hearth.exe
+pwsh scripts/build-gpu.ps1               # -> build/cuda/bin/Polymath.exe
 
 # Run
-build/cuda/bin/Hearth.exe                # or build/cpu/bin/Release/Hearth.exe
+build/cuda/bin/Polymath.exe                # or build/cpu/bin/Release/Polymath.exe
 ```
 
 Run the test suite: `ctest --test-dir build/cpu -C Release` (11 suites: core, tools, audio, agent,

@@ -30,8 +30,9 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/whisper.cpp/CMakeLists.txt)
 endif()
 
 # ---- Piper (TTS) -----------------------------------------------------------
-# Piper's phonemization + voice synthesis. Linked by src/audio/tts_piper.
-# (Built via its own CMake; some setups vendor only libpiper.)
+# Piper's phonemization + voice synthesis. Used by src/audio/tts_piper as a
+# subprocess (piper.exe — not linked as a library). We still add_subdirectory so
+# the piper executable target exists (tts_piper.cpp launches it at runtime).
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/piper/CMakeLists.txt)
   add_subdirectory(piper EXCLUDE_FROM_ALL)
 endif()

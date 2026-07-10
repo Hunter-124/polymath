@@ -1,4 +1,4 @@
-# Building Hearth
+# Building Polymath
 
 ## Prerequisites
 - Windows 10/11 x64.
@@ -23,7 +23,7 @@ $env:ONNXRUNTIME_ROOT = "C:\dev\onnxruntime-gpu"
 cmake --preset cuda-release
 cmake --build --preset cuda-release
 ```
-The executable lands in `build/cuda-release/bin/Hearth.exe`.
+The executable lands in `build/cuda-release/bin/Polymath.exe`.
 
 Presets: `cuda-release`, `cuda-debug`, `cpu-release` (no GPU — small models, slow).
 

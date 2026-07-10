@@ -1,10 +1,10 @@
-<#
+﻿<#
 .SYNOPSIS
-  CUDA (GPU) build of Hearth, using a PORTABLE CUDA toolkit (no admin install).
+  CUDA (GPU) build of Polymath, using a PORTABLE CUDA toolkit (no admin install).
 
 .DESCRIPTION
   Builds llama.cpp / whisper.cpp ggml-CUDA kernels for the GPU and links them into
-  Hearth.exe, then deploys the Qt + CUDA + OpenCV runtime next to the exe.
+  Polymath.exe, then deploys the Qt + CUDA + OpenCV runtime next to the exe.
 
   Assumes the CPU prerequisites already exist (run build-cpu.ps1 once): Qt, OpenCV,
   ONNX Runtime, the small vcpkg libs, and the portable CUDA toolkit assembled under
@@ -110,8 +110,8 @@ Set-Content -Path $batPath -Value $bat -Encoding ascii
 Write-Host "Configuring + building (this compiles the CUDA kernels — minutes)..." -ForegroundColor Cyan
 & cmd /c "`"$batPath`""
 if ($LASTEXITCODE -ne 0) { throw "GPU build failed ($LASTEXITCODE) — see Ninja output above" }
-if (-not (Test-Path "$bin\Hearth.exe")) { throw "build reported success but $bin\Hearth.exe is missing" }
-Write-Host "Built $bin\Hearth.exe" -ForegroundColor Green
+if (-not (Test-Path "$bin\Polymath.exe")) { throw "build reported success but $bin\Polymath.exe is missing" }
+Write-Host "Built $bin\Polymath.exe" -ForegroundColor Green
 
 if ($SkipDeploy) { return }
 
@@ -119,7 +119,7 @@ if ($SkipDeploy) { return }
 # Qt runtime (DLLs + QML) via windeployqt, plus the offscreen platform plugin so
 # the app can run headless for verification.
 Write-Host "Deploying Qt runtime..." -ForegroundColor Cyan
-& "$QtDir\bin\windeployqt.exe" --qmldir "$work\src\ui\qml" --no-translations "$bin\Hearth.exe" | Out-Null
+& "$QtDir\bin\windeployqt.exe" --qmldir "$work\src\ui\qml" --no-translations "$bin\Polymath.exe" | Out-Null
 New-Item -ItemType Directory -Force "$bin\platforms" | Out-Null
 Copy-Item "$QtDir\plugins\platforms\qoffscreen.dll" "$bin\platforms\" -Force -ErrorAction SilentlyContinue
 
@@ -134,7 +134,7 @@ $cudaDll | ForEach-Object { Copy-Item $_.FullName $bin -Force }
 Get-ChildItem "$deps\opencv\build\x64\vc16\bin\opencv_world*.dll",
               "$deps\opencv\build\x64\vc16\bin\opencv_videoio_ffmpeg*.dll" -ErrorAction SilentlyContinue |
   Where-Object Name -notmatch 'd\.dll$' | ForEach-Object { Copy-Item $_.FullName $bin -Force }
-# vcpkg runtime DLLs that Hearth links directly (windeployqt does NOT cover these;
+# vcpkg runtime DLLs that Polymath links directly (windeployqt does NOT cover these;
 # without them the loader fails before main(): the app hangs on a missing-DLL dialog).
 $vcpkgBin = "$work\third_party\vcpkg\installed\x64-windows\bin"
 # libcrypto-3-x64.dll: OpenSSL crypto backend for the SQLCipher codec (at-rest
@@ -151,6 +151,6 @@ if ((Test-Path $cpuData) -and -not (Test-Path "$bin\data")) {
   New-Item -ItemType Junction -Path "$bin\data" -Target $cpuData | Out-Null
 }
 
-Write-Host "`nGPU build deployed -> $bin\Hearth.exe" -ForegroundColor Green
-Write-Host "Verify headless:  `$env:QT_QPA_PLATFORM='offscreen'; & '$bin\Hearth.exe'" -ForegroundColor DarkGray
+Write-Host "`nGPU build deployed -> $bin\Polymath.exe" -ForegroundColor Green
+Write-Host "Verify headless:  `$env:QT_QPA_PLATFORM='offscreen'; & '$bin\Polymath.exe'" -ForegroundColor DarkGray
 Write-Host "Then check data\logs\polymath.log for 'VramBudget ... CUDA=true'." -ForegroundColor DarkGray

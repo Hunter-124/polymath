@@ -7,8 +7,13 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QStandardPaths>
 #include <QCoreApplication>
 #include <QtGlobal>
+
+#include <exception>
 
 using namespace polymath;
 
@@ -26,17 +31,42 @@ static void qtMessageToLog(QtMsgType type, const QMessageLogContext& ctx, const 
     }
 }
 
-static std::filesystem::path resolveAppRoot() {
-    // Portable layout: a `data/` folder beside the executable.  (An installer
-    // build would point this at %LOCALAPPDATA%/Hearth instead.)
-    QDir base(QCoreApplication::applicationDirPath());
-    return std::filesystem::path(base.absoluteFilePath("data").toStdWString());
+// True if we can actually create+write a file under `dir` (creating it first).
+// A read-only install location (e.g. C:\Program Files\Polymath for a non-admin
+// user) fails here — that is precisely the case that must fall back to a
+// per-user writable root, or spdlog/sqlite throw at startup and the app aborts.
+static bool isWritableDir(const QString& dir) {
+    QDir().mkpath(dir);
+    const QString probe = QDir(dir).absoluteFilePath(".write-probe");
+    QFile f(probe);
+    if (!f.open(QIODevice::WriteOnly))
+        return false;
+    f.close();
+    QFile::remove(probe);
+    return true;
 }
 
-int main(int argc, char* argv[]) {
+static std::filesystem::path resolveAppRoot() {
+    // Portable layout: a writable `data/` folder beside the executable. This is
+    // how the dev builds and the portable zip run.
+    const QDir base(QCoreApplication::applicationDirPath());
+    const QString portable = base.absoluteFilePath("data");
+    if (isWritableDir(portable))
+        return std::filesystem::path(portable.toStdWString());
+
+    // Installed layout: the exe lives somewhere read-only (Program Files). Fall
+    // back to a per-user writable root — %LOCALAPPDATA%/Polymath/Polymath on
+    // Windows (organization + application name, set in main() before this runs).
+    const QString appData =
+        QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    QDir().mkpath(appData);
+    return std::filesystem::path(appData.toStdWString());
+}
+
+int main(int argc, char* argv[]) try {
     QGuiApplication app(argc, argv);
-    QCoreApplication::setOrganizationName("Hearth");
-    QCoreApplication::setApplicationName("Hearth");
+    QCoreApplication::setOrganizationName("Polymath");
+    QCoreApplication::setApplicationName("Polymath");
     QQuickStyle::setStyle("Basic");   // self-contained style -> static-friendly
 
     Paths::instance().setRoot(resolveAppRoot());
@@ -67,4 +97,17 @@ int main(int argc, char* argv[]) {
     const int rc = app.exec();
     controller.shutdown();
     return rc;
+}
+// A startup failure (e.g. an unwritable data root, a corrupt DB, a missing
+// runtime) used to escape main() and abort the process with a cryptic
+// 0xC0000409 in ucrtbase — the app "installed but wouldn't launch". Catch it so
+// we exit with a clean, non-zero status the launcher/first-run scripts can act
+// on instead of crash-on-open.
+catch (const std::exception& e) {
+    qCritical("Polymath failed to start: %s", e.what());
+    return 3;
+}
+catch (...) {
+    qCritical("Polymath failed to start: unknown error");
+    return 3;
 }

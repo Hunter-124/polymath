@@ -1,6 +1,6 @@
 #pragma once
 //
-// EventBus — the single thread-safe message hub for Hearth.
+// EventBus — the single thread-safe message hub for Polymath.
 //
 // CONTRACT (read me):
 //   * Every backend service lives on its own QThread and NEVER calls another

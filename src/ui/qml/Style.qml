@@ -1,7 +1,7 @@
 pragma Singleton
 import QtQuick
 
-// Style — the single source of truth for the Hearth palette, spacing, radii
+// Style — the single source of truth for the Polymath palette, spacing, radii
 // and type ramp.  Every view and themed control reads from here so the dark
 // "Tokyo Night" look stays cohesive and is tweakable in one place.
 //

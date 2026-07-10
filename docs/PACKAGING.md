@@ -1,6 +1,6 @@
 # Packaging, installer & first run
 
-Hearth ships as one primary `Hearth.exe` plus an unavoidable ring of runtime
+Polymath ships as one primary `Polymath.exe` plus an unavoidable ring of runtime
 DLLs and a `data/` folder. This doc covers: the "honest single binary" reality,
 how to produce the **portable bundle**, how to wrap it in an **installer**, the
 **first-run** flow on a cold box, and the **models strategy** (what to download,
@@ -25,7 +25,7 @@ some pieces are loaded at runtime as DLLs or data and cannot be embedded:
 
 What we **do** deliver as one coherent unit:
 
-- One primary **`Hearth.exe`** (our code + as many libs statically linked as
+- One primary **`Polymath.exe`** (our code + as many libs statically linked as
   practical; with a static Qt build, Qt folds in too).
 - A thin ring of runtime DLLs beside it (Qt, CUDA, ONNX Runtime, OpenCV, fmt/spdlog,
   the VC++ redist DLLs).
@@ -47,7 +47,7 @@ pwsh scripts\build-cpu.ps1            # CPU flavour  -> build\cpu\bin\Release
 pwsh scripts\build-gpu.ps1            # CUDA flavour -> build\cuda\bin   (deploys runtime)
 
 # Stage + zip the bundle:
-pwsh scripts\package.ps1                       # CUDA (default) -> dist\Hearth-<ver>-win64-cuda.zip
+pwsh scripts\package.ps1                       # CUDA (default) -> dist\Polymath-<ver>-win64-cuda.zip
 pwsh scripts\package.ps1 -Flavor cpu           # CPU bundle
 pwsh scripts\package.ps1 -Flavor cuda -NoZip   # stage the folder only (for the installer)
 pwsh scripts\package.ps1 -IncludeModels        # self-contained, ~28 GB (rarely wanted)
@@ -57,14 +57,14 @@ The staged folder contains:
 
 | Piece | What |
 |-------|------|
-| `Hearth.exe` | the app (dev `llama-*.exe` tools and `.lib/.exp/.pdb` are dropped) |
+| `Polymath.exe` | the app (dev `llama-*.exe` tools and `.lib/.exp/.pdb` are dropped) |
 | Qt runtime | `Qt6*.dll`, `platforms\`, `qml\`, `imageformats\`, `lib\fonts\Inter.ttf` |
 | Engine DLLs | `ggml*`, `llama*`, `mtmd`, `whisper`, `onnxruntime`, OpenCV world, `fmt`/`spdlog` |
 | OpenSSL | `libcrypto-3-x64.dll` (+ `libssl-3-x64.dll`) — **required**: the crypto backend for the vendored SQLCipher codec that encrypts the DB at rest. Without it the loader fails before `main()` on a clean box. |
 | CUDA DLLs | `cudart64_*`, `cublas64_*`, `cublasLt64_*` (CUDA flavour only) |
 | VC++ redist | `msvcp140*.dll`, `vcruntime140*.dll`, `concrt140.dll` (runs on a clean box) |
 | First-run scripts | `first-run.ps1`, `check-gpu.ps1`, `fetch-models.ps1` |
-| `Run-Hearth.cmd` | launcher: drives first-run on a model-less box, else launches the app |
+| `Run-Polymath.cmd` | launcher: drives first-run on a model-less box, else launches the app |
 | `README.txt` | top-level instructions |
 | `data\models\` | **empty** placeholder + `PUT-MODELS-HERE.txt` (models are NOT bundled) |
 
@@ -82,7 +82,7 @@ and first-class code-signing hooks.
 
 ```powershell
 # 1. Stage the bundle as a folder (not a zip):
-pwsh scripts\package.ps1 -Flavor cpu -NoZip           # -> dist\Hearth-<ver>-win64-cpu\
+pwsh scripts\package.ps1 -Flavor cpu -NoZip           # -> dist\Polymath-<ver>-win64-cpu\
 
 # 2. Compile the installer (Inno Setup 6 / ISCC.exe). Use the call operator (&) and
 #    quote the .iss path — the repo lives under "...\Home Assistant" (a space), and
@@ -90,7 +90,7 @@ pwsh scripts\package.ps1 -Flavor cpu -NoZip           # -> dist\Hearth-<ver>-win
 & "C:\Users\nigga\AppData\Local\Programs\Inno Setup 6\ISCC.exe" `
     /DAppVersion=0.1.0 /DFlavor=cpu `
     "C:\Users\nigga\Desktop\Home Assistant\scripts\installer\polymath.iss"
-# -> dist\Hearth-0.1.0-win64-cpu-Setup.exe   (~67.7 MB, lzma2/max)
+# -> dist\Polymath-0.1.0-win64-cpu-Setup.exe   (~67.7 MB, lzma2/max)
 ```
 
 Defaults are `AppVersion=0.1.0`, `Flavor=cuda`; override either with `/D` (use
@@ -100,8 +100,8 @@ Defaults are `AppVersion=0.1.0`, `Flavor=cuda`; override either with `/D` (use
 is installed at `C:\Users\nigga\AppData\Local\Programs\Inno Setup 6\ISCC.exe` (the
 per-user winget install location — note it is **not** the `Program Files (x86)` path
 the upstream docs assume). ISCC produced
-`dist\Hearth-0.1.0-win64-cpu-Setup.exe` and a silent per-user install
-(`/VERYSILENT /CURRENTUSER /DIR=…`) was confirmed to land `Hearth.exe`,
+`dist\Polymath-0.1.0-win64-cpu-Setup.exe` and a silent per-user install
+(`/VERYSILENT /CURRENTUSER /DIR=…`) was confirmed to land `Polymath.exe`,
 `libcrypto-3-x64.dll`, the Qt runtime + offscreen plugin, and an empty
 `data\models\`, launch offscreen, then uninstall cleanly (leaving user models). The
 portable zip from `package.ps1` remains the install-free fallback. On a box without
@@ -113,7 +113,7 @@ Inno Setup, install it with `winget install JRSoftware.InnoSetup` (or
 > CUDA-flavour installer is authored (`/DFlavor=cuda`) but awaits a GPU build to stage.
 
 The installer:
-- installs to `{autopf}\Hearth` (Program Files) or, with `PrivilegesRequired=lowest`,
+- installs to `{autopf}\Polymath` (Program Files) or, with `PrivilegesRequired=lowest`,
   a per-user dir without a UAC prompt;
 - creates Start-menu entries for the app **and** the first-run setup;
 - offers, post-install, to run the first-run wizard (GPU check + guided model
@@ -126,15 +126,15 @@ The installer:
 
 Unsigned, SmartScreen shows "Windows protected your PC" on first launch
 (*More info → Run anyway*). To sign, get an Authenticode cert (OV/EV from a CA; an
-**EV** cert clears SmartScreen reputation fastest) and sign **both** `Hearth.exe`
+**EV** cert clears SmartScreen reputation fastest) and sign **both** `Polymath.exe`
 and the installer, always timestamping so signatures outlive the cert:
 
 ```powershell
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-    /f mycert.pfx /p <pw> "dist\Hearth-<ver>-win64-<flavor>\Hearth.exe"
+    /f mycert.pfx /p <pw> "dist\Polymath-<ver>-win64-<flavor>\Polymath.exe"
 # re-stage so the signed exe is the one packaged, build the installer, then:
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-    /f mycert.pfx /p <pw> "dist\Hearth-<ver>-win64-<flavor>-Setup.exe"
+    /f mycert.pfx /p <pw> "dist\Polymath-<ver>-win64-<flavor>-Setup.exe"
 ```
 
 To sign automatically during compile, register a sign tool in the Inno Setup IDE
@@ -145,10 +145,10 @@ recipe inline.)
 
 ### Per-machine vs portable data location
 
-The app resolves `data/` **beside `Hearth.exe`** (`src\app\main.cpp`
+The app resolves `data/` **beside `Polymath.exe`** (`src\app\main.cpp`
 `resolveAppRoot()`). That keeps the portable bundle truly portable. For a
 multi-user / Program-Files install where users can't write under the install dir,
-point the app at `%LOCALAPPDATA%\Hearth` instead — that requires a small backend
+point the app at `%LOCALAPPDATA%\Polymath` instead — that requires a small backend
 change (`resolveAppRoot()` to prefer an env/`QStandardPaths` location); it is
 filed as a contract request rather than done here (this card owns `scripts\` +
 `docs\`, not `src\`). Today the installer defaults to a writable location so the
@@ -161,7 +161,7 @@ portable data layout keeps working.
 On a fresh box `data\models\` is empty, so the first thing a user needs is models.
 The flow never drops the user into a dead, self-disabled app:
 
-1. **Launcher** (`Run-Hearth.cmd`): if there's no Fast LLM under
+1. **Launcher** (`Run-Polymath.cmd`): if there's no Fast LLM under
    `data\models\llm\*.gguf`, it runs the first-run wizard; otherwise it launches
    the app directly.
 2. **Wizard** (`first-run.ps1`):
@@ -171,7 +171,7 @@ The flow never drops the user into a dead, self-disabled app:
      CUDA build will accelerate inference or it'll run on CPU;
    - offers a model set — **Minimal** (~3.5 GB), **Full** (~28 GB), or **Skip**
      (bring your own / do it later) — then drives `fetch-models.ps1`;
-   - launches `Hearth.exe`.
+   - launches `Polymath.exe`.
 3. **In-app safety net** (from card F): even if the user skips the wizard and
    launches anyway, `AppController::initialize()` always succeeds without models;
    the Dashboard shows a **cold-start banner** and the **Model Manager** shows a

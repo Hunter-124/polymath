@@ -1,7 +1,7 @@
 #pragma once
 //
 // Canonical on-disk locations.  The app root is resolved once at startup
-// (portable: a `data/` folder next to the exe; or %LOCALAPPDATA%/Hearth when
+// (portable: a `data/` folder next to the exe; or %LOCALAPPDATA%/Polymath when
 // installed).  All other paths derive from it so services never hard-code dirs.
 //
 #include <filesystem>
