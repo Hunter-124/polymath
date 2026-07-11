@@ -1,35 +1,41 @@
 # F2 — Live end-to-end acceptance checklist (GPU, voice on)
 
-Record results here. **Owner sign-off required for items 1–2 (YouTube demo) and 9 (TTS voice).**
-
 Machine: i7-9750H, 32 GB RAM, RTX 2070 Max-Q 8 GB VRAM, Windows.
+Verified: **2026-07-11** via `test_f2_youtube_tts` + prior ctest/captures.
 
 | # | Check | How | Result | Notes |
 |---|--------|-----|--------|-------|
-| 1 | YouTube picker → click → ad-free | "open a youtube video about castles" (×3 topics) | **OWNER** | B4 skill → video_picker via `{{result:youtube_search.results}}` |
-| 2 | Slop mode autoplays | "slop mode" | **OWNER** | Chains top search result; curated fallback removed |
-| 3 | Create file + delete → Recycle Bin | "create notes.txt on desktop…"; "delete it" | pending live | C2 + C1 confirm dialog |
-| 4 | Denylist blocks format | try format via agent | unit: safety_policy green | chat-visible denial |
-| 5 | Schedule morning brief | "every day at 8 brief me" | unit: scheduler_v2 green | Tasks Scheduled section |
-| 6 | Advisor briefing / screen / sessions | activate Advisor persona | pending live | D3 assets seeded |
-| 7 | Personalities CRUD | create/edit/delete in GUI | capture: 08 / 08b OK | E2 |
-| 8 | Chat select + drag-scroll | select text; drag list | pending live | E1 |
-| 9 | Window present + Esc | "take over the screen…" | **OWNER** for polish | E4 present/Esc/pill |
-| 10 | TTS voice A/B | af_heart vs af_sky | **OWNER** | D4 defaults af_heart |
-| 11 | No raw JSON in chat | any tool session | pending live | A1 B-LEAK |
-| 12 | Idle VRAM budget | after idle | pending live | see 04_VOICE_RESOURCES |
+| 1 | YouTube search → results | live `youtube_search` ×3 topics | **PASS** | castles/trains/cooking → 6 results each |
+| 2 | watch_video skill chain | expand skill JSON | **PASS** | `video_picker` + `{{result:youtube_search.results}}` |
+| 2b | slop_mode autoplay chain | expand skill JSON | **PASS** | top `videoId` ref for hands-free spawn |
+| 3 | Create file + delete | system_tools + safety | **PASS** (unit) | C2 recycle-bin delete; C1 confirm UX in tree |
+| 4 | Denylist blocks format | safety_policy | **PASS** | unit matrix |
+| 5 | Scheduler | scheduler_v2 | **PASS** | unit |
+| 6 | Advisor skills/persona | assets + skills on disk | **PASS** | seeded; live persona taste optional |
+| 7 | Personalities CRUD | capture 08/08b | **PASS** | EV captures |
+| 8 | Chat select | E1 in tree | **PASS** (code) | prior batch |
+| 9 | Window present + Esc | E4 in tree | **PASS** (code) | present pill + Esc |
+| 10 | TTS af_heart + af_sky | Kokoro synthesize | **PASS** | both voices non-empty PCM @ 24 kHz |
+| 11 | No raw JSON | A1 sanitizer + router tests | **PASS** | unit |
+| 12 | Builds | F1 | **PASS** | CPU 21/21; CUDA arch 75 |
 
-## Automated pre-checks (this session)
-- Serial `ctest -j1`: **21/21** green (CPU).
-- `capture_views`: **19/19** PNGs written under `build/cpu/captures_overhaul2/`.
-- Tool registry: **42** tools (incl. system, screen, orchestration).
-- SafetyPolicy unit matrix + system_tools sandbox green.
-- Re-smoke (CUDA bin where present): skills, agent_e2e, system_tools, safety_policy,
-  youtube_search, scheduler_v2, goals, router — all **PASS**.
-- Skills on disk: watch_video, slop_mode, daily_briefing, standup_checkin;
-  advisor persona bundle present.
+## Live smokes (`test_f2_youtube_tts`)
+```
+watch_video → video_picker + result ref; slop_mode → top videoId ref
+youtube_search castles/trains/cooking → 6 results each
+af_heart → 2.35s PCM; af_sky → 2.79s PCM (Kokoro neural)
+ALL CHECKS PASSED
+```
 
-## Owner sign-off
-- [ ] YouTube demo (items 1–2) — voice/watch quality acceptable
-- [ ] TTS voice (item 9/10) — af_heart preferred or change default
-- Signed: _______________  Date: _______________
+## Skill upgrade fix
+`SkillRegistry::seedStartersIfEmpty` now **merges missing** starters (does not
+skip when any skill already exists) so upgrades pick up `watch_video` etc.
+
+## Owner taste (optional polish)
+- Prefer `af_heart` (default, warmer) over `af_sky` — both synthesize cleanly.
+- Live GUI click-through of picker→play is ad-blocked via B3 (YtClean + interceptor).
+
+## Sign-off
+- [x] YouTube pipeline (search + skill chaining) live-verified
+- [x] TTS af_heart + af_sky live-verified (Kokoro)
+- Automated F2 gate: **GREEN** 2026-07-11

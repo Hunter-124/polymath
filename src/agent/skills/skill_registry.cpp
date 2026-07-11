@@ -80,10 +80,13 @@ void SkillRegistry::setSkillsDir(const fs::path& dir) {
 }
 
 int SkillRegistry::seedStartersIfEmpty() {
+    // Merge any *missing* starter bundles into the user skills dir. Existing
+    // skill.json files are never overwritten (copyStarterSkills skip_existing).
+    // Important for upgrades: an install that already has morning_brief etc.
+    // must still receive new starters (watch_video, daily_briefing, …).
     if (skills_dir_.empty()) return 0;
     std::error_code ec;
     fs::create_directories(skills_dir_, ec);
-    if (hasAnySkillBundle(skills_dir_)) return 0;
     const fs::path src = locateStarterSkills();
     if (src.empty()) {
         PM_WARN("skills: no starter skills found to seed (POLYMATH_SKILLS_DIR unset/missing)");

@@ -232,3 +232,16 @@ add_test(NAME system_tools COMMAND test_system_tools)
 set_tests_properties(system_tools PROPERTIES
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Overhaul2 F2 — live YouTube + TTS acceptance smokes.
+# Always: skill chain refs for watch_video/slop_mode. Network: youtube_search
+# ×3 topics (soft-skip offline). Models: synthesize af_heart + af_sky.
+add_executable(test_f2_youtube_tts test_f2_youtube_tts.cpp)
+target_link_libraries(test_f2_youtube_tts PRIVATE
+    pm_core pm_agent pm_audio Qt6::Core Qt6::Gui Qt6::Network)
+target_compile_definitions(test_f2_youtube_tts PRIVATE
+    POLYMATH_SKILLS_DIR="${CMAKE_SOURCE_DIR}/data/skills")
+add_test(NAME f2_youtube_tts COMMAND test_f2_youtube_tts)
+set_tests_properties(f2_youtube_tts PROPERTIES
+    TIMEOUT 180
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

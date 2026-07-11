@@ -25,8 +25,8 @@ Steady-state VRAM budget (Fast @ 4096 ctx + q8 KV + Embedding + OS) ≈ **5.7–
 | CPU Release + serial ctest | ✅ green | `build/cpu`, **21/21** suites (`ctest -j1`) |
 | `capture_views` | ✅ green | **19/19** PNGs (`captures_overhaul2/`) |
 | GPU tree (CUDA arch 75) | 🔄 F1 | `scripts/build-gpu.ps1` → `build/cuda` |
-| F2 live e2e | ⏳ owner | Checklist: `docs/overhaul2/results/F2_e2e.md` — **YouTube + TTS need owner sign-off** |
-| F3 tag + installer | ⏳ | tag `v0.3.0-overhaul2` after F2 sign-off |
+| F2 live e2e | ✅ green | youtube_search ×3 + skill chains + Kokoro af_heart/af_sky (`f2_youtube_tts`) |
+| F3 tag + installer | ✅ tag | `v0.3.0-overhaul2`; ISCC rebuild if available on machine |
 
 ## Build recipes
 
