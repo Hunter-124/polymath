@@ -2,7 +2,11 @@ import QtQuick
 import QtQuick.Layouts
 import Polymath
 
-// PlaceholderSurface — titled glass panel echoing args (02 §F5).
+// PlaceholderSurface — clean titled placeholder (02 §F5). Used by the
+// `placeholder` and `monitor` surface types when no richer surface (note/
+// image/web/video) applies. E3: retired the raw argsJson dump in favor of a
+// calm "waiting" state — argsJson is still accepted for compatibility but
+// is no longer rendered verbatim.
 GlassCard {
     id: root
     property string title: "Surface"
@@ -41,14 +45,21 @@ GlassCard {
             height: 1
             color: Style.glassBorder
         }
-        Text {
-            text: root.argsJson.length > 0 ? root.argsJson : "placeholder surface"
-            color: Style.textDim
-            font.family: Style.fontFamily
-            font.pixelSize: Style.fsSmall
-            wrapMode: Text.WordWrap
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            spacing: 4
+            Item { Layout.fillHeight: true }
+            Text {
+                text: "Waiting for content…"
+                color: Style.textFaint
+                font.family: Style.fontFamily
+                font.pixelSize: Style.fsSmall
+                horizontalAlignment: Text.AlignHCenter
+                Layout.alignment: Qt.AlignHCenter
+                Layout.fillWidth: true
+            }
+            Item { Layout.fillHeight: true }
         }
     }
 }
