@@ -283,6 +283,7 @@ void AppController::buildModels() {
     shopping_model_ = std::make_unique<ShoppingModel>(db_, this);
     camera_model_   = std::make_unique<CameraModel>(db_, this);
     task_model_     = std::make_unique<TaskModel>(db_, this);
+    scheduled_goals_model_ = std::make_unique<ScheduledGoalsModel>(db_, this);
     timeline_model_ = std::make_unique<TimelineModel>(db_, this);
     notifications_model_ = std::make_unique<NotificationsModel>(db_, this);
     sessions_model_ = std::make_unique<SessionsModel>(db_, this);
@@ -384,6 +385,7 @@ void AppController::registerWithEngine(QQmlApplicationEngine& engine) {
     ctx->setContextProperty("shoppingModel", shopping_model_.get());
     ctx->setContextProperty("cameraModel",   camera_model_.get());
     ctx->setContextProperty("taskModel",     task_model_.get());
+    ctx->setContextProperty("scheduledGoalsModel", scheduled_goals_model_.get());
     ctx->setContextProperty("timelineModel", timeline_model_.get());
     // E2: personality editor's list model.
     ctx->setContextProperty("personalityModel", personality_model_.get());
@@ -405,6 +407,7 @@ QObject* AppController::chatModel() const     { return chat_model_.get(); }
 QObject* AppController::shoppingModel() const { return shopping_model_.get(); }
 QObject* AppController::cameraModel() const   { return camera_model_.get(); }
 QObject* AppController::taskModel() const     { return task_model_.get(); }
+QObject* AppController::scheduledGoalsModel() const { return scheduled_goals_model_.get(); }
 QObject* AppController::timelineModel() const { return timeline_model_.get(); }
 QObject* AppController::personalityModel() const { return personality_model_.get(); }
 
@@ -562,6 +565,7 @@ void AppController::refreshAll() {
 void AppController::refreshShopping() { if (shopping_model_) shopping_model_->refresh(); }
 void AppController::refreshCameras()  { if (camera_model_)   camera_model_->refresh(); }
 void AppController::refreshTasks()    { if (task_model_)     task_model_->refresh(); }
+void AppController::refreshSchedules() { if (scheduled_goals_model_) scheduled_goals_model_->refresh(); }
 void AppController::refreshTimeline() { if (timeline_model_) timeline_model_->refresh(); }
 
 void AppController::sendChat(const QString& text) {

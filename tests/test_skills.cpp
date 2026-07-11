@@ -193,15 +193,36 @@ void test_registry_load_starters() {
     auto cat = reg.catalog();
     assert(cat.is_array() && cat.size() >= 3);
 
-    // slop_mode expand
+    // slop_mode expand (B4: youtube_search → ui_control video with step-result
+    // chaining refs → agent_watch; 3 tool steps, no surface shortcut).
     auto slop = reg.expand("slop_mode", {{"topic", "jazz"}});
     assert(!slop.contains("error"));
-    assert(slop["steps"].size() == 2);
-    assert(slop["steps"][0]["kind"] == "surface");
-    const std::string url =
-        slop["steps"][0]["args"]["args"]["url"].get<std::string>();
-    assert(url.find("jazz") != std::string::npos);
-    assert(slop["steps"][1]["tool"] == "agent_watch");
+    assert(slop["steps"].size() == 3);
+    assert(slop["steps"][0]["tool"] == "youtube_search");
+    const std::string q =
+        slop["steps"][0]["args"]["query"].get<std::string>();
+    assert(q.find("jazz") != std::string::npos);
+    assert(slop["steps"][1]["tool"] == "ui_control");
+    assert(slop["steps"][1]["args"]["type"] == "video");
+    // Step-result ref for the top hit (resolved at execution time by AgentLoop).
+    const std::string vid =
+        slop["steps"][1]["args"]["args"]["videoId"].get<std::string>();
+    assert(vid.find("{{result:youtube_search") != std::string::npos);
+    assert(slop["steps"][2]["tool"] == "agent_watch");
+
+    // watch_video expand (B4): search → native video_picker with result ref.
+    assert(reg.has("watch_video") || fs::exists(starters / "watch_video" / "skill.json"));
+    if (reg.has("watch_video")) {
+        auto wv = reg.expand("watch_video", {{"topic", "castles"}});
+        assert(!wv.contains("error"));
+        assert(wv["steps"].size() == 2);
+        assert(wv["steps"][0]["tool"] == "youtube_search");
+        assert(wv["steps"][1]["tool"] == "ui_control");
+        assert(wv["steps"][1]["args"]["type"] == "video_picker");
+        const std::string res_ref =
+            wv["steps"][1]["args"]["args"]["results"].get<std::string>();
+        assert(res_ref.find("{{result:youtube_search.results}}") != std::string::npos);
+    }
 
     // morning_brief: 3 steps, no required params
     auto morn = reg.expand("morning_brief", nlohmann::json::object());

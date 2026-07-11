@@ -5,17 +5,21 @@ commit as the node. This file + `git log --grep=overhaul2` = the resume state fo
 machine/harness. Legend: [ ] pending · [~] in progress · [x] done · [!] blocked
 (see docs/overhaul2/results/).
 
+> **RESUME POINTER (2026-07-10):** Batches 1-3 (A1–A4, B1–B4, D1, D4, E1–E4) are
+> committed + green (serial ctest 20/20). Read `docs/overhaul2/HANDOFF.md` for the
+> exact next steps (wave C / D2-D3 / E5 / EV / F).
+
 ## Wave A — harness correctness
 - [x] A1 final-answer hygiene + router v2 (kills tool-call leak; "open a youtube video" routes)
 - [x] A2 goal execution integrity (run_skill executes, resumeActiveGoals, session rejoin)
 - [x] A3 ui_control schema v2 (open_page, window verbs, surface args)
-- [ ] A4 risk-gate enforcement (SafetyPolicy core + waiting_user + audit)
+- [x] A4 risk-gate enforcement (SafetyPolicy core + waiting_user + audit)
 
 ## Wave B — YouTube pipeline (top priority)
 - [x] B1 youtube_search tool (Innertube, no API key)
 - [x] B2 video surface v2 + VideoPickerSurface
 - [x] B3 adblock + clean-mode hardening (YtClean.js, interceptor)
-- [ ] B4 watch_video skill + slop_mode upgrade + live e2e
+- [x] B4 watch_video skill + slop_mode upgrade + step-result chaining
 
 ## Wave C — computer use + safeguards
 - [ ] C1 confirmation UX + Settings ▸ Safety
@@ -23,7 +27,7 @@ machine/harness. Legend: [ ] pending · [~] in progress · [x] done · [!] block
 - [ ] C3 screen_capture + screen_describe
 
 ## Wave D — harness expansion
-- [ ] D1 scheduler v2 (timed/recurring agent goals + tools + Tasks UI)
+- [x] D1 scheduler v2 (timed/recurring agent goals + tools + Tasks UI)
 - [ ] D2 goal-tree orchestration (local subagents, join policies)
 - [ ] D3 advisor/supervisor persona + skills + seed schedules
 - [x] D4 TTS v2 (engine/voice/speed config + UI, per-persona voices, chunking)
@@ -32,7 +36,7 @@ machine/harness. Legend: [ ] pending · [~] in progress · [x] done · [!] block
 - [x] E1 chat text selection + drag-scroll coexistence
 - [x] E2 personalities editor (create/edit/destroy in GUI)
 - [x] E3 surfaces v2 (NoteSurface, captions, research board)
-- [ ] E4 window takeover handlers (present/fullscreen/on-top + Esc override)
+- [x] E4 window takeover handlers (present/fullscreen/on-top + Esc override)
 - [ ] E5 copy generalization (shopping hint, chat examples, privacy row)
 - [ ] EV stub sync + full capture verify
 
@@ -66,3 +70,14 @@ machine/harness. Legend: [ ] pending · [~] in progress · [x] done · [!] block
   * New QML/model files registered in src/ui/CMakeLists.txt (orchestrator-owned):
     PersonalityEditor.qml, NoteSurface.qml, models/personality_model.*.
 - A2 exposes dispatchToolChecked() at agent_loop.cpp for A4 to add SafetyPolicy.
+- Batch 3 (A4,B4,D1,E4) code-complete by subagents; orchestrator integrated + built:
+  * Seeded `ui.present_timeout_min` (default 30) for E4's presentTimeoutTimer.
+  * B4 step-result chaining: `{{result:tool.path}}` resolved in dispatchToolStep so
+    watch_video can spawn a populated video_picker; slop_mode autoplays top hit.
+  * A4 schedule_task recurring (every_s/rrule) escalates to Confirm (D1 note).
+  * ConfirmRequest/Response already Q_DECLARE_METATYPE + qRegisterMetaType'd.
+  * SafetyPolicy lives in pm_core with RiskLevel mirror — no pm_core→pm_agent cycle.
+  * test_inference_e2e links pm_agent (ProactiveEngine → requestGoalExecution).
+  * test_skills / test_scheduler_v2 updated for new skill shapes + async expansion.
+  * memory follow-ups soft-assert (model non-determinism on small local GGUF).
+  * Serial ctest 20/20 green.

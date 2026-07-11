@@ -31,6 +31,8 @@ void Config::seedDefaults() {
         {keys::UiEffectsIntensity,   "0.6"},
         {keys::UiFontScale,          "1.0"},
         {keys::UiReduceMotion,       "0"},
+        // E4: AI window-takeover auto-revert (Main.qml presentTimeoutTimer).
+        {keys::UiPresentTimeoutMin,  "30"},
         {keys::AudioInputDevice,     ""},
         {keys::AudioOutputDevice,    ""},
         {keys::AudioAsrIdleUnloadS,  "90"},
@@ -48,6 +50,39 @@ void Config::seedDefaults() {
         {keys::TtsVoice,             "af_heart"},
         {keys::TtsSpeed,             "1.0"},
         {keys::TtsVolume,            "1.0"},
+        // Overhaul2 A4 defaults — SafetyPolicy (docs/overhaul2/01_DAG.md, node A4).
+        // Default base ceiling is write_local; standard mode shifts it +1 so
+        // read/write_local/external auto-run and spend/destructive confirm
+        // (matches the historical toolRiskRequiresConfirmation baseline + B1's
+        // "External auto-allowed by default policy"). See safety_policy.cpp.
+        {keys::SafetyMode,               "standard"},
+        {keys::SafetyAutoconfirmRiskMax, "write_local"},
+        {keys::SafetyFsAllowedRoots,     "Documents;Desktop;Downloads;@data"},
+        // Denied even inside an allowed root (deny wins). Location protection for
+        // AppData/Windows/ProgramFiles is primarily the allowed-roots whitelist's
+        // job (those are not default roots); AppData is intentionally NOT globbed
+        // here because the installed data dir lives under %LOCALAPPDATA%/Polymath
+        // and IS an allowed root — a blanket AppData deny would block our own
+        // captures/documents. These globs catch dangerous paths that can appear
+        // INSIDE an allowed root: git internals + the Polymath DB files.
+        {keys::SafetyFsDeniedGlobs,
+             "*/.git/*;C:/Windows/*;C:/Program Files*;C:/Program Files (x86)*;"
+             "*/polymath.db;*/polymath.db-wal;*/polymath.db-shm"},
+        {keys::SafetyCmdDenylist,
+             // NOTE: the list separator is ';' — no regex below may contain a
+             // literal ';' (it would be split mid-pattern).
+             "(?:^|[\\s&|])format(?:\\s|$);"         // format C:
+             "\\bdel\\b[^\\n]*\\s/[sqf];"            // del /s /q /f
+             "\\brd\\b[^\\n]*\\s/s;\\brmdir\\b[^\\n]*\\s/s;"  // rd /s
+             "\\brm\\b[^\\n]*\\s-[a-z]*[rf];"        // rm -rf / rm -fr
+             "Remove-Item[^\\n]*-Recurse;"           // PowerShell recursive delete
+             "\\breg\\b\\s+(?:add|delete);"          // registry writes
+             "\\bshutdown\\b;\\brestart-computer\\b;"
+             "\\bdiskpart\\b;\\bmkfs\\b;\\bfdisk\\b;"
+             "\\bcipher\\b[^\\n]*/w;"                 // cipher /w (wipe)
+             "\\bformat-volume\\b;\\bclear-disk\\b"},
+        {keys::SafetyMaxFileWriteKb,     "2048"},
+        {keys::SafetyAudit,              "1"},
     };
     // INSERT OR IGNORE seeds only missing keys (never clobbers user changes),
     // since settings.key is the PRIMARY KEY.

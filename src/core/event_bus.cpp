@@ -28,6 +28,8 @@ EventBus::EventBus() {
     qRegisterMetaType<polymath::AgentSessionEvent>("polymath::AgentSessionEvent");
     qRegisterMetaType<polymath::NavigateRequest>("polymath::NavigateRequest");
     qRegisterMetaType<polymath::WindowRequest>("polymath::WindowRequest");
+    qRegisterMetaType<polymath::ConfirmRequest>("polymath::ConfirmRequest");
+    qRegisterMetaType<polymath::ConfirmResponse>("polymath::ConfirmResponse");
 }
 
 } // namespace polymath

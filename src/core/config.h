@@ -40,6 +40,8 @@ namespace keys {
     inline constexpr const char* UiEffectsIntensity    = "ui.effects_intensity";
     inline constexpr const char* UiFontScale           = "ui.font_scale";
     inline constexpr const char* UiReduceMotion        = "ui.reduce_motion";
+    // E4: minutes of AI present/fullscreen/on-top takeover before auto-revert.
+    inline constexpr const char* UiPresentTimeoutMin   = "ui.present_timeout_min";
     inline constexpr const char* AudioInputDevice      = "audio.input_device";
     inline constexpr const char* AudioOutputDevice     = "audio.output_device";
     inline constexpr const char* AudioAsrIdleUnloadS   = "audio.asr_idle_unload_s";
@@ -60,6 +62,25 @@ namespace keys {
     inline constexpr const char* TtsVoice              = "tts.voice";   // default af_heart
     inline constexpr const char* TtsSpeed              = "tts.speed";   // 0.8-1.3, default 1.0
     inline constexpr const char* TtsVolume             = "tts.volume";  // default 1.0
+
+    // --- Overhaul2 A4: SafetyPolicy (risk-gate enforcement) -------------------
+    // Enforcement mode: strict (more confirms) | standard | trusted (fewer).
+    inline constexpr const char* SafetyMode            = "safety.mode";
+    // Base auto-allow ceiling (read|write_local|external|spend|destructive). The
+    // effective ceiling is this shifted by the mode (see safety_policy.cpp).
+    inline constexpr const char* SafetyAutoconfirmRiskMax = "safety.autoconfirm_risk_max";
+    // ';'-separated allowed filesystem roots. Special tokens Documents/Desktop/
+    // Downloads/@data resolve at runtime; everything else is a literal path. The
+    // agents.allowed_dirs are unioned in automatically.
+    inline constexpr const char* SafetyFsAllowedRoots  = "safety.fs_allowed_roots";
+    // ';'-separated shell-style globs that are always denied (even inside a root).
+    inline constexpr const char* SafetyFsDeniedGlobs   = "safety.fs_denied_globs";
+    // ';'-separated regexes; a command arg matching any is denied outright.
+    inline constexpr const char* SafetyCmdDenylist     = "safety.cmd_denylist";
+    // Max size (KB) of a file-write payload before it is denied.
+    inline constexpr const char* SafetyMaxFileWriteKb  = "safety.max_file_write_kb";
+    // Record every gated invocation (decision + reason) to the ActivityLog.
+    inline constexpr const char* SafetyAudit           = "safety.audit";
 }
 
 class Config {

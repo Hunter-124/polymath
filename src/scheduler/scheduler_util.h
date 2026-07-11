@@ -32,9 +32,20 @@ bool inWindow(int64_t unix_ts, int start_min, int end_min);
 // Advance a unix timestamp by one step of the given RRULE, starting from
 // `from_unix` (the previous due time). Supports a pragmatic subset:
 //   FREQ=MINUTELY|HOURLY|DAILY|WEEKLY|MONTHLY  with optional INTERVAL=<n>.
+// DAILY/WEEKLY/MONTHLY advance in LOCAL calendar terms (day-of-month / month
+// arithmetic via mktime, tm_isdst=-1) so the local wall-clock hour:minute of
+// `from_unix` is preserved across a DST transition (e.g. "daily at 08:00"
+// stays 08:00 local, not drifting to 07:00/09:00 across spring-forward /
+// fall-back). MINUTELY/HOURLY are plain elapsed-seconds arithmetic.
 // Returns the next occurrence strictly after `from_unix`, or 0 if the rule is
 // empty/unrecognised (caller should then treat the reminder as one-shot).
 int64_t advanceRrule(const std::string& rrule, int64_t from_unix);
+
+// Advance a unix timestamp by a plain elapsed-seconds interval (scheduled_goals
+// kind="every"). Deliberately NOT calendar/DST-adjusted — an "every N seconds"
+// cadence is literal wall-clock-elapsed time, unlike a daily/weekly RRULE.
+// Returns from_unix + interval_s, or 0 if interval_s <= 0.
+int64_t advanceEvery(int64_t from_unix, int64_t interval_s);
 
 } // namespace sched_util
 

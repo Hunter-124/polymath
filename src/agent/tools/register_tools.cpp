@@ -11,6 +11,7 @@
 #include "memory_tools.h"
 #include "camera_tools.h"
 #include "queue_tool.h"
+#include "schedule_tools.h"
 #include "skill_tools.h"
 #include "uicontrol_tool.h"
 #include "agent_session_tools.h"
@@ -102,6 +103,7 @@ void registerBuiltinTools(ToolRegistry& reg, BuiltinToolDeps deps) {
     reg.add(std::make_shared<CameraSnapshotTool>(),     ToolRiskClass::Read);
     reg.add(std::make_shared<WhoIsHomeTool>(),          ToolRiskClass::Read);
     reg.add(std::make_shared<AgentStatusTool>(),        ToolRiskClass::Read);
+    reg.add(std::make_shared<ListSchedulesTool>(),      ToolRiskClass::Read);
 
     // write_local
     reg.add(std::make_shared<ShoppingAddTool>(),        ToolRiskClass::WriteLocal);
@@ -112,6 +114,13 @@ void registerBuiltinTools(ToolRegistry& reg, BuiltinToolDeps deps) {
     reg.add(std::make_shared<RememberTool>(),           ToolRiskClass::WriteLocal);
     reg.add(std::make_shared<QueueDeepTaskTool>(),      ToolRiskClass::WriteLocal);
     reg.add(std::make_shared<UiControlTool>(),          ToolRiskClass::WriteLocal);
+    // D1: schedule_task registers a *standing rule* whenever kind is every/rrule
+    // (vs. a one-shot "at") — SafetyPolicy (A4, not yet landed) is the right
+    // place to escalate that case to Confirm since it inspects argsJson per
+    // Decision check(toolName, riskClass, argsJson); flagged in
+    // docs/overhaul2/results/D1_config.md.
+    reg.add(std::make_shared<ScheduleTaskTool>(),       ToolRiskClass::WriteLocal);
+    reg.add(std::make_shared<CancelScheduleTool>(),     ToolRiskClass::WriteLocal);
 
     // external (network / CLI side effects — auto, logged + notice)
     reg.add(std::make_shared<WebSearchTool>(),          ToolRiskClass::External);

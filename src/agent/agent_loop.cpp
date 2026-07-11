@@ -1,4 +1,5 @@
 #include "agent_loop.h"
+#include "agent_runtime.h"   // requestGoalExecution (guarded resume, A2 §1)
 #include "turn_collector.h"
 #include "persona.h"
 #include "inference_manager.h"
@@ -8,13 +9,16 @@
 #include "config.h"
 #include "activity_log.h"
 #include "event_bus.h"
+#include "safety_policy.h"   // A4 risk-gate (core::SafetyPolicy)
 #include "paths.h"
 #include "logging.h"
 #include "grammar.h"
 #include "skills/skill_registry.h"
 #include "skills/skill.h"
 
+#include <QObject>
 #include <QString>
+#include <QUuid>
 
 #include <algorithm>
 #include <cctype>
@@ -121,6 +125,148 @@ nlohmann::json parseJsonObject(const std::string& text) {
     j = nlohmann::json::parse(text.substr(start, end - start + 1), nullptr, false);
     if (j.is_discarded() || !j.is_object()) return nlohmann::json();
     return j;
+}
+
+// --- B4 step-result chaining ------------------------------------------------
+// Skills expand with static {param} substitution only. To thread one tool's
+// output into a later step (e.g. youtube_search → video_picker), step args may
+// carry "{{result:tool_name.dotted.path}}" refs resolved at execution time
+// against prior completed steps of that tool.
+
+nlohmann::json jsonPathGet(const nlohmann::json& root, const std::string& path) {
+    if (path.empty()) return root;
+    nlohmann::json cur = root;
+    size_t i = 0;
+    while (i < path.size()) {
+        size_t j = path.find('.', i);
+        if (j == std::string::npos) j = path.size();
+        const std::string seg = path.substr(i, j - i);
+        i = j + 1;
+        if (seg.empty()) continue;
+        if (cur.is_array()) {
+            try {
+                const size_t idx = static_cast<size_t>(std::stoul(seg));
+                if (idx >= cur.size()) return nlohmann::json();
+                cur = cur[idx];
+            } catch (...) {
+                return nlohmann::json();
+            }
+        } else if (cur.is_object() && cur.contains(seg)) {
+            cur = cur[seg];
+        } else {
+            return nlohmann::json();
+        }
+    }
+    return cur;
+}
+
+const PlanStepRec* findPriorToolStep(const GoalRec& goal, int before_idx,
+                                     const std::string& tool) {
+    const PlanStepRec* found = nullptr;
+    for (const auto& s : goal.steps) {
+        if (s.idx >= before_idx) break;
+        if (s.status != "done") continue;
+        const std::string t = s.tool.empty() ? s.args.value("tool", "") : s.tool;
+        if (t == tool) found = &s;
+    }
+    return found;
+}
+
+nlohmann::json lookupResultRef(const GoalRec& goal, int before_idx,
+                               const std::string& body) {
+    // body = "youtube_search" | "youtube_search.results" | "...results.0.videoId"
+    std::string tool, path;
+    const auto dot = body.find('.');
+    if (dot == std::string::npos) {
+        tool = body;
+    } else {
+        tool = body.substr(0, dot);
+        path = body.substr(dot + 1);
+    }
+    if (tool.empty()) return nlohmann::json();
+    const PlanStepRec* step = findPriorToolStep(goal, before_idx, tool);
+    if (!step) return nlohmann::json();
+    return jsonPathGet(step->result, path);
+}
+
+std::string jsonToRefString(const nlohmann::json& v) {
+    if (v.is_string()) return v.get<std::string>();
+    if (v.is_number_integer()) return std::to_string(v.get<long long>());
+    if (v.is_number_unsigned()) return std::to_string(v.get<unsigned long long>());
+    if (v.is_number_float()) return std::to_string(v.get<double>());
+    if (v.is_boolean()) return v.get<bool>() ? "true" : "false";
+    if (v.is_null()) return {};
+    return v.dump();
+}
+
+// If the whole string is one {{result:...}} ref, preserve the JSON type
+// (so arrays/objects land as real values, not stringified dumps). Embedded
+// refs in longer strings are stringified in place.
+nlohmann::json resolveResultRefsString(const std::string& text,
+                                       const GoalRec& goal, int before_idx) {
+    static constexpr const char* kPrefix = "{{result:";
+    static constexpr size_t kPrefixLen = 9; // strlen("{{result:")
+    static constexpr const char* kSuffix = "}}";
+    static constexpr size_t kSuffixLen = 2;
+
+    if (text.size() > kPrefixLen + kSuffixLen
+        && text.compare(0, kPrefixLen, kPrefix) == 0
+        && text.compare(text.size() - kSuffixLen, kSuffixLen, kSuffix) == 0
+        && text.find(kPrefix, 1) == std::string::npos) {
+        const std::string body =
+            text.substr(kPrefixLen, text.size() - kPrefixLen - kSuffixLen);
+        nlohmann::json val = lookupResultRef(goal, before_idx, body);
+        // Unresolved → leave the sentinel so the tool can error visibly rather
+        // than silently substituting an empty string.
+        if (val.is_null() && !findPriorToolStep(goal, before_idx,
+                body.substr(0, body.find('.')))) {
+            return text;
+        }
+        return val;
+    }
+
+    if (text.find(kPrefix) == std::string::npos) return text;
+
+    std::string out;
+    out.reserve(text.size());
+    size_t i = 0;
+    while (i < text.size()) {
+        const size_t pos = text.find(kPrefix, i);
+        if (pos == std::string::npos) {
+            out.append(text, i, std::string::npos);
+            break;
+        }
+        out.append(text, i, pos - i);
+        const size_t end = text.find(kSuffix, pos + kPrefixLen);
+        if (end == std::string::npos) {
+            out.append(text, pos, std::string::npos);
+            break;
+        }
+        const std::string body =
+            text.substr(pos + kPrefixLen, end - (pos + kPrefixLen));
+        out += jsonToRefString(lookupResultRef(goal, before_idx, body));
+        i = end + kSuffixLen;
+    }
+    return out;
+}
+
+nlohmann::json resolveResultRefsJson(const nlohmann::json& value,
+                                     const GoalRec& goal, int before_idx) {
+    if (value.is_string())
+        return resolveResultRefsString(value.get<std::string>(), goal, before_idx);
+    if (value.is_array()) {
+        nlohmann::json arr = nlohmann::json::array();
+        for (const auto& el : value)
+            arr.push_back(resolveResultRefsJson(el, goal, before_idx));
+        return arr;
+    }
+    if (value.is_object()) {
+        nlohmann::json obj = nlohmann::json::object();
+        for (auto it = value.begin(); it != value.end(); ++it)
+            obj[it.key()] = resolveResultRefsJson(it.value(), goal, before_idx);
+        return obj;
+    }
+    return value;
 }
 
 PlanStepRec stepFromJson(const nlohmann::json& s, int idx) {
@@ -289,7 +435,20 @@ TurnRoute turnRouteFromString(const std::string& s) {
 AgentLoop::AgentLoop(Database& db, InferenceManager& inf, TaskScheduler& sched,
                      ToolRegistry& tools, MemoryService* memory, TurnCollector& collector)
     : db_(db), inf_(inf), sched_(sched), tools_(tools), memory_(memory),
-      collector_(collector) {}
+      collector_(collector), safety_(db) {
+    // A4: listen for the human's answer to a SafetyPolicy ConfirmRequest. The
+    // bus emits from whatever thread published the ConfirmResponse (the GUI
+    // thread via AppController — node C1 — or a test), so we bind the slot to a
+    // context object living on THIS worker thread (collector_) → Qt delivers it
+    // queued onto the agent worker's event loop, never re-entering a live turn.
+    confirm_conn_ = QObject::connect(
+        &EventBus::instance(), &EventBus::confirmResponse, &collector_,
+        [this](const ConfirmResponse& r) { onConfirmResponse(r); });
+}
+
+AgentLoop::~AgentLoop() {
+    QObject::disconnect(confirm_conn_);
+}
 
 void AgentLoop::ensureSummariesTable() const {
     db_.exec(
@@ -306,6 +465,7 @@ void AgentLoop::ensureSummariesTable() const {
 
 void AgentLoop::recoverOnStartup() {
     ensureSummariesTable();
+    ensureConfirmTable();
     const int64_t now = to_unix(Clock::now());
     // Crash recovery (03 §1): running steps → pending so goals resume.
     // Only log when something was actually stuck mid-flight (quiet restarts).
@@ -1073,6 +1233,17 @@ std::string AgentLoop::runInteractive(const std::string& user_text,
     const Persona persona = loadActivePersona(db_);
     if (!from_voice) persistTranscript(user_text, /*assistant*/ false);
 
+    // A4: a short "yes, do it" / "no" answers the most recent pending
+    // confirmation (voice / chat approval path — dialog approvals come via the
+    // ConfirmResponse EventBus signal instead). Handled before routing so the
+    // reply is not (mis)classified as a fresh request.
+    {
+        std::string resumeAns;
+        if (maybeResumePendingConfirmation(user_text, persona, request_id,
+                                           from_voice, resumeAns))
+            return resumeAns;
+    }
+
     // Best-effort summary roll (no-op without model / short history).
     maybeUpdateRollingSummary(user_text);
 
@@ -1177,6 +1348,33 @@ std::string AgentLoop::runQuick(const std::string& user_text,
         tctx.active_personality = persona.name;
         ToolResult result = dispatchToolChecked(tool, args, tctx);
         ++toolCalls;
+
+        // A4: a Confirm ruling in the quick (no-goal) path ends the turn with a
+        // "⚠ Needs your approval" chat line and persists the pending call in a
+        // one-step carrier goal so a later approval (dialog / notification /
+        // "yes, do it") resumes it through the normal goal machinery.
+        if (result.content.is_object() &&
+            result.content.value("confirm_required", false)) {
+            PlanStepRec s;
+            s.kind = "tool";
+            s.tool = tool;
+            s.args = args;
+            s.description = core::SafetyPolicy::describe(tool, args);
+            nlohmann::json gctx = {{"request_id", request_id.toStdString()},
+                                   {"quick_confirm", true}};
+            const int64_t gid = createGoal("Approval: " + s.description,
+                                           from_voice ? "voice" : "chat", gctx, {s});
+            GoalRec carrier = loadGoal(gid);
+            if (!carrier.steps.empty())
+                parkForConfirmation(carrier, carrier.steps[0], tool, args, result,
+                                    request_id);
+            const std::string line =
+                "\xE2\x9A\xA0 Needs your approval: " +
+                core::SafetyPolicy::describe(tool, args) +
+                ". Say \"yes, do it\" to proceed.";
+            streamOrPublishAnswer(line, persona, request_id, /*speak*/ from_voice);
+            return line;
+        }
 
         const std::string resultJson = compactToolResult(result.content.dump());
         messages.push_back({Role::Tool, resultJson, tool});
@@ -1585,9 +1783,15 @@ bool AgentLoop::executeStep(GoalRec& goal, PlanStepRec& step,
 }
 
 // Single tool-invocation choke point for the goal + quick paths (A2 §4). Keeps
-// unknown-tool, deep-task routing, and exception safety in one place so node A4
-// can insert SafetyPolicy enforcement here without touching every call site.
-// Behavior today is identical to a direct invoke().
+// unknown-tool, deep-task routing, and exception safety in one place. A4 inserts
+// SafetyPolicy enforcement here: every tool call is gated once, centrally.
+//   Allow   → invoke as before.
+//   Deny    → return a tool-error result the model sees ("denied by safety
+//             policy: <reason>") so it can adapt. Never invokes.
+//   Confirm → return a marker result (content.confirm_required=true) WITHOUT
+//             invoking; the caller (dispatchToolStep / runQuick) parks
+//             waiting_user and asks the human. Approval later re-enters through
+//             takeConfirmDecision (which bypasses this gate for that one call).
 ToolResult AgentLoop::dispatchToolChecked(const std::string& tool,
                                           const nlohmann::json& args,
                                           ToolContext& ctx) {
@@ -1599,6 +1803,36 @@ ToolResult AgentLoop::dispatchToolChecked(const std::string& tool,
         result.summary = "unknown tool: " + tool;
         return result;
     }
+
+    // --- A4 risk-gate ------------------------------------------------------
+    const core::Ruling ruling =
+        safety_.check(tool, toRiskLevel(tools_.riskOf(tool)), args);
+    const bool audit = safety_.auditEnabled();
+    if (audit)
+        ActivityLog(db_).record(
+            tool, std::string("safety=") + core::decisionName(ruling.decision) +
+                  (ruling.reason.empty() ? "" : " (" + ruling.reason + ")"),
+            ruling.decision != core::Decision::Deny);
+    if (ruling.decision == core::Decision::Deny) {
+        result.ok = false;
+        result.content = {{"error", "denied by safety policy: " + ruling.reason},
+                          {"safety", "deny"}, {"reason", ruling.reason}};
+        result.summary = "denied by safety policy: " + ruling.reason;
+        return result;
+    }
+    if (ruling.decision == core::Decision::Confirm) {
+        // Do NOT invoke. Signal the caller to park + ask the human.
+        result.ok = false;
+        result.content = {{"confirm_required", true},
+                          {"tool", tool},
+                          {"reason", ruling.reason},
+                          {"summary", core::SafetyPolicy::describe(tool, args)},
+                          {"args_preview", core::SafetyPolicy::argsPreview(args)}};
+        result.summary = "needs your approval: " +
+                         core::SafetyPolicy::describe(tool, args);
+        return result;
+    }
+
     if (impl->isDeepTask()) {
         const qint64 task_id = sched_.enqueue(tool, args, /*priority*/ 0);
         result.ok = true;
@@ -1621,7 +1855,9 @@ bool AgentLoop::dispatchToolStep(GoalRec& goal, PlanStepRec& step,
                                  const Persona& persona, const QString& request_id) {
     auto& bus = EventBus::instance();
     const std::string tool = step.tool.empty() ? step.args.value("tool", "") : step.tool;
-    nlohmann::json args = step.args;
+    // B4: resolve {{result:tool.path}} refs against prior completed step results
+    // so skills can chain (youtube_search → video_picker / top videoId).
+    nlohmann::json args = resolveResultRefsJson(step.args, goal, step.idx);
     if (args.contains("tool")) args.erase("tool");
 
     bus.publishToolCall({request_id, QString::fromStdString(tool),
@@ -1633,7 +1869,53 @@ bool AgentLoop::dispatchToolStep(GoalRec& goal, PlanStepRec& step,
     tctx.memory = memory_;
     tctx.active_user_id = -1;
     tctx.active_personality = persona.name;
-    ToolResult result = dispatchToolChecked(tool, args, tctx);
+
+    ToolResult result;
+
+    // A4: resume path — if the human already answered a confirmation for this
+    // exact step, honor it (bypassing the risk-gate for the approved call).
+    const ConfirmState decided = takeConfirmDecision(goal.id, step.idx);
+    if (decided == ConfirmState::Approved) {
+        if (Config(db_).getStr(keys::SafetyAudit, "1") != "0")
+            ActivityLog(db_).record(tool, "safety=confirmed (approved by user)", true);
+        ITool* impl = tools_.get(tool);
+        if (!impl) {
+            result.ok = false;
+            result.content = {{"error", "unknown tool: " + tool}};
+            result.summary = "unknown tool: " + tool;
+        } else if (impl->isDeepTask()) {
+            const qint64 task_id = sched_.enqueue(tool, args, /*priority*/ 0);
+            result.ok = true;
+            result.content = {{"queued", true}, {"task_id", task_id}, {"tool", tool}};
+            result.summary = "Queued " + tool + " as background task " +
+                             std::to_string(task_id);
+        } else {
+            try { result = impl->invoke(args, tctx); }
+            catch (const std::exception& e) {
+                result.ok = false;
+                result.content = {{"error", e.what()}};
+                result.summary = std::string("tool threw: ") + e.what();
+            }
+        }
+    } else if (decided == ConfirmState::Denied) {
+        if (Config(db_).getStr(keys::SafetyAudit, "1") != "0")
+            ActivityLog(db_).record(tool, "safety=confirmed (denied by user)", false);
+        result.ok = false;
+        result.content = {{"error", "denied by user"}, {"safety", "user_denied"}};
+        result.summary = "You declined this action (" + tool + ").";
+        // Do not re-ask: max out attempts so executeGoal fails the goal cleanly
+        // with the denial (visible to the model / user) instead of retrying and
+        // re-parking on the same action.
+        step.attempts = kMaxStepAttempts;
+    } else {
+        result = dispatchToolChecked(tool, args, tctx);
+        // A4: a Confirm ruling asks the human first — park the goal waiting_user.
+        if (result.content.is_object() &&
+            result.content.value("confirm_required", false)) {
+            parkForConfirmation(goal, step, tool, args, result, request_id);
+            return true;   // parked; step stays pending, goal now waiting_user
+        }
+    }
 
     const std::string resultJson = compactToolResult(result.content.dump());
     step.result = nlohmann::json::parse(resultJson, nullptr, false);
@@ -2202,6 +2484,167 @@ void AgentLoop::sweepAgentJoinTimeouts() {
         };
         continueParkedGoal(gid, sidx, /*failed*/ true, injected, "join timeout");
     }
+}
+
+// --- A4 risk-gate confirmation (waiting_user park + resume) ------------------
+
+void AgentLoop::ensureConfirmTable() const {
+    db_.exec(
+        "CREATE TABLE IF NOT EXISTS pending_confirmations ("
+        "  id TEXT PRIMARY KEY,"
+        "  tool TEXT NOT NULL,"
+        "  args_json TEXT NOT NULL DEFAULT '{}',"
+        "  goal_id INTEGER NOT NULL DEFAULT 0,"
+        "  step_idx INTEGER NOT NULL DEFAULT -1,"
+        "  request_id TEXT NOT NULL DEFAULT '',"
+        "  summary TEXT NOT NULL DEFAULT '',"
+        "  status TEXT NOT NULL DEFAULT 'pending',"   // pending|approved|denied
+        "  created_at INTEGER NOT NULL DEFAULT 0"
+        ")");
+}
+
+void AgentLoop::parkForConfirmation(GoalRec& goal, PlanStepRec& step,
+                                    const std::string& tool,
+                                    const nlohmann::json& args,
+                                    const ToolResult& gated,
+                                    const QString& request_id) {
+    ensureConfirmTable();
+    const nlohmann::json& c = gated.content;
+    const std::string summary = c.is_object()
+        ? c.value("summary", core::SafetyPolicy::describe(tool, args))
+        : core::SafetyPolicy::describe(tool, args);
+    const std::string reason  = c.is_object() ? c.value("reason", std::string()) : std::string();
+    const std::string preview = c.is_object()
+        ? c.value("args_preview", core::SafetyPolicy::argsPreview(args))
+        : core::SafetyPolicy::argsPreview(args);
+
+    const std::string cid =
+        QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+
+    // One pending row per (goal,step): clear any stale one first.
+    db_.exec("DELETE FROM pending_confirmations WHERE goal_id=?1 AND step_idx=?2",
+             {goal.id, step.idx});
+    db_.exec(
+        "INSERT INTO pending_confirmations"
+        "(id,tool,args_json,goal_id,step_idx,request_id,summary,status,created_at) "
+        "VALUES(?1,?2,?3,?4,?5,?6,?7,'pending',?8)",
+        {cid, tool, args.is_null() ? "{}" : args.dump(), goal.id, step.idx,
+         request_id.toStdString(), summary, to_unix(Clock::now())});
+
+    // Publish the ConfirmRequest for the dialog / notification center (node C1),
+    // plus a Notice so the pending approval is visible before C1 ships.
+    ConfirmRequest cr;
+    cr.id           = QString::fromStdString(cid);
+    cr.tool         = QString::fromStdString(tool);
+    cr.summary      = QString::fromStdString(summary);
+    cr.args_preview = QString::fromStdString(preview);
+    cr.reason       = QString::fromStdString(reason);
+    EventBus::instance().publishConfirmRequest(cr);
+    EventBus::instance().publishNotice(
+        {"warn", "safety",
+         QStringLiteral("Needs your approval: %1").arg(QString::fromStdString(summary))});
+
+    // Park the goal waiting_user with resume markers (mirrors waiting_agent).
+    step.status = "pending";   // re-entered on resume
+    step.result = {{"parked", true}, {"awaiting", "user_confirmation"},
+                   {"confirm_id", cid},
+                   {"summary", "Waiting for your approval: " + summary}};
+    persistStep(step);
+
+    if (!goal.context.is_object()) goal.context = nlohmann::json::object();
+    goal.context["waiting_confirm_id"] = cid;
+    goal.context["waiting_step_idx"]   = step.idx;
+    goal.context["waiting_since"]      = to_unix(Clock::now());
+    persistGoalStatus(goal, "waiting_user",
+                      {{"summary", "Waiting for your approval"},
+                       {"step_idx", step.idx}, {"confirm_id", cid}});
+    appendTrace(goal, {{"event", "waiting_user"}, {"idx", step.idx},
+                       {"tool", tool}, {"confirm_id", cid}});
+    PM_INFO("AgentLoop: goal {} parked waiting_user on confirm {} (tool {})",
+            goal.id, cid, tool);
+}
+
+AgentLoop::ConfirmState AgentLoop::takeConfirmDecision(int64_t goal_id, int step_idx) {
+    ensureConfirmTable();
+    std::string status, id;
+    db_.query("SELECT id,status FROM pending_confirmations "
+              "WHERE goal_id=?1 AND step_idx=?2 ORDER BY created_at DESC LIMIT 1",
+              {goal_id, step_idx}, [&](const Row& r) {
+                  id = r.text(0); status = r.text(1);
+              });
+    if (status.empty() || status == "pending") return ConfirmState::None;
+    // Consume the resolved row so the decision applies exactly once.
+    db_.exec("DELETE FROM pending_confirmations WHERE id=?1", {id});
+    return status == "approved" ? ConfirmState::Approved : ConfirmState::Denied;
+}
+
+void AgentLoop::onConfirmResponse(const ConfirmResponse& r) {
+    ensureConfirmTable();
+    const std::string id = r.id.toStdString();
+    if (id.empty()) return;
+    int64_t goal_id = 0;
+    std::string status, tool;
+    db_.query("SELECT goal_id,status,tool FROM pending_confirmations WHERE id=?1",
+              {id}, [&](const Row& row) {
+                  goal_id = row.i64(0); status = row.text(1); tool = row.text(2);
+              });
+    if (status.empty()) {
+        PM_INFO("AgentLoop: ConfirmResponse for unknown/expired confirm {}", id);
+        return;
+    }
+    if (status != "pending") {
+        PM_INFO("AgentLoop: ConfirmResponse {} ignored (already {})", id, status);
+        return;
+    }
+    db_.exec("UPDATE pending_confirmations SET status=?1 WHERE id=?2",
+             {std::string(r.approved ? "approved" : "denied"), id});
+    PM_INFO("AgentLoop: confirm {} {} (goal {}, tool {})",
+            id, r.approved ? "approved" : "denied", goal_id, tool);
+    if (goal_id > 0)
+        // Resume under the runtime's busy-guard so we never re-enter a live turn.
+        requestGoalExecution(goal_id);
+}
+
+bool AgentLoop::maybeResumePendingConfirmation(const std::string& user_text,
+                                               const Persona& persona,
+                                               const QString& request_id,
+                                               bool from_voice,
+                                               std::string& answer) {
+    ensureConfirmTable();
+    std::string id, summary;
+    db_.query("SELECT id,summary FROM pending_confirmations "
+              "WHERE status='pending' ORDER BY created_at DESC LIMIT 1",
+              {}, [&](const Row& r) { id = r.text(0); summary = r.text(1); });
+    if (id.empty()) return false;
+
+    // Only treat a SHORT, clearly affirmative/negative utterance as an answer so
+    // we do not hijack a normal request that merely contains "ok" / "no".
+    const std::string low = toLower(user_text);
+    if (wordsOf(low).size() > 6) return false;
+    auto has = [&](std::initializer_list<const char*> ws) {
+        for (const char* w : ws) if (low.find(w) != std::string::npos) return true;
+        return false;
+    };
+    const bool negate = has({"no", "nope", "don't", "do not", "cancel", "deny",
+                             "denied", "stop", "abort", "never mind", "nevermind"});
+    const bool affirm = has({"yes", "yep", "yeah", "do it", "go ahead", "approve",
+                             "approved", "confirm", "confirmed", "sure", "okay",
+                             "proceed", "please do", "ok"});
+    bool approve;
+    if (negate)       approve = false;   // "no" wins over an incidental "ok"
+    else if (affirm)  approve = true;
+    else              return false;
+
+    // Route through the same ConfirmResponse path the dialog uses.
+    ConfirmResponse resp;
+    resp.id = QString::fromStdString(id);
+    resp.approved = approve;
+    EventBus::instance().publishConfirmResponse(resp);
+
+    answer = approve ? ("On it — proceeding: " + summary)
+                     : ("Okay, I won't do that: " + summary);
+    streamOrPublishAnswer(answer, persona, request_id, from_voice);
+    return true;
 }
 
 int AgentLoop::goalTimeoutMin() const {

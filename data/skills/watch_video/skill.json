@@ -1,0 +1,52 @@
+{
+  "name": "watch_video",
+  "description": "Search YouTube for a topic and open a native video-picker grid so the user can pick a video to watch (ad-blocked playback via B3)",
+  "triggers": [
+    "watch",
+    "play video",
+    "open youtube",
+    "put on",
+    "show me a video",
+    "play a video"
+  ],
+  "params": {
+    "type": "object",
+    "properties": {
+      "topic": {
+        "type": "string",
+        "description": "What to search YouTube for"
+      },
+      "autoplay": {
+        "type": "boolean",
+        "description": "Reserved for callers that want a hands-free jump straight to a playing video instead of a picker. True autoplay is implemented by the slop_mode skill.",
+        "default": false
+      }
+    },
+    "required": ["topic"]
+  },
+  "confirm": false,
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "youtube_search",
+      "description": "Search YouTube for {topic}",
+      "args": {
+        "query": "{topic}",
+        "max_results": 6
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "ui_control",
+      "description": "Show a video picker with the search results for {topic}",
+      "args": {
+        "action": "spawn_surface",
+        "type": "video_picker",
+        "title": "YouTube: {topic}",
+        "args": {
+          "results": "{{result:youtube_search.results}}"
+        }
+      }
+    }
+  ]
+}

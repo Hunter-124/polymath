@@ -9,6 +9,7 @@
 // goal waiting_user for confirmation.
 //
 #include "i_tool.h"
+#include "safety_policy.h"   // core::RiskLevel (pm_core; agent maps ToolRiskClass -> RiskLevel)
 #include <map>
 #include <memory>
 #include <string>
@@ -42,6 +43,19 @@ inline const char* toolRiskClassName(ToolRiskClass r) {
 
 inline bool toolRiskRequiresConfirmation(ToolRiskClass r) {
     return r == ToolRiskClass::Spend || r == ToolRiskClass::Destructive;
+}
+
+// A4: map the agent-side risk class onto the pm_core mirror enum SafetyPolicy
+// speaks in (keeps pm_core free of any pm_agent dependency — see safety_policy.h).
+inline core::RiskLevel toRiskLevel(ToolRiskClass r) {
+    switch (r) {
+    case ToolRiskClass::Read:        return core::RiskLevel::Read;
+    case ToolRiskClass::WriteLocal:  return core::RiskLevel::WriteLocal;
+    case ToolRiskClass::External:    return core::RiskLevel::External;
+    case ToolRiskClass::Spend:       return core::RiskLevel::Spend;
+    case ToolRiskClass::Destructive: return core::RiskLevel::Destructive;
+    }
+    return core::RiskLevel::Read;
 }
 
 // Optional deps for tools that need live services (skills / agent sessions).

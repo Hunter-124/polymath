@@ -36,6 +36,7 @@ class ChatModel;
 class ShoppingModel;
 class CameraModel;
 class TaskModel;
+class ScheduledGoalsModel;
 class TimelineModel;
 class CameraImageProvider;
 class SettingsController;
@@ -60,6 +61,7 @@ class AppController : public QObject {
     Q_PROPERTY(QObject* shoppingModel READ shoppingModel CONSTANT)
     Q_PROPERTY(QObject* cameraModel   READ cameraModel   CONSTANT)
     Q_PROPERTY(QObject* taskModel     READ taskModel     CONSTANT)
+    Q_PROPERTY(QObject* scheduledGoalsModel READ scheduledGoalsModel CONSTANT)
     Q_PROPERTY(QObject* timelineModel READ timelineModel CONSTANT)
     // E2: personality editor's list model (mirrors PersonalityManager::all()).
     Q_PROPERTY(QObject* personalityModel READ personalityModel CONSTANT)
@@ -96,6 +98,7 @@ public:
     QObject* shoppingModel() const;
     QObject* cameraModel() const;
     QObject* taskModel() const;
+    QObject* scheduledGoalsModel() const;
     QObject* timelineModel() const;
     QObject* personalityModel() const;
 
@@ -137,6 +140,7 @@ public:
     Q_INVOKABLE void refreshShopping();
     Q_INVOKABLE void refreshCameras();
     Q_INVOKABLE void refreshTasks();
+    Q_INVOKABLE void refreshSchedules();
     Q_INVOKABLE void refreshTimeline();
 
     // Send chat text, appending the user turn to the ChatModel and correlating
@@ -209,6 +213,7 @@ private:
     std::unique_ptr<ShoppingModel>       shopping_model_;
     std::unique_ptr<CameraModel>         camera_model_;
     std::unique_ptr<TaskModel>           task_model_;
+    std::unique_ptr<ScheduledGoalsModel> scheduled_goals_model_;
     std::unique_ptr<TimelineModel>       timeline_model_;
     std::unique_ptr<NotificationsModel>  notifications_model_;
     std::unique_ptr<SessionsModel>        sessions_model_;

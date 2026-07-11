@@ -67,6 +67,26 @@ std::string rruleStr(const std::string& upper, const std::string& key) {
     return val;
 }
 
+// Advance `from_unix` by `days`/`months` in LOCAL calendar terms, preserving
+// the local wall-clock hour/minute/second. DST-safe: tm_isdst=-1 tells mktime
+// to re-derive the correct UTC offset for the *resulting* local date, so e.g.
+// a daily 08:00 occurrence stays 08:00 local across a spring-forward/
+// fall-back transition instead of silently becoming 07:00 or 09:00.
+int64_t addLocalCalendar(int64_t from_unix, int days, int months) {
+    std::time_t tt = static_cast<std::time_t>(from_unix);
+    std::tm lt{};
+#if defined(_WIN32)
+    localtime_s(&lt, &tt);
+#else
+    localtime_r(&tt, &lt);
+#endif
+    lt.tm_mday += days;
+    lt.tm_mon  += months;
+    lt.tm_isdst = -1;   // let mktime resolve DST for the resulting date
+    std::time_t adjusted = std::mktime(&lt);
+    return static_cast<int64_t>(adjusted);
+}
+
 } // namespace
 
 int64_t advanceRrule(const std::string& rrule, int64_t from_unix) {
@@ -82,17 +102,19 @@ int64_t advanceRrule(const std::string& rrule, int64_t from_unix) {
         return 0;
     }
 
-    int64_t step = 0;
-    if (freq == "MINUTELY")      step = 60;
-    else if (freq == "HOURLY")   step = 3600;
-    else if (freq == "DAILY")    step = 86'400;
-    else if (freq == "WEEKLY")   step = 7LL * 86'400;
-    else if (freq == "MONTHLY")  step = 30LL * 86'400;   // approximate (calendar-month drift acceptable for reminders)
-    else {
-        PM_WARN("advanceRrule: unsupported FREQ '{}'", freq);
-        return 0;
-    }
-    return from_unix + step * interval;
+    if (freq == "MINUTELY") return from_unix + 60LL * interval;
+    if (freq == "HOURLY")   return from_unix + 3600LL * interval;
+    if (freq == "DAILY")    return addLocalCalendar(from_unix, interval, 0);
+    if (freq == "WEEKLY")   return addLocalCalendar(from_unix, 7 * interval, 0);
+    if (freq == "MONTHLY")  return addLocalCalendar(from_unix, 0, interval);
+
+    PM_WARN("advanceRrule: unsupported FREQ '{}'", freq);
+    return 0;
+}
+
+int64_t advanceEvery(int64_t from_unix, int64_t interval_s) {
+    if (interval_s <= 0) return 0;
+    return from_unix + interval_s;
 }
 
 } // namespace sched_util

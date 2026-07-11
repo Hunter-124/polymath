@@ -46,7 +46,11 @@ add_test(NAME vision COMMAND test_vision_e2e)
 # run; the real-model load/unload and full Fast->Heavy->drain->Fast cycle gate on
 # a model being present and the POLYMATH_E2E_FULL env var (see test header).
 add_executable(test_inference_e2e test_inference_e2e.cpp)
-target_link_libraries(test_inference_e2e PRIVATE pm_core pm_inference pm_scheduler Qt6::Core)
+# pm_agent: D1's ProactiveEngine calls requestGoalExecution (defined in
+# agent_runtime.cpp). pm_scheduler does not link pm_agent (cycle), so every
+# final binary that pulls proactive_engine.obj must also link pm_agent.
+target_link_libraries(test_inference_e2e PRIVATE
+    pm_core pm_inference pm_scheduler pm_agent pm_memory Qt6::Core)
 add_test(NAME inference COMMAND test_inference_e2e)
 
 # Wave 1 · Card E — memory end-to-end: recall / persistence / summarizer /
@@ -191,4 +195,30 @@ target_link_libraries(test_router PRIVATE pm_core pm_agent Qt6::Core)
 add_test(NAME router COMMAND test_router)
 set_tests_properties(router PROPERTIES
     TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Overhaul2 D1 — Scheduler v2 (timed/recurring agent goals). Deterministic:
+# sched_util::advanceRrule/advanceEvery step math incl. a DST spring-forward +
+# fall-back boundary (skips gracefully if the CRT ignores extended TZ DST
+# rules), then a full-stack ProactiveEngine::tick() -> AgentRuntime (A2 path)
+# check that a due scheduled_goals row fires+executes a real goal and
+# reschedules/disables per kind, plus quiet-hours gating (chat held, notify
+# bypasses). Needs the full agent stack + Qt Core event loop, same as test_goals.
+add_executable(test_scheduler_v2 test_scheduler_v2.cpp)
+target_link_libraries(test_scheduler_v2 PRIVATE
+    pm_core pm_agent pm_inference pm_scheduler pm_memory Qt6::Core)
+add_test(NAME scheduler_v2 COMMAND test_scheduler_v2)
+set_tests_properties(scheduler_v2 PROPERTIES
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Overhaul2 A4 — SafetyPolicy risk-gate: path allow/deny matrix, command
+# denylist (rm -rf / format / Remove-Item -Recurse), mode escalation
+# (strict/standard/trusted), write-size cap, and the Destructive-never-auto
+# invariant. Pure core logic (temp DB + Config), no model / agent stack.
+add_executable(test_safety_policy test_safety_policy.cpp)
+target_link_libraries(test_safety_policy PRIVATE pm_core Qt6::Core)
+add_test(NAME safety_policy COMMAND test_safety_policy)
+set_tests_properties(safety_policy PROPERTIES
+    TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

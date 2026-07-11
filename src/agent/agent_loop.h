@@ -76,6 +76,7 @@ class AgentLoop {
 public:
     AgentLoop(Database& db, InferenceManager& inf, TaskScheduler& sched,
               ToolRegistry& tools, MemoryService* memory, TurnCollector& collector);
+    ~AgentLoop();
 
     // CREATE IF NOT EXISTS conversation_summaries; running steps → pending.
     void recoverOnStartup();
@@ -139,9 +140,12 @@ public:
     void resumeActiveGoals();
 
     // Single tool-invocation choke point for BOTH the goal and quick paths
-    // (A2 §4). Resolves the tool, routes deep tasks to the scheduler, and
-    // invokes with exception safety. A4 will insert SafetyPolicy enforcement
-    // here; today it is behavior-identical to a direct invoke().
+    // (A2 §4). Resolves the tool, enforces the SafetyPolicy risk-gate (A4),
+    // routes deep tasks to the scheduler, and invokes with exception safety.
+    //   Allow   → invoke.
+    //   Deny    → ToolResult error the model sees ("denied by safety policy: …").
+    //   Confirm → ToolResult marker (content.confirm_required=true) WITHOUT
+    //             invoking; the caller parks waiting_user and asks the human.
     ToolResult dispatchToolChecked(const std::string& tool,
                                    const nlohmann::json& args,
                                    ToolContext& ctx);
@@ -160,6 +164,15 @@ public:
     // agents.join_timeout_min: inject a timeout result and run a reflect round
     // instead of hanging forever. Called periodically by the runtime.
     void sweepAgentJoinTimeouts();
+
+    // A4: the human answered a SafetyPolicy ConfirmRequest. Approve → resume the
+    // parked goal and run the pending call (bypassing the re-check for that one
+    // call); deny → return the denial to the model. Wired to
+    // EventBus::confirmResponse in the constructor (queued onto the worker
+    // thread). The heavy resume runs under the runtime's busy-guard via
+    // requestGoalExecution, so this never re-enters a live turn. Public so tests
+    // and the confirm UI relay (node C1) can drive it.
+    void onConfirmResponse(const ConfirmResponse& r);
 
     static ContextBudgets defaultBudgets() { return {}; }
     static constexpr int kMaxPlanSteps     = 12;
@@ -281,12 +294,49 @@ private:
                             const nlohmann::json& injected,
                             const std::string& reason);
 
+    // --- A4 risk-gate confirmation ------------------------------------------
+    enum class ConfirmState { None, Approved, Denied };
+
+    // CREATE IF NOT EXISTS pending_confirmations (durable so an approval after a
+    // restart still resumes). Cheap + idempotent.
+    void ensureConfirmTable() const;
+
+    // Park a goal/step waiting_user for a Confirm ruling: persist the pending
+    // call, publish a ConfirmRequest, set the goal waiting_user with resume
+    // markers, and leave the step pending. Used by both the goal and quick paths
+    // (the quick path first wraps the call in a one-step carrier goal).
+    void parkForConfirmation(GoalRec& goal, PlanStepRec& step,
+                             const std::string& tool, const nlohmann::json& args,
+                             const ToolResult& gated, const QString& request_id);
+
+    // Resume check at the top of dispatchToolStep: if the human already resolved
+    // a confirmation for (goal_id, step_idx), consume the row and report the
+    // decision so the step is invoked (bypassing the re-check) or failed.
+    ConfirmState takeConfirmDecision(int64_t goal_id, int step_idx);
+
+    // Resume an affirmative/negative reply typed in chat ("yes, do it" / "no")
+    // that answers the most recent pending confirmation. Returns true (and fills
+    // `answer`) when it handled the turn.
+    bool maybeResumePendingConfirmation(const std::string& user_text,
+                                        const Persona& persona,
+                                        const QString& request_id,
+                                        bool from_voice,
+                                        std::string& answer);
+
     Database&         db_;
     InferenceManager& inf_;
     TaskScheduler&    sched_;
     ToolRegistry&     tools_;
     MemoryService*    memory_ = nullptr;
     TurnCollector&    collector_;
+
+    // A4: the risk-gate (Config-backed, thread-safe, caches its compiled rules).
+    // One instance so regexes/roots are compiled once, not per tool call.
+    core::SafetyPolicy safety_;
+
+    // A4: EventBus::confirmResponse subscription (queued onto the worker thread
+    // via collector_ as context). Disconnected in ~AgentLoop.
+    QMetaObject::Connection confirm_conn_;
 };
 
 // Free helpers shared with tests / runtime.

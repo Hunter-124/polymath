@@ -111,6 +111,30 @@ ApplicationWindow {
     property int currentPage: 0
     readonly property bool isMaximized: window.visibility === Window.Maximized
 
+    // --- E4: canonical page-id → nav rail display-name map -------------------
+    // Contract fixed by A3 (docs/overhaul2/results/A3_notes.md) — ui_control
+    // open_page publishes NavigateRequest(page) with one of these ids.
+    readonly property var pageIdMap: ({
+        "dashboard":     "Dashboard",
+        "chat":          "Chat",
+        "cameras":       "Cameras",
+        "timeline":      "Timeline",
+        "tasks":         "Tasks",
+        "shopping":      "Shopping",
+        "agents":        "Agents",
+        "personalities": "Personalities",
+        "models":        "Models",
+        "privacy":       "Privacy",
+        "mobile_access": "Mobile Access",
+        "settings":      "Settings"
+    })
+
+    // --- E4: AI window-takeover state (ui_control "window" verbs) -----------
+    property bool aiTakeoverActive: false   // AI currently holds fullscreen/on-top/present
+    property bool aiOnTop: false            // AI-forced always-on-top currently applied
+    property bool priorWasMaximized: false  // maximize state to restore when exiting fullscreen
+    property int  presentTimeoutMin: 30     // ui.present_timeout_min, read defensively (default 30)
+
     // AI / future-registered palette actions (02 §F2)
     property var dynamicActions: []
 
@@ -220,6 +244,11 @@ ApplicationWindow {
         var i = pageIndexOf(name)
         if (i >= 0) currentPage = i
     }
+    // E4: navigate by canonical page id (from ui_control open_page).
+    function goToPageId(id) {
+        var name = window.pageIdMap[String(id || "").toLowerCase()]
+        if (name) window.goToPage(name)
+    }
     // Resolve always-active PageHost Loader item by page name
     function pageLoaderItem(name) {
         var idx = pageIndexOf(name)
@@ -260,6 +289,108 @@ ApplicationWindow {
     function toggleMaximize() {
         if (isMaximized) window.showNormal()
         else window.showMaximized()
+    }
+
+    // =====================================================================
+    // E4 — AI window takeover (ui_control "window" verbs, A3 relay)
+    // =====================================================================
+
+    // Begin/refresh an AI-held takeover state: remembers the pre-takeover
+    // maximize state (once, so repeated verbs don't clobber it) and
+    // (re)starts the human-override auto-revert timer. `ui.present_timeout_min`
+    // is owned by A4/config this batch — read it defensively with a 30-minute
+    // fallback so this node never depends on that key existing.
+    function aiBeginTakeover() {
+        if (!window.aiTakeoverActive)
+            window.priorWasMaximized = window.isMaximized
+        window.aiTakeoverActive = true
+        var mins = 30
+        if (typeof settings !== "undefined" && settings
+                && typeof settings.getInt === "function") {
+            var v = settings.getInt("ui.present_timeout_min", 30)
+            if (v > 0) mins = v
+        }
+        window.presentTimeoutMin = mins
+        presentTimeoutTimer.interval = mins * 60000
+        presentTimeoutTimer.restart()
+    }
+
+    // Human escape hatch — Esc key, the pill's own click target, or the
+    // timeout all funnel here. Restores whatever maximize state preceded
+    // the takeover and drops always-on-top cleanly (Qt needs the
+    // hide/show juggle for a flags change to actually take effect).
+    function aiExitTakeover() {
+        presentTimeoutTimer.stop()
+        if (window.aiOnTop) {
+            window.aiOnTop = false
+            window.flags = window.flags & ~Qt.WindowStaysOnTopHint
+            window.hide()
+            window.show()
+        }
+        if (window.visibility === Window.FullScreen) {
+            if (window.priorWasMaximized) window.showMaximized()
+            else window.showNormal()
+        }
+        window.aiTakeoverActive = false
+        window.raise()
+        window.requestActivate()
+    }
+
+    // Dispatch for AppController::windowRequested(verb) — fixed enum from
+    // A3: present|fullscreen|restore|always_on_top|normal|raise|hide_to_tray.
+    function handleWindowVerb(verb) {
+        switch (verb) {
+        case "present":
+            // "AI takes over the screen to show you things": raise, focus,
+            // and go fullscreen — the SurfaceHost overlay (z:3, already
+            // always-on-top of the page stack) is shown by construction.
+            window.aiBeginTakeover()
+            window.raise()
+            window.requestActivate()
+            if (window.visibility !== Window.FullScreen)
+                window.showFullScreen()
+            break
+        case "fullscreen":
+            window.aiBeginTakeover()
+            if (window.visibility !== Window.FullScreen)
+                window.showFullScreen()
+            break
+        case "restore":
+            presentTimeoutTimer.stop()
+            if (window.visibility === Window.FullScreen) {
+                if (window.priorWasMaximized) window.showMaximized()
+                else window.showNormal()
+            }
+            if (!window.aiOnTop) window.aiTakeoverActive = false
+            break
+        case "always_on_top":
+            window.aiBeginTakeover()
+            window.aiOnTop = true
+            window.flags = window.flags | Qt.WindowStaysOnTopHint
+            window.hide()
+            window.show()
+            break
+        case "normal":
+            window.aiOnTop = false
+            window.flags = window.flags & ~Qt.WindowStaysOnTopHint
+            window.hide()
+            window.show()
+            if (window.visibility !== Window.FullScreen)
+                window.aiTakeoverActive = false
+            break
+        case "raise":
+            window.raise()
+            window.requestActivate()
+            break
+        case "hide_to_tray":
+            // Same path onClosing uses to keep the process (and warm models)
+            // alive: hide, don't quit.
+            window.hide()
+            break
+        default:
+            console.log("Main.qml: unknown window verb:", verb)
+            break
+        }
     }
 
     // =====================================================================
@@ -823,6 +954,93 @@ ApplicationWindow {
         sequence: "Ctrl+K"
         context: Qt.ApplicationShortcut
         onActivated: commandPalette.openPalette()
+    }
+
+    // E4: human override — Esc exits any AI-held fullscreen/on-top/present
+    // state. Only grabs Escape while a takeover is actually active, so it
+    // doesn't compete with CommandPalette's own Escape handling otherwise.
+    Shortcut {
+        sequence: "Esc"
+        context: Qt.ApplicationShortcut
+        enabled: window.aiTakeoverActive
+        onActivated: window.aiExitTakeover()
+    }
+
+    // E4: auto-revert an AI-held takeover after ui.present_timeout_min
+    // (defensive default 30 — see aiBeginTakeover()).
+    Timer {
+        id: presentTimeoutTimer
+        interval: window.presentTimeoutMin * 60000
+        repeat: false
+        onTriggered: window.aiExitTakeover()
+    }
+
+    // A3 → E4: ui_control open_page / window relays (agent-driven).
+    Connections {
+        target: typeof app !== "undefined" ? app : null
+        ignoreUnknownSignals: true
+        function onNavigateRequested(page) {
+            window.goToPageId(page)
+        }
+        function onWindowRequested(verb) {
+            window.handleWindowVerb(verb)
+        }
+    }
+
+    // E4: "Polymath is presenting — Esc to dismiss" pill, shown whenever the
+    // AI holds a fullscreen/on-top/present window state. z above everything
+    // (titlebar/pages/overlays) so it stays visible even in fullscreen.
+    Rectangle {
+        id: presentPill
+        visible: window.aiTakeoverActive
+        opacity: visible ? 1 : 0
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.topMargin: Style.gapLg
+        z: 6
+        radius: Style.radiusPill
+        color: Style.surface3
+        border.width: 1
+        border.color: Style.border
+        implicitWidth: pillRow.implicitWidth + Style.gapLg * 2
+        implicitHeight: Style.controlH
+        Behavior on opacity {
+            NumberAnimation { duration: Style.durBase; easing.type: Easing.OutCubic }
+        }
+
+        RowLayout {
+            id: pillRow
+            anchors.centerIn: parent
+            spacing: Style.gapSm
+            PmStatusDot {
+                tone: Style.accent
+                pulsing: true
+                Layout.alignment: Qt.AlignVCenter
+            }
+            Text {
+                text: qsTr("Polymath is presenting — Esc to dismiss")
+                color: Style.text
+                font.family: Style.fontFamily
+                font.pixelSize: Style.fsSmall
+                Layout.alignment: Qt.AlignVCenter
+            }
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: window.aiExitTakeover()
+        }
+
+        // Soft shadow, consistent with ToastStack's card treatment.
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: -2
+            anchors.topMargin: 2
+            z: -1
+            radius: parent.radius + 2
+            color: Style.shadowA1
+        }
     }
 
     // open_page surface actions navigate the shell (SurfaceHost leaves this to C1)

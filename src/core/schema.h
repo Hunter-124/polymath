@@ -6,8 +6,8 @@
 //
 namespace polymath {
 
-// v2: goals + plan_steps (harness v2); models.n_ctx default 4096 (04 §1).
-inline constexpr int kSchemaVersion = 2;
+// v3: scheduled_goals (overhaul2 D1 — timed/recurring agent goals).
+inline constexpr int kSchemaVersion = 3;
 
 inline constexpr const char* kSchemaSQL = R"SQL(
 PRAGMA journal_mode = WAL;
@@ -163,6 +163,30 @@ CREATE TABLE IF NOT EXISTS plan_steps (
     attempts      INTEGER NOT NULL DEFAULT 0,
     updated_at    INTEGER
 );
+
+-- Scheduler v2: timed/recurring agent goals (overhaul2 D1) ----------------
+-- ProactiveEngine's existing 30s tick() also scans this table; a due row
+-- creates a real `goals` row (origin='schedule') through the same A2
+-- execution path as run_skill, then reschedules per `kind`.
+CREATE TABLE IF NOT EXISTS scheduled_goals (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    title         TEXT NOT NULL,
+    prompt        TEXT DEFAULT '',        -- free-form instruction (kind="prompt" step)
+    skill         TEXT DEFAULT '',        -- OR a registered skill name (kind="skill" step)
+    params_json   TEXT NOT NULL DEFAULT '{}',
+    kind          TEXT NOT NULL DEFAULT 'at',
+      -- at (one-shot) | every (fixed interval) | rrule (iCal recurrence subset)
+    spec          TEXT NOT NULL DEFAULT '',
+      -- at: unix seconds (text); every: interval seconds (text); rrule: RRULE string
+    next_fire     INTEGER,                -- unix; NULL => not scheduled (disabled/fired one-shot)
+    last_fire     INTEGER,
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    deliver       TEXT NOT NULL DEFAULT 'chat',
+      -- chat (notify+transcript) | voice (also spoken) | notify (bypasses quiet hours)
+    source        TEXT NOT NULL DEFAULT 'user',   -- who/what created this row
+    created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_goals_next_fire ON scheduled_goals(next_fire);
 )SQL";
 
 } // namespace polymath

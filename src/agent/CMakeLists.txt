@@ -28,6 +28,7 @@ qt_add_library(pm_agent STATIC
     tools/memory_tools.cpp
     tools/camera_tools.cpp
     tools/queue_tool.cpp
+    tools/schedule_tools.cpp
     tools/skill_tools.cpp
     # Named uicontrol_tool (not ui_control_tool) so AUTOUIC does not treat
     # #include "ui_*.h" as a Qt Designer form header.

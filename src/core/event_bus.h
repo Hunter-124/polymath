@@ -80,6 +80,26 @@ struct NavigateRequest {
 struct WindowRequest {
     QString verb;
 };
+// A4: SafetyPolicy asked for human confirmation before running a gated tool.
+// AgentLoop publishes this when a Confirm ruling parks a goal/turn waiting_user.
+// The confirm UI (node C1: dialog + notification-center entry) renders it and
+// replies with a ConfirmResponse carrying the same `id`. `summary` is a short
+// human line ("run_command: run \"…\""); `args_preview` is a compact JSON blob
+// (truncated) for the dialog's args view.
+struct ConfirmRequest {
+    QString id;
+    QString tool;
+    QString summary;
+    QString args_preview;
+    QString reason;        // why the policy asked (e.g. "spend action needs your approval")
+};
+// A4: the human's answer to a ConfirmRequest. approved=true runs the pending
+// call and resumes the parked goal/turn; false returns a denial to the model.
+struct ConfirmResponse {
+    QString id;
+    bool    approved = false;
+    bool    always_allow = false;   // C1's "Always allow this tool" (reserved; C1 wires it)
+};
 // Goal terminal/progress update for NotificationsModel + chat delivery.
 struct GoalUpdate {
     QString goal_id;
@@ -121,6 +141,8 @@ public:
     void publishAgentSessionEvent(const AgentSessionEvent& e) { emit agentSessionEvent(e); }
     void publishNavigateRequest(const NavigateRequest& n) { emit navigateRequested(n); }
     void publishWindowRequest(const WindowRequest& w)   { emit windowRequested(w); }
+    void publishConfirmRequest(const ConfirmRequest& r) { emit confirmRequested(r); }
+    void publishConfirmResponse(const ConfirmResponse& r) { emit confirmResponse(r); }
 
 signals:
     // --- audio ---
@@ -148,6 +170,9 @@ signals:
     // A3: ui_control open_page / window actions.
     void navigateRequested(const polymath::NavigateRequest&);
     void windowRequested(const polymath::WindowRequest&);
+    // A4: risk-gate confirmation round-trip (dialog + notifications = node C1).
+    void confirmRequested(const polymath::ConfirmRequest&);
+    void confirmResponse(const polymath::ConfirmResponse&);
 
 private:
     EventBus();
@@ -173,3 +198,5 @@ Q_DECLARE_METATYPE(polymath::GoalUpdate)
 Q_DECLARE_METATYPE(polymath::AgentSessionEvent)
 Q_DECLARE_METATYPE(polymath::NavigateRequest)
 Q_DECLARE_METATYPE(polymath::WindowRequest)
+Q_DECLARE_METATYPE(polymath::ConfirmRequest)
+Q_DECLARE_METATYPE(polymath::ConfirmResponse)

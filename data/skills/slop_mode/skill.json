@@ -19,15 +19,25 @@
   "confirm": false,
   "steps": [
     {
-      "kind": "surface",
-      "description": "Spawn YouTube surface for {topic}",
+      "kind": "tool",
+      "tool": "youtube_search",
+      "description": "Search YouTube for an ambient/background video: {topic}",
       "args": {
-        "action": "spawn",
-        "type": "web",
-        "title": "YouTube",
+        "query": "{topic} lofi ambient background music",
+        "max_results": 6
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "ui_control",
+      "description": "Autoplay the top ambient/background search result (hands-free)",
+      "args": {
+        "action": "spawn_surface",
+        "type": "video",
+        "title": "Ambient: {topic}",
         "args": {
-          "url": "https://youtube.com/results?q={topic}",
-          "mode": "video"
+          "videoId": "{{result:youtube_search.results.0.videoId}}",
+          "title": "{{result:youtube_search.results.0.title}}"
         }
       }
     },
