@@ -7,7 +7,7 @@ machine/harness. Legend: [ ] pending · [~] in progress · [x] done · [!] block
 
 ## Wave A — harness correctness
 - [x] A1 final-answer hygiene + router v2 (kills tool-call leak; "open a youtube video" routes)
-- [ ] A2 goal execution integrity (run_skill executes, resumeActiveGoals, session rejoin)
+- [x] A2 goal execution integrity (run_skill executes, resumeActiveGoals, session rejoin)
 - [x] A3 ui_control schema v2 (open_page, window verbs, surface args)
 - [ ] A4 risk-gate enforcement (SafetyPolicy core + waiting_user + audit)
 
@@ -29,9 +29,9 @@ machine/harness. Legend: [ ] pending · [~] in progress · [x] done · [!] block
 - [x] D4 TTS v2 (engine/voice/speed config + UI, per-persona voices, chunking)
 
 ## Wave E — GUI features
-- [ ] E1 chat text selection + drag-scroll coexistence
-- [ ] E2 personalities editor (create/edit/destroy in GUI)
-- [ ] E3 surfaces v2 (NoteSurface, captions, research board)
+- [x] E1 chat text selection + drag-scroll coexistence
+- [x] E2 personalities editor (create/edit/destroy in GUI)
+- [x] E3 surfaces v2 (NoteSurface, captions, research board)
 - [ ] E4 window takeover handlers (present/fullscreen/on-top + Esc override)
 - [ ] E5 copy generalization (shopping hint, chat examples, privacy row)
 - [ ] EV stub sync + full capture verify
@@ -57,3 +57,12 @@ machine/harness. Legend: [ ] pending · [~] in progress · [x] done · [!] block
     rather than the empty flush=true stream terminator.
 - Audio e2e is flaky under `ctest -j4` (Kokoro+whisper+inference+memory contend);
   passes standalone and under `-j1`. Run heavy suites serially. Not a code defect.
+- Batch 2 (A2,E1,E2,E3) parallel subagents, integrated centrally. Fixes folded in:
+  * pm_ui now links pm_personality (PersonalityModel needs personality_manager.h).
+  * PersonalityManager::active() hardened against the pre-start empty window — E2's
+    PersonalityModel is built in buildModels() before personality_->start() scans,
+    so active() (personas_[active_]) was out-of-bounds → boot segfault. Real-app
+    crash, not just a test.
+  * New QML/model files registered in src/ui/CMakeLists.txt (orchestrator-owned):
+    PersonalityEditor.qml, NoteSurface.qml, models/personality_model.*.
+- A2 exposes dispatchToolChecked() at agent_loop.cpp for A4 to add SafetyPolicy.

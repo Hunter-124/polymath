@@ -31,6 +31,7 @@ qt_add_qml_module(pm_ui
         qml/TimelineView.qml
         qml/ShoppingView.qml
         qml/PersonalitiesView.qml
+        qml/PersonalityEditor.qml
         qml/ModelManagerView.qml
         qml/PrivacyView.qml
         qml/MobileAccessView.qml
@@ -48,6 +49,8 @@ qt_add_qml_module(pm_ui
         qml/surfaces/WebSurface.qml
         # B2: results-picker grid for youtube_search results (type:"video_picker").
         qml/surfaces/VideoPickerSurface.qml
+        # E3: markdown note card for research-board surfaces (type:"note").
+        qml/surfaces/NoteSurface.qml
         # Self-contained QR encoder (MIT) for the Mobile Access pairing QR; pure
         # ECMAScript usable from the Canvas, no extra Qt module / C++ dependency.
         qml/qrcode.js
@@ -97,6 +100,7 @@ qt_add_qml_module(pm_ui
         models/timeline_model.h       models/timeline_model.cpp
         models/notifications_model.h  models/notifications_model.cpp
         models/sessions_model.h       models/sessions_model.cpp
+        models/personality_model.h    models/personality_model.cpp
         settings_controller.h         settings_controller.cpp
         camera_image_provider.h       camera_image_provider.cpp
         # D5: adblock interceptor for QtWebEngine surfaces
@@ -121,7 +125,8 @@ if(TARGET Qt6::QuickEffects)
     list(APPEND _pm_ui_qt Qt6::QuickEffects)
 endif()
 # pm_sessions: SessionsModel talks to AgentSessionService (spawn/send/stop).
-target_link_libraries(pm_ui PUBLIC pm_core pm_sessions ${_pm_ui_qt})
+# pm_personality: PersonalityModel mirrors PersonalityManager (overhaul2 E2).
+target_link_libraries(pm_ui PUBLIC pm_core pm_sessions pm_personality ${_pm_ui_qt})
 
 # ---------------------------------------------------------------------------
 # capture_views — offscreen screenshot harness (Card F).  Renders every view to
