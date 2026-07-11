@@ -92,9 +92,9 @@ void testAllToolsDirect(const std::filesystem::path& root) {
     // overhaul2 B1: + youtube_search = 26. D1: + schedule_task/list_schedules/
     // cancel_schedule = 29. C2: +9 system tools = 38. C3: + screen_capture/
     // screen_describe = 40. D2: + spawn_subtask/subtask_status = 42.
-    // Wave Z: + fs_undo, calendar_read, inbox_notes = 45.
+    // Wave Z: + fs_undo, calendar_read, inbox_notes = 45; + email_fetch = 46.
     const auto names = reg.names();
-    assert(names.size() == 45 && "expected 45 builtin tools");
+    assert(names.size() == 46 && "expected 46 builtin tools");
     for (const char* n : {"shopping_add", "shopping_list", "shopping_remove",
                           "web_search", "fetch_page", "browser_drive", "draft_document",
                           "generate_lab_report", "print_document", "print_image",

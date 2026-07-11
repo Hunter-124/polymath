@@ -3,11 +3,11 @@
   Silent install / launch probe / uninstall smoke for the Inno Setup package.
 
 .EXAMPLE
-  powershell -File scripts/smoke-install.ps1 -Version 0.3.1
+  powershell -File scripts/smoke-install.ps1 -Version 0.3.2
 #>
 [CmdletBinding()]
 param(
-  [string]$Version = '0.3.1',
+  [string]$Version = '0.3.2',
   [ValidateSet('cuda','cpu')] [string]$Flavor = 'cuda',
   [string]$SetupPath = ''
 )
@@ -18,13 +18,12 @@ if (-not $SetupPath) {
   $SetupPath = Join-Path $repo "dist\Polymath-$Version-win64-$Flavor-Setup.exe"
 }
 if (-not (Test-Path $SetupPath)) {
-  throw "Installer not found: $SetupPath — build with package.ps1 + ISCC first"
+  throw "Installer not found: $SetupPath - build with package.ps1 + ISCC first"
 }
 
 $installDir = Join-Path $env:LOCALAPPDATA "Programs\Polymath-smoke-$Version"
 Write-Host "Smoke install -> $installDir" -ForegroundColor Cyan
 
-# Silent per-user install to a temp-ish dir (Inno /DIR=)
 $p = Start-Process -FilePath $SetupPath -ArgumentList @(
   '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART',
   "/DIR=$installDir"
@@ -33,11 +32,11 @@ if ($p.ExitCode -ne 0) { throw "Installer exit $($p.ExitCode)" }
 
 $exe = Join-Path $installDir 'Polymath.exe'
 if (-not (Test-Path $exe)) { throw "Polymath.exe missing after install" }
-Write-Host "Installed OK: $exe ($([math]::Round((Get-Item $exe).Length/1MB,2)) MB)" -ForegroundColor Green
+$sizeMb = [math]::Round((Get-Item $exe).Length / 1MB, 2)
+Write-Host "Installed OK: $exe ($sizeMb MB)" -ForegroundColor Green
 
-# Headless probe: process starts (may exit quickly without models — OK if no crash dialog)
 $env:QT_QPA_PLATFORM = 'offscreen'
-$probe = Start-Process -FilePath $exe -ArgumentList @() -PassThru -WindowStyle Hidden
+$probe = Start-Process -FilePath $exe -PassThru -WindowStyle Hidden
 Start-Sleep -Seconds 4
 if (-not $probe.HasExited) {
   Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue
@@ -46,7 +45,6 @@ if (-not $probe.HasExited) {
   Write-Host "Launch probe: exited code=$($probe.ExitCode) (models missing is OK)" -ForegroundColor Yellow
 }
 
-# Uninstall via unins000 if present
 $unins = Get-ChildItem $installDir -Filter 'unins*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($unins) {
   $u = Start-Process -FilePath $unins.FullName -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES') -Wait -PassThru

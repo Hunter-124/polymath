@@ -95,6 +95,10 @@ void Config::seedDefaults() {
         {keys::UpdatesEnabled,           "0"},
         {keys::UpdatesCheckUrl,          ""},
         {keys::ActiveUserId,             "-1"},
+        {keys::AdvisorImapHost,          ""},
+        {keys::AdvisorImapUser,          ""},
+        {keys::AdvisorImapPass,          ""},
+        {keys::AdvisorImapPort,          "993"},
     };
     // INSERT OR IGNORE seeds only missing keys (never clobbers user changes),
     // since settings.key is the PRIMARY KEY.

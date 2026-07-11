@@ -15,7 +15,7 @@ target_link_libraries(pm_app PUBLIC
     # pm_gateway: the mobile/web bridge. AppController owns a GatewayService and
     # implements its IAssistantBridge seam (via AppBridge).
     pm_gateway
-    Qt6::Qml Qt6::Quick
+    Qt6::Qml Qt6::Quick Qt6::Network
 )
 
 qt_add_executable(Polymath WIN32 main.cpp)
@@ -27,8 +27,13 @@ target_link_libraries(Polymath PRIVATE
     Qt6::WebEngineQuick Qt6::WebEngineCore)
 
 # Deploy runtime DLLs (Qt via windeployqt, ONNX Runtime, CUDA) — see docs/PACKAGING.md.
+# Copy all onnxruntime*.dll (core + CUDA/TRT providers when GPU package is used).
 if(WIN32 AND DEFINED ONNXRuntime_RUNTIME_DLL AND EXISTS "${ONNXRuntime_RUNTIME_DLL}")
-    add_custom_command(TARGET Polymath POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${ONNXRuntime_RUNTIME_DLL}" "$<TARGET_FILE_DIR:Polymath>")
+    get_filename_component(_ort_dll_dir "${ONNXRuntime_RUNTIME_DLL}" DIRECTORY)
+    file(GLOB _ort_dlls "${_ort_dll_dir}/onnxruntime*.dll")
+    foreach(_dll IN LISTS _ort_dlls)
+        add_custom_command(TARGET Polymath POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_dll}" "$<TARGET_FILE_DIR:Polymath>")
+    endforeach()
 endif()

@@ -203,7 +203,12 @@ public:
     Q_INVOKABLE bool rememberNote(const QString&, const QString& = {}) { return true; }
     Q_INVOKABLE qint64 activeUserId() const { return -1; }
     Q_INVOKABLE void setActiveUserId(qint64) {}
-    Q_INVOKABLE QVariantList listUsers() const { return {}; }
+    Q_INVOKABLE QVariantList listUsers() const {
+        return {QVariantMap{{"id", 1}, {"name", "Owner"}}};
+    }
+    Q_INVOKABLE qint64 createUser(const QString&) { return 1; }
+    Q_INVOKABLE bool enrollUserFace(qint64) { return true; }
+    Q_INVOKABLE void checkForUpdates(bool = false) {}
     Q_INVOKABLE void spawnSurfaceDemo() {}
 
     // E2 personality write-API pass-throughs (report success; no-op).

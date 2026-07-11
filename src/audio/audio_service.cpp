@@ -48,6 +48,11 @@ constexpr float kBaseVadThresh   = 0.5f;
 constexpr float kBaseWakeThresh  = 0.5f;
 constexpr float kBargeInDelta    = 0.1f;
 constexpr float kBargeInMinRms   = 0.015f;  // energy gate vs playback loudness
+// Adaptive AEC-lite: while TTS is speaking, track mic RMS and require barge-in
+// energy to exceed a multiple of the recent self-echo floor (WASAPI-loopback
+// free; works without loopback capture).
+constexpr float kBargeInAdaptiveMul = 2.8f;
+constexpr float kBargeInFloorEma    = 0.92f;
 
 using ClockSteady = std::chrono::steady_clock;
 }
@@ -195,6 +200,8 @@ struct AudioService::Impl {
     std::atomic<bool> ptt_down{false};
     std::atomic<bool> speaking{false};     // TTS in flight (barge-in mode)
     std::atomic<bool> asr_busy{false};     // whisper_full running
+    // AEC-lite: EMA of mic energy during TTS (self-echo floor for barge-in).
+    float barge_floor_rms = kBargeInMinRms;
 
     Listen state       = Listen::Idle;
     bool   ptt_segment = false;
@@ -525,9 +532,16 @@ void AudioService::Impl::feedFrame(AudioService* self, const float* data, int n)
     if (want_oww) {
         bool energy_ok = true;
         if (is_speaking) {
-            // Energy gate calibrated against playback loudness: ignore very
-            // quiet frames (self-echo floors) and require real speech energy.
-            energy_ok = frameRms(data, n) >= kBargeInMinRms;
+            // AEC-lite adaptive energy gate: track mic RMS while TTS is on
+            // (self-echo floor) and require barge-in to exceed floor * mul.
+            const float rms = frameRms(data, n);
+            barge_floor_rms = kBargeInFloorEma * barge_floor_rms
+                              + (1.0f - kBargeInFloorEma) * rms;
+            const float need = std::max(kBargeInMinRms,
+                                        barge_floor_rms * kBargeInAdaptiveMul);
+            energy_ok = rms >= need;
+        } else {
+            barge_floor_rms = kBargeInMinRms;
         }
 
         if (energy_ok) {

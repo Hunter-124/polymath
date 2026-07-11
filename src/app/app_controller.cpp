@@ -35,12 +35,20 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QMetaObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QThread>
+#include <QTimer>
 #include <QUrl>
 #include <QUuid>
 #include <QVariantMap>
+#include <QVersionNumber>
 
 #ifdef Q_OS_WIN
 #  ifndef NOMINMAX
@@ -152,6 +160,9 @@ bool AppController::initialize() {
     bridge_  = std::make_unique<AppBridge>(*this);
     gateway_ = std::make_unique<GatewayService>(*bridge_, db_, *config_);
     gateway_->start();
+
+    // Wave Z complete: opt-in update check a few seconds after boot (non-blocking).
+    QTimer::singleShot(4000, this, [this]() { checkForUpdates(/*quiet=*/true); });
 
     PM_INFO("AppController initialized");
     return true;
@@ -844,6 +855,84 @@ QVariantList AppController::listUsers() const {
         out.push_back(m);
     });
     return out;
+}
+
+qint64 AppController::createUser(const QString& name) {
+    const QString n = name.trimmed();
+    if (n.isEmpty()) return -1;
+    const int64_t ts = QDateTime::currentSecsSinceEpoch();
+    const int64_t id = db_.exec(
+        "INSERT INTO users(name,face_gallery,voice_print,created_at) VALUES(?1,'','',?2)",
+        {n.toStdString(), ts});
+    if (id <= 0) return -1;
+    emit usersChanged();
+    emit noticePosted(QStringLiteral("info"), QStringLiteral("identity"),
+                      QStringLiteral("Created user %1 (id %2)").arg(n).arg(id));
+    return id;
+}
+
+bool AppController::enrollUserFace(qint64 userId) {
+    if (userId <= 0 || !vision_) return false;
+    QString name;
+    db_.query("SELECT name FROM users WHERE id=?1", {static_cast<int64_t>(userId)},
+              [&](const Row& r) { name = QString::fromStdString(r.text(0)); });
+    if (name.isEmpty()) return false;
+    // VisionService::enrollUser runs on the vision thread — queue it.
+    auto* vis = vision_.get();
+    QMetaObject::invokeMethod(vis, [vis, userId, name]() {
+        vis->enrollUser(userId, name);
+    }, Qt::QueuedConnection);
+    setActiveUserId(userId);
+    emit noticePosted(QStringLiteral("info"), QStringLiteral("identity"),
+                      QStringLiteral("Enrolling face for %1 — look at the camera").arg(name));
+    return true;
+}
+
+void AppController::checkForUpdates(bool quiet) {
+    if (!config_) return;
+    const bool enabled = db_.getSetting(keys::UpdatesEnabled, "0") == "1";
+    const std::string url = db_.getSetting(keys::UpdatesCheckUrl, "");
+    if (!enabled || url.empty()) {
+        if (!quiet)
+            emit noticePosted(QStringLiteral("info"), QStringLiteral("updates"),
+                              QStringLiteral("Update checks disabled (Settings ▸ updates.enabled)"));
+        return;
+    }
+    auto* nam = new QNetworkAccessManager(this);
+    QNetworkRequest req{QUrl(QString::fromStdString(url))};
+    req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Polymath/0.3.2"));
+    QNetworkReply* reply = nam->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, nam, quiet]() {
+        reply->deleteLater();
+        nam->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            if (!quiet)
+                emit noticePosted(QStringLiteral("warn"), QStringLiteral("updates"),
+                                  QStringLiteral("Update check failed: %1").arg(reply->errorString()));
+            return;
+        }
+        const auto doc = QJsonDocument::fromJson(reply->readAll());
+        if (!doc.isObject()) return;
+        const auto o = doc.object();
+        const QString remote = o.value(QStringLiteral("version")).toString();
+        const QString dl = o.value(QStringLiteral("url")).toString();
+        const QString notes = o.value(QStringLiteral("notes")).toString();
+        if (remote.isEmpty()) return;
+        const QVersionNumber cur = QVersionNumber::fromString(QStringLiteral("0.3.2"));
+        const QVersionNumber rem = QVersionNumber::fromString(remote);
+        if (rem > cur) {
+            emit updateAvailable(remote, dl, notes);
+            emit noticePosted(QStringLiteral("info"), QStringLiteral("updates"),
+                              QStringLiteral("Update available: %1 — %2")
+                                  .arg(remote, dl.isEmpty() ? notes : dl));
+            // Quiet boot: toast only. Manual check: also open download URL.
+            if (!quiet && !dl.isEmpty())
+                QDesktopServices::openUrl(QUrl(dl));
+        } else if (!quiet) {
+            emit noticePosted(QStringLiteral("info"), QStringLiteral("updates"),
+                              QStringLiteral("Polymath is up to date (0.3.2)"));
+        }
+    });
 }
 
 void AppController::setModelRole(const QString& id, const QString& role) {

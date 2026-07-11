@@ -185,6 +185,11 @@ public:
     Q_INVOKABLE qint64 activeUserId() const { return active_user_id_; }
     Q_INVOKABLE void setActiveUserId(qint64 id);
     Q_INVOKABLE QVariantList listUsers() const;
+    // Wave Z complete: create household user + trigger face enroll on vision.
+    Q_INVOKABLE qint64 createUser(const QString& name);
+    Q_INVOKABLE bool enrollUserFace(qint64 userId);
+    // Opt-in update check (updates.enabled + updates.check_url).
+    Q_INVOKABLE void checkForUpdates(bool quiet = false);
 
     // Dev/demo: publish a placeholder SurfaceRequest (bus → surfaceRequested).
     Q_INVOKABLE void spawnSurfaceDemo();
@@ -203,6 +208,8 @@ signals:
     void modelsChanged();      // model registry changed (add/role/load-state)
     void memoriesChanged();    // Wave Z Memory dashboard
     void activeUserChanged();
+    void usersChanged();
+    void updateAvailable(QString version, QString url, QString notes);
     void firstRunChanged();    // first-run state changed (model added / acknowledged)
     void assistantToken(QString request_id, QString text, bool done);  // -> chat view
     void noticePosted(QString level, QString source, QString message); // -> toasts/log

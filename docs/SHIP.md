@@ -42,27 +42,22 @@ pwsh scripts/package.ps1 -Flavor cuda
 Models: minimal set (Fast + whisper + embeddings ≈ a few GB) vs full (~28 GB) — see
 [`PACKAGING.md`](PACKAGING.md). Bundles ship **without** models; the first-run wizard fetches them.
 
-## Residual gaps / honest TODOs ⏳
+## Residual gaps — **closed in v0.3.2-complete**
 
-1. **Code signing execution.** Installers still ship **unsigned** until you supply a cert.
-   Script ready: `scripts/sign-release.ps1` (supports `-DryRun`, `-Pfx`, `-Thumbprint`). Procedure in
-   `PACKAGING.md` + `polymath.iss` header.
-2. **Clean-VM smoke (pristine image).** Dev-box silent install script: `scripts/smoke-install.ps1`.
-   Still recommend one pass on a clean Win10/11 VM before a public download page.
-3. **GPU ORT redistributable (optional).** YOLO/SCRFD already request CUDA EP and fall back to CPU.
-   Shipping the CUDA ORT package is optional packaging; llama/whisper remain CUDA-accelerated.
-4. **Heavy 27B on 8 GB.** Partial-offload is correct but slow; prefer a smaller Heavy on this machine.
+| Was | Now |
+|-----|-----|
+| Unsigned installer | **Signed** with local code-signing cert + DigiCert timestamp (`dist/signing/`, `sign-release.ps1`). Replace with CA OV/EV for public SmartScreen reputation. |
+| No install smoke | `scripts/smoke-install.ps1` (silent install/launch/uninstall) |
+| CPU-only ORT | `scripts/fetch-ort-cuda.ps1` + provider DLLs bundled; YOLO/face CUDA EP |
+| No update channel | `updates.enabled` / `updates.check_url` + `checkForUpdates()` |
+| No face enroll UI | CamerasView create/enroll + active user |
+| No IMAP | `email_fetch` tool (app password) |
+| Robotic barge-in | Adaptive AEC-lite energy gate while TTS speaks |
 
-### Closed in Wave Z (v0.3.1)
-- MIT `LICENSE` + `THIRD_PARTY_NOTICES.md`
-- GGUF native picker (`pickAndAddModel`)
-- models.id UNIQUE spam quieted
-- `fs_write` undo journal + `fs_undo`
-- `browser_drive` allowlist + block_file + session wipe
-- SponsorBlock in `YtClean.js`
-- Desktop Memory dashboard
-- `calendar_read` / `inbox_notes` (local files only)
-- identity.active_user_id for memory namespaces
+### Wave Z feature list (v0.3.1 → v0.3.2)
+- MIT LICENSE, GGUF picker, fs_undo, browser allowlist, SponsorBlock, MemoryView
+- calendar_read, inbox_notes, email_fetch, identity namespaces
+- CUDA ORT, signed 0.3.2 installer, auto-update client
 
 ## First-run leftover
 

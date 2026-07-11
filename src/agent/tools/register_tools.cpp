@@ -19,6 +19,7 @@
 #include "screen_tools.h"
 #include "orchestration_tools.h"
 #include "advisor_tools.h"
+#include "imap_tools.h"
 #include "skills/skill_registry.h"
 #include "paths.h"
 #include "logging.h"
@@ -164,6 +165,7 @@ void registerBuiltinTools(ToolRegistry& reg, BuiltinToolDeps deps) {
     // Wave Z: local advisor inputs (no cloud OAuth).
     reg.add(std::make_shared<CalendarReadTool>(),      ToolRiskClass::Read);
     reg.add(std::make_shared<InboxNotesTool>(),        ToolRiskClass::Read);
+    reg.add(std::make_shared<ImapFetchTool>(),         ToolRiskClass::External);
 
     // skills (write_local: expand/persist goals or author skill.json)
     if (skills) {

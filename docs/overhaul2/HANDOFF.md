@@ -4,9 +4,9 @@
 Do not stop until DAG is complete. Parallel subagents on disjoint files;
 orchestrator builds/tests/commits. Build via `C:\pm`. Always `ctest -j1`.
 
-## Status: **SHIPPED** (Overhaul 2 + Wave Z)
-All waves A–F complete. Tag: `v0.3.0-overhaul2`.
-Wave Z residual/backlog closed. Tag: `v0.3.1-wavez`. See `PROGRESS_Z.md`.
+## Status: **SHIPPED** (Overhaul 2 + Wave Z complete)
+All waves A–F: `v0.3.0-overhaul2`. Wave Z: `v0.3.1-wavez` then **`v0.3.2-complete`** (no leftovers).
+See `PROGRESS_Z.md`.
 
 ### F2 live proof (2026-07-11)
 - `youtube_search` live: castles / trains / cooking → 6 results each

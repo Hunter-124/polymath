@@ -6,7 +6,27 @@ import Polymath
 // Cameras — teal glass tiles (01 §5.3).
 Item {
     id: root
-    Component.onCompleted: app.refreshCameras()
+    Component.onCompleted: {
+        app.refreshCameras()
+        reloadUsers()
+    }
+
+    property var userRows: []
+    property var activeUid: -1
+    function reloadUsers() {
+        if (typeof app !== "undefined" && app.listUsers) {
+            userRows = app.listUsers()
+            activeUid = app.activeUserId ? app.activeUserId() : -1
+        }
+    }
+    function createAndEnroll() {
+        if (!newUserName.text.trim()) return
+        if (typeof app === "undefined" || !app.createUser) return
+        var id = app.createUser(newUserName.text.trim())
+        if (id > 0 && app.enrollUserFace) app.enrollUserFace(id)
+        newUserName.text = ""
+        reloadUsers()
+    }
 
     // Periodic nudge so MJPEG-style sources repaint even without a model tick.
     property int refreshTick: 0
@@ -42,6 +62,82 @@ Item {
                 accent: true
                 tone: Style.sectionColor("Cameras")
                 onClicked: app.findObject(q.text)
+            }
+        }
+
+        // Wave Z: household users + face enroll
+        GlassCard {
+            Layout.fillWidth: true
+            Layout.preferredHeight: usersCol.implicitHeight + 24
+            section: "Cameras"
+            ColumnLayout {
+                id: usersCol
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Style.gapSm
+                spacing: Style.gapSm
+                Text {
+                    text: "Household users (face → memory namespace)"
+                    color: Style.textDim
+                    font.family: Style.fontFamily
+                    font.pixelSize: Style.fsSmall
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.gap
+                    PmTextField {
+                        id: newUserName
+                        Layout.fillWidth: true
+                        tone: Style.sectionColor("Cameras")
+                        placeholderText: "Name to enroll…"
+                        onAccepted: root.createAndEnroll()
+                    }
+                    PmButton {
+                        text: "Create + enroll"
+                        onClicked: root.createAndEnroll()
+                    }
+                    PmButton {
+                        text: "Refresh users"
+                        onClicked: root.reloadUsers()
+                    }
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    Repeater {
+                        model: root.userRows
+                        delegate: RowLayout {
+                            required property var modelData
+                            spacing: 4
+                            PmButton {
+                                text: (modelData.name || "?") +
+                                      (Number(modelData.id) === Number(root.activeUid) ? " ●" : "")
+                                onClicked: {
+                                    if (typeof app !== "undefined") {
+                                        app.setActiveUserId(modelData.id)
+                                        root.activeUid = modelData.id
+                                    }
+                                }
+                            }
+                            PmButton {
+                                text: "Enroll"
+                                onClicked: {
+                                    if (typeof app !== "undefined" && app.enrollUserFace)
+                                        app.enrollUserFace(modelData.id)
+                                }
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: "Click a user to set active memory namespace. Long-press to re-enroll face."
+                    color: Style.textFaint
+                    font.family: Style.fontFamily
+                    font.pixelSize: Style.fsTiny
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
             }
         }
 

@@ -38,6 +38,7 @@ qt_add_library(pm_agent STATIC
     tools/system_tools.cpp
     tools/orchestration_tools.cpp
     tools/advisor_tools.cpp
+    tools/imap_tools.cpp
 )
 target_include_directories(pm_agent PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # Qt Core: QFileSystemWatcher / QTimer for SkillRegistry hot-reload.

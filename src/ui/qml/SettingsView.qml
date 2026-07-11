@@ -66,6 +66,8 @@ Item {
     property string browserAllowlist: settings.getString("browser.allowlist", "")
     property bool browserBlockFile: settings.getBool("browser.block_file", true)
     property bool videoSponsorBlock: settings.getBool("video.sponsorblock", true)
+    property bool updatesEnabled: settings.getBool("updates.enabled", false)
+    property string updatesCheckUrl: settings.getString("updates.check_url", "")
 
     property var inputDevices: []
     property var outputDevices: []
@@ -1034,6 +1036,40 @@ Item {
                                     root.videoSponsorBlock = checked
                                     settings.setBool("video.sponsorblock", checked)
                                 }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                Layout.fillWidth: true
+                                text: "Check for updates on startup"
+                                color: Style.text
+                                font.family: Style.fontFamily
+                                font.pixelSize: Style.fsBody
+                            }
+                            PmSwitch {
+                                checked: root.updatesEnabled
+                                onToggled: {
+                                    root.updatesEnabled = checked
+                                    settings.setBool("updates.enabled", checked)
+                                }
+                            }
+                        }
+                        PmTextField {
+                            Layout.fillWidth: true
+                            text: root.updatesCheckUrl
+                            placeholderText: "updates.check_url JSON (version,url,notes)"
+                            onEditingFinished: {
+                                root.updatesCheckUrl = text
+                                settings.setString("updates.check_url", text)
+                            }
+                        }
+                        PmButton {
+                            text: "Check for updates now"
+                            onClicked: {
+                                if (typeof app !== "undefined" && app.checkForUpdates)
+                                    app.checkForUpdates(false)
                             }
                         }
                     }

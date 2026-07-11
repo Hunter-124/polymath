@@ -1,5 +1,5 @@
-﻿cmake_minimum_required(VERSION 3.25)
-project(Polymath VERSION 0.3.1 LANGUAGES C CXX)   # C: sqlite3 amalgamation + ggml
+cmake_minimum_required(VERSION 3.25)
+project(Polymath VERSION 0.3.2 LANGUAGES C CXX)   # C: sqlite3 amalgamation + ggml
 
 # ---------------------------------------------------------------------------
 # Global settings

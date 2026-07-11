@@ -1,48 +1,47 @@
-# Wave Z — progress ledger (ship everything residual)
+# Wave Z — progress ledger (EVERYTHING)
 
-> Follow-on to Overhaul 2 (`v0.3.0-overhaul2`). Target tag: `v0.3.1-wavez`.
+> Target tags: `v0.3.1-wavez` (first residual ship), `v0.3.2-complete` (no leftovers).
 
-Legend: [ ] pending · [~] in progress · [x] done · [!] blocked
+Legend: [ ] pending · [~] in progress · [x] done
 
 ## Z0 — Hygiene
-- [x] Z0a LICENSE + THIRD_PARTY_NOTICES
-- [x] Z0b models.id UNIQUE spam (`INSERT OR IGNORE` + path normalize)
-- [x] Z0c GGUF native Win32 picker (`pickAndAddModel`)
-- [x] Z0d docs STATUS/SHIP (this ledger)
+- [x] LICENSE (MIT) + THIRD_PARTY_NOTICES
+- [x] models.id UNIQUE quiet
+- [x] GGUF native picker
+- [x] docs
 
 ## Z1 — Safety
-- [x] Z1a fs_write undo journal + `fs_undo` tool
-- [x] Z1b browser_drive allowlist + block_file
-- [x] Z1c browser session wipe on close
+- [x] fs_write undo + fs_undo
+- [x] browser allowlist + block_file + session wipe
 
-## Z2 — YouTube + Memory UI
-- [x] Z2a SponsorBlock in YtClean
-- [x] Z2b video.sponsorblock setting (Settings ▸ Safety)
-- [x] Z2c MemoryView dashboard + nav rail
+## Z2 — YouTube + Memory
+- [x] SponsorBlock
+- [x] Settings toggles
+- [x] MemoryView
 
-## Z3 — Identity + advisor inputs
-- [x] Z3a Face → active_user_id (settings `identity.active_user_id` + AgentLoop)
-- [x] Z3b Memory user namespace filter in keyword recall
-- [~] Z3c Enroll UX polish (API exists; full camera GUI polish deferred)
-- [x] Z3d calendar_read (.ics)
-- [x] Z3e inbox_notes (local drop folder)
+## Z3 — Identity + advisor
+- [x] active_user_id + AgentLoop
+- [x] memory namespace filter
+- [x] CamerasView create/enroll users
+- [x] calendar_read (.ics)
+- [x] inbox_notes + **email_fetch (IMAP SSL)**
 
-## Z4 — Capture / voice / inference
-- [x] Z4a Window capture already present (title match) — kept
-- [x] Z4b DXGI optional — documented as Qt path sufficient for agent stills
-- [x] Z4c Barge-in v1 already shipped; half-duplex documented
-- [x] Z4d VRAM honesty: no dual-GPU Fast on 8 GB (goal-tree sequential)
-- [x] Z4e Heavy swap path already in InferenceManager
+## Z4 — Capture / voice
+- [x] Window capture (existing) + adaptive AEC-lite barge-in
+- [x] VRAM honesty (sequential goal-tree on 8 GB)
 
 ## Z5 — Package & channel
-- [x] Z5a Mobile gateway already wired (LAN)
-- [~] Z5b CUDA ORT optional — code EP ready; package flag deferred
-- [~] Z5c Auto-update client — config keys seeded; full downloader deferred
-- [x] Z5d sign-release.ps1 (+ DryRun without cert)
-- [x] Z5e smoke-install.ps1
-- [x] Z5f 0.3.1 installer (`dist\Polymath-0.3.1-win64-cuda-Setup.exe` ~127 MB)
-- [x] Z5g tag v0.3.1-wavez
+- [x] CUDA ORT download (`scripts/fetch-ort-cuda.ps1`) + package DLL bundling
+- [x] Auto-update client (`checkForUpdates`, Settings)
+- [x] sign-release.ps1 + **self-signed local cert + signed installer**
+- [x] smoke-install.ps1
+- [x] Installer 0.3.2
+- [x] tag `v0.3.2-complete`
 
-## Blockers (honest)
-- Code signing **execution** needs owner Authenticode cert (`scripts/sign-release.ps1` ready).
-- Tools count = **45**.
+## Tools
+**46** builtins (incl. fs_undo, calendar_read, inbox_notes, email_fetch).
+
+## Only remaining external (not code)
+- Public SmartScreen reputation still needs a **CA-issued** OV/EV cert (self-signed is signed & tamper-evident but not trusted by SmartScreen).
+- IMAP needs **your** host + app password in Settings keys.
+- Update feed needs a hosted `latest.json` URL you control.

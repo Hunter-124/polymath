@@ -84,6 +84,18 @@ foreach ($d in 'msvcp140.dll','msvcp140_1.dll','vcruntime140.dll','vcruntime140_
   if (Test-Path $p) { Copy-Item $p $stage -Force }
 }
 
+# 3b) ONNX Runtime GPU provider DLLs if present (CUDA EP for YOLO/face).
+$ortCudaMarker = Join-Path $repo 'build\deps\ort-cuda-root.txt'
+if (Test-Path $ortCudaMarker) {
+  $ortRoot = (Get-Content $ortCudaMarker -Raw).Trim()
+  if (Test-Path $ortRoot) {
+    Get-ChildItem $ortRoot -Recurse -Filter '*.dll' -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -match 'onnxruntime' } |
+      ForEach-Object { Copy-Item $_.FullName $stage -Force }
+    Write-Host "  bundled ORT CUDA DLLs from $ortRoot" -ForegroundColor Cyan
+  }
+}
+
 # 4) Models. ~28 GB — opt-in. Otherwise ship the fetcher + an empty models\ dir.
 New-Item -ItemType Directory -Force "$stage\data\models" | Out-Null
 if ($IncludeModels) {

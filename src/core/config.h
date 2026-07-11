@@ -103,6 +103,11 @@ namespace keys {
     inline constexpr const char* UpdatesCheckUrl       = "updates.check_url";
     // Wave Z: face-matched household user (-1 or empty = shared).
     inline constexpr const char* ActiveUserId          = "identity.active_user_id";
+    // Optional IMAP (app password) for email_fetch.
+    inline constexpr const char* AdvisorImapHost       = "advisor.imap_host";
+    inline constexpr const char* AdvisorImapUser       = "advisor.imap_user";
+    inline constexpr const char* AdvisorImapPass       = "advisor.imap_pass";
+    inline constexpr const char* AdvisorImapPort       = "advisor.imap_port";
 }
 
 class Config {
