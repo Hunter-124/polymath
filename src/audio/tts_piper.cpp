@@ -16,6 +16,7 @@
 #include <fstream>
 #include <mutex>
 #include <thread>
+#include <unordered_set>
 
 // miniaudio implementation lives in capture.cpp; here we only use the API.
 #define MA_NO_DECODING
@@ -43,6 +44,101 @@ bool isSentenceEnd(char c) {
     return c == '.' || c == '!' || c == '?' || c == ';' || c == '\n';
 }
 
+std::string toLowerAscii(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+// Known abbreviation words (without the trailing period) that must not be
+// treated as sentence boundaries when followed by a mid-sentence period.
+// Single-letter tokens (initials, "U.S.", "e.g.", "i.e.") are handled
+// separately in isAbbreviationPeriod() so they don't need listing here.
+const std::unordered_set<std::string>& abbreviationWords() {
+    static const std::unordered_set<std::string> words = {
+        "dr", "mr", "mrs", "ms", "prof", "sr", "jr", "st", "vs", "etc",
+        "approx", "inc", "ltd", "co", "ave", "blvd", "fig", "no", "vol",
+        "gen", "rev", "col", "capt", "lt", "sgt", "cmdr", "gov", "rep",
+        "sen", "pres", "dept", "univ", "ph", "esq", "hon", "assoc",
+        "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept",
+        "oct", "nov", "dec", "mon", "tue", "wed", "thu", "fri", "sat", "sun",
+    };
+    return words;
+}
+
+// The word immediately before `dot_index` in `text` (not including the dot
+// itself), i.e. the contiguous run of non-whitespace characters ending right
+// before the period.
+std::string wordBeforeDot(const std::string& text, size_t dot_index) {
+    if (dot_index == 0) return "";
+    size_t end = dot_index;   // exclusive
+    size_t start = end;
+    while (start > 0 && !std::isspace(static_cast<unsigned char>(text[start - 1])))
+        --start;
+    return text.substr(start, end - start);
+}
+
+// True when the '.' at `i` in `text` should NOT be treated as a sentence
+// boundary: decimal numbers (3.14), single-letter initials/acronyms (U.S.,
+// e.g., i.e.), and a curated abbreviation list (Dr., Mr., etc.).
+bool isAbbreviationPeriod(const std::string& text, size_t i) {
+    const std::string word = wordBeforeDot(text, i);
+    if (word.empty()) return false;
+
+    // Decimal number: digit before AND digit after the period.
+    if (std::isdigit(static_cast<unsigned char>(word.back())) &&
+        i + 1 < text.size() && std::isdigit(static_cast<unsigned char>(text[i + 1])))
+        return true;
+
+    // Single-letter word ("U", "S", "e", "i", initials in "J. Smith") — very
+    // likely an initial or part of an acronym like U.S. / e.g. / i.e.
+    if (word.size() == 1 && std::isalpha(static_cast<unsigned char>(word[0])))
+        return true;
+
+    return abbreviationWords().count(toLowerAscii(word)) > 0;
+}
+
+// Merge consecutive short sentence fragments (<40 chars) forward into the
+// next one so choppy one-word/short-clause utterances aren't each synthesized
+// (and paused between) in isolation — smoother prosody for TTS. The last
+// fragment always flushes on its own even if still short.
+constexpr size_t kMergeShortFragmentChars = 40;
+
+std::vector<std::string> mergeShortFragments(std::vector<std::string> sentences) {
+    if (sentences.size() <= 1) return sentences;
+    std::vector<std::string> merged;
+    std::string pending;
+    for (size_t i = 0; i < sentences.size(); ++i) {
+        pending = pending.empty() ? sentences[i] : (pending + " " + sentences[i]);
+        const bool isLast = (i + 1 == sentences.size());
+        if (pending.size() < kMergeShortFragmentChars && !isLast)
+            continue;   // fold the next sentence in too
+        merged.push_back(pending);
+        pending.clear();
+    }
+    if (!pending.empty()) merged.push_back(pending);
+    return merged;
+}
+
+// Normalizes a caller-supplied default voice into the id TtsPiper::Impl
+// should treat as the fallback for the given engine. For Kokoro, bare
+// af_*/am_*/bf_*/bm_* (and already-prefixed "kokoro-*") ids are kept as-is;
+// anything unrecognised falls back to the warm af_heart voice rather than
+// the flatter af_sky. Piper ids pass through untouched (Piper voices are
+// directory names, not a fixed enum).
+std::string normalizeDefaultVoice(const std::string& engine, const std::string& voice) {
+    if (engine != "kokoro") return voice;
+    std::string dv = voice;
+    if (dv.rfind("kokoro-", 0) == 0) return dv;
+    if (dv.rfind("af_", 0) == 0 || dv.rfind("am_", 0) == 0 ||
+        dv.rfind("bf_", 0) == 0 || dv.rfind("bm_", 0) == 0)
+        return "kokoro-" + dv;
+    if (dv.empty()) return "kokoro-af_heart";
+    // Unrecognised shape (legacy Piper id or typo) — warm neutral default;
+    // mapVoice() still tries a legacy-name heuristic per-utterance.
+    return "kokoro-af_heart";
+}
+
 } // namespace
 
 struct TtsPiper::Impl {
@@ -54,6 +150,12 @@ struct TtsPiper::Impl {
     // Engine: "piper" (default) or "kokoro" (neural, preferred when present).
     std::string engine = "piper";
     int         engine_sr = 22050;  // Kokoro = 24000; Piper from voice config
+    // Preference consulted by init(): auto|kokoro|piper (config tts.engine).
+    std::string engine_pref = "auto";
+    // Kokoro speed multiplier + output gain (config tts.speed / tts.volume).
+    // Guarded by proc_mu / play_mu respectively (see setSpeed()/setVolume()).
+    double      speed  = 1.0;
+    double      volume = 1.0;
 
     // Persistent piper/kokoro process (one voice at a time).
     std::unique_ptr<QProcess> proc;
@@ -86,23 +188,68 @@ struct TtsPiper::Impl {
         return engine_sr > 0 ? engine_sr : 22050;
     }
 
+    // All Kokoro voices shipped in the installed voices-v1.0.bin that D4
+    // targets (English af_*/am_*/bf_*/bm_* — verified against the on-disk
+    // file 2026-07-10; the bin also carries other-locale voices we don't
+    // surface here). Used to validate ids and log a clear fallback reason.
+    static const std::unordered_set<std::string>& shippedKokoroVoices() {
+        static const std::unordered_set<std::string> v = {
+            "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica",
+            "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky",
+            "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam",
+            "am_michael", "am_onyx", "am_puck", "am_santa",
+            "bf_alice", "bf_emma", "bf_isabella", "bf_lily",
+            "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
+        };
+        return v;
+    }
+
     // Map personality/legacy Piper voice ids onto a Kokoro voice when using
-    // the neural engine so existing personas still speak.
+    // the neural engine so existing personas still speak. Persona voice (the
+    // `voice` arg) overrides the configured global default when non-empty.
     std::string mapVoice(const std::string& voice) const {
         if (engine != "kokoro") return voice.empty() ? default_voice : voice;
-        std::string name = voice.empty() ? default_voice : voice;
-        // Already a kokoro id.
-        if (name.rfind("kokoro-", 0) == 0) return name;
-        if (name.rfind("af_", 0) == 0 || name.rfind("am_", 0) == 0 ||
-            name.rfind("bf_", 0) == 0 || name.rfind("bm_", 0) == 0)
-            return "kokoro-" + name;
-        // Legacy Piper ids → sensible Kokoro defaults.
-        if (name.find("alan") != std::string::npos ||
-            name.find("ryan") != std::string::npos ||
-            name.find("joe") != std::string::npos)
-            return "kokoro-am_adam";
-        // amy / lessac / default female → af_sky
-        return default_voice.empty() ? "kokoro-af_sky" : default_voice;
+
+        const std::string requested = voice.empty() ? default_voice : voice;
+        std::string bare = requested;
+        if (bare.rfind("kokoro-", 0) == 0) bare = bare.substr(7);
+
+        // Recognised shipped voice — use directly.
+        if (shippedKokoroVoices().count(bare))
+            return "kokoro-" + bare;
+
+        // af_*/am_*/bf_*/bm_*-shaped but not in the known list (e.g. a newer
+        // voices.bin drop) — trust it; the worker reports a clear error if
+        // it truly doesn't exist, and that's better than silently ignoring
+        // an intentional persona/voice choice.
+        if (bare.rfind("af_", 0) == 0 || bare.rfind("am_", 0) == 0 ||
+            bare.rfind("bf_", 0) == 0 || bare.rfind("bm_", 0) == 0) {
+            PM_WARN("audio.tts: voice '{}' not in the known shipped list, trying anyway", bare);
+            return "kokoro-" + bare;
+        }
+
+        // Legacy Piper ids -> best-effort Kokoro pick by name cue.
+        std::string lower = bare;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        static const std::pair<const char*, const char*> legacy[] = {
+            {"alan", "am_adam"}, {"ryan", "am_adam"}, {"joe", "am_fenrir"},
+            {"northern_english_male", "am_michael"}, {"amy", "af_heart"},
+            {"lessac", "af_heart"}, {"libritts", "af_sarah"},
+            {"jenny", "bf_emma"}, {"kathleen", "bf_alice"},
+        };
+        for (const auto& [needle, mapped] : legacy) {
+            if (lower.find(needle) != std::string::npos) {
+                PM_INFO("audio.tts: mapped legacy voice '{}' -> Kokoro '{}'", requested, mapped);
+                return std::string("kokoro-") + mapped;
+            }
+        }
+
+        // Completely unrecognised id — fall back to the configured default
+        // and log why, so a typo'd persona voice doesn't silently go quiet.
+        const std::string fallback = default_voice.empty() ? "kokoro-af_heart" : default_voice;
+        PM_WARN("audio.tts: unrecognised voice '{}', falling back to '{}'", requested, fallback);
+        return fallback;
     }
 
     std::filesystem::path resolveModel(const std::string& name) const {
@@ -165,7 +312,7 @@ struct TtsPiper::Impl {
             std::string kvoice = name;
             if (kvoice.rfind("kokoro-", 0) == 0)
                 kvoice = kvoice.substr(7);
-            if (kvoice.empty()) kvoice = "af_sky";
+            if (kvoice.empty()) kvoice = "af_heart";
 
             const auto engDir = piper_exe.parent_path();
             const auto py     = engDir / "venv" / "Scripts" / "python.exe";
@@ -176,6 +323,7 @@ struct TtsPiper::Impl {
             QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
             env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
             env.insert(QStringLiteral("KOKORO_VOICE"), QString::fromStdString(kvoice));
+            env.insert(QStringLiteral("KOKORO_SPEED"), QString::number(speed, 'f', 3));
             proc->setProcessEnvironment(env);
 
             if (std::filesystem::exists(py) && std::filesystem::exists(worker)) {
@@ -185,6 +333,7 @@ struct TtsPiper::Impl {
                     << QStringLiteral("--model")  << QString::fromStdString(modelp.string())
                     << QStringLiteral("--voices") << QString::fromStdString(voices.string())
                     << QStringLiteral("--voice")  << QString::fromStdString(kvoice)
+                    << QStringLiteral("--speed")  << QString::number(speed, 'f', 3)
                     << QStringLiteral("--sample-rate") << QStringLiteral("24000"));
             } else {
                 // Fall back: cmd.exe /c kokoro_worker.cmd
@@ -431,6 +580,13 @@ struct TtsPiper::Impl {
     void enqueue(std::vector<int16_t>&& pcm) {
         if (pcm.empty()) return;
         std::lock_guard<std::mutex> lock(play_mu);
+        if (std::abs(volume - 1.0) > 1e-3) {
+            for (auto& s : pcm) {
+                double v = static_cast<double>(s) * volume;
+                v = std::clamp(v, -32768.0, 32767.0);
+                s = static_cast<int16_t>(v);
+            }
+        }
         queue.push_back(std::move(pcm));
         play_active.store(true, std::memory_order_release);
     }
@@ -482,33 +638,38 @@ bool TtsPiper::init(const std::filesystem::path& voices_dir,
 
     // Prefer Kokoro neural TTS when the engine was set up (setup-kokoro.ps1).
     // It runs on CPU so it does not compete with the LLM for VRAM, and quality
-    // is far above Piper medium voices.
-    const auto kokoro_cmd = models_root / "kokoro-engine" / "kokoro_worker.cmd";
-    const auto kokoro_voices = models_root / "kokoro";
-    if (std::filesystem::exists(kokoro_cmd) &&
-        std::filesystem::exists(models_root / "kokoro-engine" / "kokoro-v1.0.onnx")) {
+    // is far above Piper medium voices. `tts.engine` (auto|kokoro|piper) lets
+    // the user force one or the other; "auto" keeps the original
+    // file-presence autodetect behaviour.
+    const auto kokoro_cmd     = models_root / "kokoro-engine" / "kokoro_worker.cmd";
+    const auto kokoro_onnx    = models_root / "kokoro-engine" / "kokoro-v1.0.onnx";
+    const auto kokoro_voices  = models_root / "kokoro";
+    const bool kokoro_present = std::filesystem::exists(kokoro_cmd) &&
+                                 std::filesystem::exists(kokoro_onnx);
+
+    const std::string pref = d_->engine_pref.empty() ? "auto" : d_->engine_pref;
+    if (pref == "kokoro" && !kokoro_present) {
+        PM_WARN("audio.tts: tts.engine=kokoro requested but the Kokoro worker/model "
+                "are missing under {}; falling back to piper",
+                (models_root / "kokoro-engine").string());
+    }
+    const bool use_kokoro = (pref != "piper") && kokoro_present;
+
+    if (use_kokoro) {
         d_->engine      = "kokoro";
         d_->engine_sr   = 24000;
         d_->piper_exe   = kokoro_cmd;
         d_->voices_dir  = std::filesystem::exists(kokoro_voices)
                               ? kokoro_voices : voices_dir;
-        // Default voice: prefer caller's if it looks like a kokoro id, else af_sky.
-        std::string dv = default_voice;
-        if (dv.rfind("kokoro-", 0) != 0 && dv.rfind("af_", 0) != 0 &&
-            dv.rfind("am_", 0) != 0 && dv.rfind("bf_", 0) != 0 &&
-            dv.rfind("bm_", 0) != 0) {
-            dv = "kokoro-af_sky";
-        } else if (dv.rfind("kokoro-", 0) != 0) {
-            dv = "kokoro-" + dv;
-        }
-        d_->default_voice = dv;
+        d_->default_voice = normalizeDefaultVoice(d_->engine, default_voice);
         ready_ = true;
-        PM_INFO("audio.tts: Kokoro neural engine at {} (default voice '{}', {} Hz)",
-                d_->piper_exe.string(), d_->default_voice, d_->engine_sr);
+        PM_INFO("audio.tts: Kokoro neural engine at {} (default voice '{}', {} Hz, "
+                "engine pref '{}')",
+                d_->piper_exe.string(), d_->default_voice, d_->engine_sr, pref);
         return ready_;
     }
 
-    // Fallback: Piper (still neural, lower quality).
+    // Fallback / forced: Piper (still neural, lower quality).
     d_->engine        = "piper";
     d_->engine_sr     = 22050;
     d_->voices_dir    = voices_dir;
@@ -522,6 +683,34 @@ bool TtsPiper::init(const std::filesystem::path& voices_dir,
         PM_WARN("audio.tts: no TTS engine found (run scripts/setup-kokoro.ps1 "
                 "or scripts/fetch-models.ps1)");
     return ready_;
+}
+
+void TtsPiper::setEnginePreference(const std::string& pref) {
+    d_->engine_pref = pref.empty() ? "auto" : pref;
+}
+
+void TtsPiper::setDefaultVoice(const std::string& voice) {
+    if (voice.empty()) return;
+    d_->default_voice = normalizeDefaultVoice(d_->engine, voice);
+}
+
+void TtsPiper::setSpeed(double speed) {
+    speed = std::clamp(speed, 0.5, 2.0);   // wide safety clamp; UI clamps 0.8-1.3
+    std::lock_guard<std::mutex> lock(d_->proc_mu);
+    if (std::abs(d_->speed - speed) < 1e-6) return;
+    d_->speed = speed;
+    if (d_->engine == "kokoro" && d_->proc && d_->proc->state() == QProcess::Running) {
+        const QByteArray line = QByteArray::fromStdString(
+            "!speed=" + std::to_string(speed) + "\n");
+        d_->proc->write(line);
+        d_->proc->waitForBytesWritten(500);
+    }
+}
+
+void TtsPiper::setVolume(double volume) {
+    volume = std::clamp(volume, 0.0, 2.0);
+    std::lock_guard<std::mutex> lock(d_->play_mu);
+    d_->volume = volume;
 }
 
 void TtsPiper::setOutputDevice(const std::string& name) {
@@ -542,7 +731,12 @@ std::vector<std::string> TtsPiper::splitSentences(const std::string& text) {
     for (size_t i = 0; i < text.size(); ++i) {
         const char c = text[i];
         cur.push_back(c);
-        if (isSentenceEnd(c)) {
+        bool boundary = isSentenceEnd(c);
+        // Abbreviation/decimal guard only applies to '.': Dr. / e.g. / i.e. /
+        // U.S. / 3.14 should not split; '!'/'?'/';'/'\n' always end a chunk.
+        if (boundary && c == '.' && isAbbreviationPeriod(text, i))
+            boundary = false;
+        if (boundary) {
             // Consume trailing quotes/brackets that belong to the sentence.
             while (i + 1 < text.size() &&
                    (text[i + 1] == '"' || text[i + 1] == '\'' || text[i + 1] == ')')) {
@@ -568,6 +762,10 @@ bool TtsPiper::synthesize(const std::string& text, const std::string& voice,
     out_pcm.clear();
     out_sample_rate = 22050;
     if (!ready_ || text.empty()) return false;
+
+    // A fresh top-level synth is a new operation; clear any lingering cancel
+    // from a prior stop()/barge-in so synthLine doesn't bail (mirrors speak()).
+    d_->cancel.store(false, std::memory_order_release);
 
     std::string name = voice.empty() ? d_->default_voice : voice;
     auto model = d_->resolveModel(name);
@@ -599,7 +797,11 @@ bool TtsPiper::synthesizeSentences(const std::string& text, const std::string& v
     out_sample_rate = 22050;
     if (!ready_ || text.empty()) return false;
 
-    const auto sentences = splitSentences(text);
+    // Fresh operation — clear any lingering cancel from a prior stop() so the
+    // per-sentence cancel check below doesn't short-circuit (mirrors speak()).
+    d_->cancel.store(false, std::memory_order_release);
+
+    const auto sentences = mergeShortFragments(splitSentences(text));
     if (sentences.empty()) return false;
 
     std::string name = voice.empty() ? d_->default_voice : voice;
@@ -642,7 +844,7 @@ bool TtsPiper::speak(const std::string& text, const std::string& voice, bool app
     if (!append)
         d_->clearQueue();
 
-    const auto sentences = splitSentences(text);
+    const auto sentences = mergeShortFragments(splitSentences(text));
     if (sentences.empty()) {
         d_->synth_active.store(false, std::memory_order_release);
         return false;

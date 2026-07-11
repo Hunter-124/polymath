@@ -51,6 +51,12 @@ namespace keys {
     inline constexpr const char* LlmKvQuant            = "llm.kv_quant";          // q8_0 | f16
     inline constexpr const char* AgentGoalTimeoutMin   = "agent.goal_timeout_min";
     inline constexpr const char* AgentSpeakResults     = "agent.speak_results";
+
+    // --- Overhaul2 D4: TTS v2 (engine/voice/speed/volume) ---------------------
+    inline constexpr const char* TtsEngine             = "tts.engine";  // auto|kokoro|piper
+    inline constexpr const char* TtsVoice              = "tts.voice";   // default af_heart
+    inline constexpr const char* TtsSpeed              = "tts.speed";   // 0.8-1.3, default 1.0
+    inline constexpr const char* TtsVolume             = "tts.volume";  // default 1.0
 }
 
 class Config {

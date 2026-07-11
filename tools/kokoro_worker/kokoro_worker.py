@@ -9,10 +9,19 @@ Mirrors the Piper CLI contract so Polymath's TtsPiper driver can talk to either:
 
 Usage:
   python kokoro_worker.py --model kokoro-v1.0.onnx --voices voices-v1.0.bin \\
-      --voice af_sky --sample-rate 24000
+      --voice af_heart --sample-rate 24000
+
+  # Enumerate voice ids baked into a voices-v1.0.bin (no --model needed;
+  # used by the Settings > Voice picker):
+  python kokoro_worker.py --voices voices-v1.0.bin --list-voices
 
 Env (optional):
   KOKORO_VOICE, KOKORO_SPEED
+
+Inline stdin control lines (in addition to plain text-to-speak lines):
+  !voice=<id>   switch voice for subsequent lines
+  !speed=<f>    switch speed multiplier for subsequent lines
+  !flush        no-op keepalive; acknowledged on stderr, no PCM emitted
 """
 from __future__ import annotations
 
@@ -36,16 +45,47 @@ def float_to_s16le(samples) -> bytes:
     return pcm.tobytes()
 
 
+def list_voices(voices_path: str) -> int:
+    """Print one voice id per line from a voices-v1.0.bin, no model load."""
+    if not os.path.isfile(voices_path):
+        eprint(f"voices not found: {voices_path}")
+        return 2
+    try:
+        import numpy as np
+
+        bundle = np.load(voices_path)
+        names = sorted(bundle.keys())
+    except Exception:
+        eprint("kokoro_worker: failed to read voices file")
+        traceback.print_exc(file=sys.stderr)
+        return 3
+    for name in names:
+        print(name)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Kokoro persistent TTS worker")
-    ap.add_argument("--model", required=True, help="Path to kokoro-v1.0.onnx")
+    ap.add_argument("--model", default=None,
+                    help="Path to kokoro-v1.0.onnx (required unless --list-voices)")
     ap.add_argument("--voices", required=True, help="Path to voices-v1.0.bin")
-    ap.add_argument("--voice", default=os.environ.get("KOKORO_VOICE", "af_sky"))
+    ap.add_argument("--voice", default=os.environ.get("KOKORO_VOICE", "af_heart"))
     ap.add_argument("--speed", type=float, default=float(os.environ.get("KOKORO_SPEED", "1.0")))
     ap.add_argument("--lang", default="en-us")
     ap.add_argument("--sample-rate", type=int, default=24000,
                     help="Reported rate (Kokoro is 24 kHz; kept for logs)")
+    ap.add_argument("--list-voices", action="store_true",
+                    help="Print voice ids from --voices (numpy read only, no ONNX "
+                         "model load) and exit — used by Settings to populate the "
+                         "voice picker")
     args = ap.parse_args()
+
+    if args.list_voices:
+        return list_voices(args.voices)
+
+    if not args.model:
+        eprint("--model is required unless --list-voices is given")
+        return 2
 
     try:
         from kokoro_onnx import Kokoro
@@ -97,6 +137,13 @@ def main() -> int:
             break  # EOF
         text = line.strip()
         if not text:
+            continue
+
+        # Optional inline control: !flush is a no-op keepalive (acknowledges on
+        # stderr only, emits no PCM) so a caller can confirm the process is
+        # still alive without an idle-timeout waiting for real audio.
+        if text.startswith("!flush"):
+            eprint("kokoro_worker: flush (keepalive, no-op)")
             continue
 
         # Optional inline control:  !voice=af_bella

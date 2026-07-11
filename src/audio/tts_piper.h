@@ -38,6 +38,31 @@ public:
     // Update playback device name (takes effect on next device ensure).
     void setOutputDevice(const std::string& name);
 
+    // Engine preference consulted by init(): "auto" (file-presence autodetect,
+    // default — Kokoro if its worker+model are present, else Piper), "kokoro"
+    // (force; falls back to Piper with a warning if Kokoro files are missing),
+    // "piper" (force classic Piper even when Kokoro is present). Call before
+    // init(); a later call only takes effect on the next init().
+    void setEnginePreference(const std::string& pref);
+
+    // Updates the global fallback voice used when a caller passes an empty
+    // voice (e.g. no per-persona voice set). Takes effect immediately (no
+    // process restart) — the next speak()/warmUp() call picks it up. Accepts
+    // bare Kokoro ids (af_heart, am_adam, ...) or legacy Piper ids.
+    void setDefaultVoice(const std::string& voice);
+
+    // Speed multiplier forwarded to the Kokoro worker inline (`!speed=`).
+    // Applies live to an already-running process; new processes are spawned
+    // with it too. Clamped to a safe range. No-op for the Piper engine (no
+    // speed control in that CLI).
+    void setSpeed(double speed);
+
+    // Output gain applied to PCM right before it is queued for playback
+    // (1.0 = unchanged). Takes effect on the next enqueued chunk — does not
+    // affect synthesize()/synthesizeSentences() (offline paths used by
+    // tests/fixtures, which return raw PCM for inspection).
+    void setVolume(double volume);
+
     // Synthesises `text` with `voice` (empty -> default), sentence-chunks it,
     // and plays via the persistent queue. Blocks until playback of all chunks
     // finishes or stop() is called. Returns false on hard failure.

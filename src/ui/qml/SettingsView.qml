@@ -21,6 +21,7 @@ Item {
         var map = {
             "appearance": secAppearance,
             "audio": secAudio,
+            "voice": secVoice,
             "search": secSearch,
             "web": secSearch,
             "behavior": secBehavior,
@@ -57,6 +58,29 @@ Item {
     property var inputLabels: []
     property var outputLabels: []
 
+    // Voice (D4): Kokoro voice picker + preview state.
+    property var ttsVoiceList: []
+    property var ttsVoiceIds: []
+    property var ttsVoiceLabels: []
+    property bool ttsPreviewing: false
+    readonly property var ttsEngineIds: ["auto", "kokoro", "piper"]
+    readonly property var ttsEngineLabels: ["Auto (Kokoro if installed)", "Kokoro (neural)", "Piper (fallback)"]
+
+    function refreshTtsVoices() {
+        ttsVoiceList = settings.ttsVoices() || []
+        var ids = [], labels = []
+        for (var i = 0; i < ttsVoiceList.length; ++i) {
+            ids.push(ttsVoiceList[i].id)
+            labels.push(ttsVoiceList[i].label)
+        }
+        ttsVoiceIds = ids
+        ttsVoiceLabels = labels
+    }
+    function indexOfVoice(id) {
+        var i = root.ttsVoiceIds.indexOf(id)
+        return i >= 0 ? i : 0
+    }
+
     function refreshDevices() {
         inputDevices = settings.audioInputDevices() || []
         outputDevices = settings.audioOutputDevices() || []
@@ -86,8 +110,15 @@ Item {
 
     Component.onCompleted: {
         refreshDevices()
+        refreshTtsVoices()
         if (focusSection.length > 0)
             Qt.callLater(function () { root.scrollToSection(root.focusSection) })
+    }
+
+    Timer {
+        id: ttsPreviewResetTimer
+        interval: 4000
+        onTriggered: root.ttsPreviewing = false
     }
 
     Connections {
@@ -119,7 +150,7 @@ Item {
             Layout.fillWidth: true
             title: "Settings"
             section: "Settings"
-            subtitle: "Appearance · Audio · Search · Behavior · Agents"
+            subtitle: "Appearance · Audio · Voice · Search · Behavior · Agents"
         }
 
         Flickable {
@@ -324,6 +355,120 @@ Item {
                                 root.wakeWord = text
                                 settings.setString("audio.wake_word", text)
                             }
+                        }
+                    }
+                }
+
+                // ---------- Voice (D4) ----------
+                SettingsSection {
+                    id: secVoice
+                    sectionKey: "voice"
+                    title: "Voice"
+                    Layout.fillWidth: true
+
+                    ColumnLayout {
+                        width: parent.width
+                        spacing: Style.gap
+
+                        Text {
+                            text: "TTS engine"
+                            color: Style.textDim
+                            font.family: Style.fontFamily
+                            font.pixelSize: Style.fsSmall
+                        }
+                        PmComboBox {
+                            id: engineBox
+                            Layout.fillWidth: true
+                            model: root.ttsEngineLabels
+                            Component.onCompleted: {
+                                var i = root.ttsEngineIds.indexOf(settings.ttsEngine)
+                                currentIndex = i >= 0 ? i : 0
+                            }
+                            onActivated: {
+                                if (currentIndex >= 0 && currentIndex < root.ttsEngineIds.length)
+                                    settings.ttsEngine = root.ttsEngineIds[currentIndex]
+                            }
+                        }
+                        Text {
+                            text: "Engine changes take effect next time Polymath starts."
+                            color: Style.textFaint
+                            font.family: Style.fontFamily
+                            font.pixelSize: Style.fsTiny
+                        }
+
+                        Text {
+                            text: "Voice"
+                            color: Style.textDim
+                            font.family: Style.fontFamily
+                            font.pixelSize: Style.fsSmall
+                        }
+                        PmComboBox {
+                            id: voiceBox
+                            Layout.fillWidth: true
+                            model: root.ttsVoiceLabels
+                            currentIndex: root.indexOfVoice(settings.ttsVoice)
+                            onActivated: {
+                                if (currentIndex >= 0 && currentIndex < root.ttsVoiceIds.length)
+                                    settings.ttsVoice = root.ttsVoiceIds[currentIndex]
+                            }
+                        }
+                        Text {
+                            text: "Personas with their own voice field override this default."
+                            color: Style.textFaint
+                            font.family: Style.fontFamily
+                            font.pixelSize: Style.fsTiny
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            Text {
+                                text: "Speed  " + settings.ttsSpeed.toFixed(2) + "x"
+                                color: Style.textDim
+                                font.family: Style.fontFamily
+                                font.pixelSize: Style.fsSmall
+                            }
+                            PmSlider {
+                                Layout.fillWidth: true
+                                from: 0.8; to: 1.3
+                                value: settings.ttsSpeed
+                                onMoved: settings.ttsSpeed = value
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            Text {
+                                text: "Volume  " + Math.round(settings.ttsVolume * 100) + "%"
+                                color: Style.textDim
+                                font.family: Style.fontFamily
+                                font.pixelSize: Style.fsSmall
+                            }
+                            PmSlider {
+                                Layout.fillWidth: true
+                                from: 0; to: 1.5
+                                value: settings.ttsVolume
+                                onMoved: settings.ttsVolume = value
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Style.gap
+                            PmButton {
+                                text: root.ttsPreviewing ? "Playing…" : "Preview voice"
+                                enabled: !root.ttsPreviewing
+                                tone: Style.sectionColor("Settings")
+                                onClicked: {
+                                    root.ttsPreviewing = true
+                                    settings.previewVoice("")
+                                    ttsPreviewResetTimer.restart()
+                                }
+                            }
+                            Item { Layout.fillWidth: true }
                         }
                     }
                 }

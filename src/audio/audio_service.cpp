@@ -27,6 +27,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <string>
 #include <vector>
 
 // AudioService pimpl: pump thread does ONLY drain→VAD→gated oWW→segments.
@@ -115,11 +116,12 @@ private:
 class TtsWorker : public QObject {
     Q_OBJECT
 public:
-    explicit TtsWorker(TtsPiper& tts, QObject* parent = nullptr)
-        : QObject(parent), tts_(tts) {}
+    explicit TtsWorker(TtsPiper& tts, Database& db, QObject* parent = nullptr)
+        : QObject(parent), tts_(tts), db_(db) {}
 
 public slots:
     void process(const QString& text, const QString& voice, bool append, bool flush) {
+        applyLiveTtsSettings();
         if (!text.isEmpty())
             tts_.speak(text.toStdString(), voice.toStdString(), append);
         if (flush || !append)
@@ -128,14 +130,33 @@ public slots:
         if (flush || !append)
             emit finished();
     }
-    void warmUp() { tts_.warmUp(); }
+    void warmUp() { applyLiveTtsSettings(); tts_.warmUp(); }
     void cancel() { tts_.stop(); }
 
 signals:
     void finished();
 
 private:
+    // Re-reads tts.voice/tts.speed/tts.volume from Config before every
+    // utterance so Settings > Voice changes (including the Preview button)
+    // apply live, with no restart and no cross-thread signal plumbing —
+    // Database is thread-safe (WAL + mutex, see database.h) so this read is
+    // cheap and safe from the TTS QThread. tts.engine is intentionally NOT
+    // re-applied here: swapping engines mid-session would tear down/rebuild
+    // the persistent process; it takes effect on the next app start (see
+    // AudioService::Impl::loadModels()).
+    void applyLiveTtsSettings() {
+        Config cfg(db_);
+        double speed = 1.0, volume = 1.0;
+        try { speed  = std::stod(cfg.getStr(keys::TtsSpeed,  "1.0")); } catch (...) {}
+        try { volume = std::stod(cfg.getStr(keys::TtsVolume, "1.0")); } catch (...) {}
+        tts_.setSpeed(speed);
+        tts_.setVolume(volume);
+        tts_.setDefaultVoice(cfg.getStr(keys::TtsVoice, "af_heart"));
+    }
+
     TtsPiper& tts_;
+    Database& db_;
 };
 
 // ---------------------------------------------------------------------------
@@ -256,7 +277,21 @@ void AudioService::Impl::loadModels() {
         // Keep fully lazy — load on first ambient segment.
     }
 
-    tts.init(models / "piper", "en_US-amy-medium", output_device);
+    // D4: engine/voice/speed/volume all come from Config now (was hard-locked
+    // to Piper's "en_US-amy-medium" + Kokoro af_sky). "auto" keeps the
+    // original file-presence autodetect (Kokoro when its worker+model are
+    // installed, else Piper).
+    const std::string tts_engine = cfg.getStr(keys::TtsEngine, "auto");
+    const std::string tts_voice  = cfg.getStr(keys::TtsVoice,  "af_heart");
+    tts.setEnginePreference(tts_engine);
+    tts.init(models / "piper", tts_voice, output_device);
+    {
+        double speed = 1.0, volume = 1.0;
+        try { speed  = std::stod(cfg.getStr(keys::TtsSpeed,  "1.0")); } catch (...) {}
+        try { volume = std::stod(cfg.getStr(keys::TtsVolume, "1.0")); } catch (...) {}
+        tts.setSpeed(speed);
+        tts.setVolume(volume);
+    }
 
     capture.init(input_device);
 
@@ -708,7 +743,7 @@ void AudioService::start() {
 
     // TtsWorker thread — capture ring keeps draining during speech.
     d_->tts_thread = new QThread();
-    d_->tts_worker = new TtsWorker(d_->tts);
+    d_->tts_worker = new TtsWorker(d_->tts, db_);
     d_->tts_worker->moveToThread(d_->tts_thread);
     connect(d_->tts_worker, &TtsWorker::finished, this, &AudioService::onTtsFinished,
             Qt::QueuedConnection);

@@ -42,6 +42,11 @@ void Config::seedDefaults() {
         {keys::LlmKvQuant,           "q8_0"},
         {keys::AgentGoalTimeoutMin,  "30"},
         {keys::AgentSpeakResults,    "1"},
+        // Overhaul2 D4 defaults (docs/overhaul2/01_DAG.md, node D4).
+        {keys::TtsEngine,            "auto"},
+        {keys::TtsVoice,             "af_heart"},
+        {keys::TtsSpeed,             "1.0"},
+        {keys::TtsVolume,            "1.0"},
     };
     // INSERT OR IGNORE seeds only missing keys (never clobbers user changes),
     // since settings.key is the PRIMARY KEY.
