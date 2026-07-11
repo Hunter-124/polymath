@@ -48,6 +48,9 @@ namespace keys {
     inline constexpr const char* AgentsAllowedDirs     = "agents.allowed_dirs";
     inline constexpr const char* AgentsMaxConcurrent   = "agents.max_concurrent";
     inline constexpr const char* AgentsSpeakNeedsInput = "agents.speak_needs_input";
+    // A2: minutes a goal may sit parked waiting_agent on an external session
+    // before the harness gives up hanging and runs a reflect round instead.
+    inline constexpr const char* AgentsJoinTimeoutMin  = "agents.join_timeout_min";
     inline constexpr const char* LlmKvQuant            = "llm.kv_quant";          // q8_0 | f16
     inline constexpr const char* AgentGoalTimeoutMin   = "agent.goal_timeout_min";
     inline constexpr const char* AgentSpeakResults     = "agent.speak_results";

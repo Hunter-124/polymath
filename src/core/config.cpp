@@ -39,6 +39,7 @@ void Config::seedDefaults() {
         {keys::AgentsAllowedDirs,    ""},
         {keys::AgentsMaxConcurrent,  "2"},
         {keys::AgentsSpeakNeedsInput,"1"},
+        {keys::AgentsJoinTimeoutMin, "120"},
         {keys::LlmKvQuant,           "q8_0"},
         {keys::AgentGoalTimeoutMin,  "30"},
         {keys::AgentSpeakResults,    "1"},

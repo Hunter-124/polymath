@@ -171,6 +171,18 @@ set_tests_properties(adblock PROPERTIES
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# Overhaul2 A2 — goal execution integrity (B-DEADGOAL): run_skill actually runs
+# a persisted goal to terminal, and a fake AgentSessionEvent{Result} resumes a
+# goal parked waiting_agent. Deterministic + model-optional (all pre-authored
+# tool steps). Needs the full agent stack + Qt Core event loop for the runtime.
+add_executable(test_goals test_goals.cpp)
+target_link_libraries(test_goals PRIVATE
+    pm_core pm_agent pm_inference pm_scheduler pm_memory Qt6::Core)
+add_test(NAME goals COMMAND test_goals)
+set_tests_properties(goals PROPERTIES
+    TIMEOUT 120
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # Overhaul2 A1 — router v2 + final-answer hygiene. Deterministic, no model/DB:
 # classifyRouteHeuristic route table (media-intent verbs + skill triggers) and
 # the sanitizeFinalText() tool-call-JSON → prose guarantee (no leading '{').

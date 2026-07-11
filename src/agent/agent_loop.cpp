@@ -818,28 +818,15 @@ std::string AgentLoop::sanitizeFinalAnswer(const std::string& raw,
             auto& bus = EventBus::instance();
             bus.publishToolCall({request_id, QString::fromStdString(tool),
                                  QString::fromStdString(args.dump())});
-            ToolResult result;
-            if (impl->isDeepTask()) {
-                const qint64 task_id = sched_.enqueue(tool, args, /*priority*/ 0);
-                result.ok = true;
-                result.content = {{"queued", true}, {"task_id", task_id}, {"tool", tool}};
-                result.summary = "Queued " + tool + " as background task " +
-                                 std::to_string(task_id);
-            } else {
-                ToolContext tctx;
-                tctx.inference = &inf_;
-                tctx.db = &db_;
-                tctx.memory = memory_;
-                tctx.active_user_id = -1;
-                tctx.active_personality = persona.name;
-                try {
-                    result = impl->invoke(args, tctx);
-                } catch (const std::exception& e) {
-                    result.ok = false;
-                    result.content = {{"error", e.what()}};
-                    result.summary = std::string("tool threw: ") + e.what();
-                }
-            }
+            // Route through the single choke point (A2 §4) like every other
+            // tool invocation.
+            ToolContext tctx;
+            tctx.inference = &inf_;
+            tctx.db = &db_;
+            tctx.memory = memory_;
+            tctx.active_user_id = -1;
+            tctx.active_personality = persona.name;
+            ToolResult result = dispatchToolChecked(tool, args, tctx);
             const std::string resultJson = compactToolResult(result.content.dump());
             bus.publishToolResult({request_id, QString::fromStdString(tool),
                                    QString::fromStdString(resultJson), result.ok});
@@ -1180,33 +1167,15 @@ std::string AgentLoop::runQuick(const std::string& user_text,
         bus.publishToolCall({request_id, QString::fromStdString(tool),
                              QString::fromStdString(args.dump())});
 
-        ITool* impl = tools_.get(tool);
-        ToolResult result;
-        if (!impl) {
-            result.ok = false;
-            result.content = {{"error", "unknown tool: " + tool}};
-            result.summary = result.content["error"].get<std::string>();
-        } else if (impl->isDeepTask()) {
-            const qint64 task_id = sched_.enqueue(tool, args, /*priority*/ 0);
-            result.ok = true;
-            result.content = {{"queued", true}, {"task_id", task_id}, {"tool", tool}};
-            result.summary = "Queued " + tool + " as background task " +
-                             std::to_string(task_id);
-        } else {
-            ToolContext tctx;
-            tctx.inference = &inf_;
-            tctx.db = &db_;
-            tctx.memory = memory_;
-            tctx.active_user_id = -1;
-            tctx.active_personality = persona.name;
-            try {
-                result = impl->invoke(args, tctx);
-            } catch (const std::exception& e) {
-                result.ok = false;
-                result.content = {{"error", e.what()}};
-                result.summary = std::string("tool threw: ") + e.what();
-            }
-        }
+        // Single choke point (A2 §4): unknown-tool / deep-task / invoke +
+        // exception handling all live in dispatchToolChecked (A4 gates here).
+        ToolContext tctx;
+        tctx.inference = &inf_;
+        tctx.db = &db_;
+        tctx.memory = memory_;
+        tctx.active_user_id = -1;
+        tctx.active_personality = persona.name;
+        ToolResult result = dispatchToolChecked(tool, args, tctx);
         ++toolCalls;
 
         const std::string resultJson = compactToolResult(result.content.dump());
@@ -1615,6 +1584,39 @@ bool AgentLoop::executeStep(GoalRec& goal, PlanStepRec& step,
     return ok;
 }
 
+// Single tool-invocation choke point for the goal + quick paths (A2 §4). Keeps
+// unknown-tool, deep-task routing, and exception safety in one place so node A4
+// can insert SafetyPolicy enforcement here without touching every call site.
+// Behavior today is identical to a direct invoke().
+ToolResult AgentLoop::dispatchToolChecked(const std::string& tool,
+                                          const nlohmann::json& args,
+                                          ToolContext& ctx) {
+    ToolResult result;
+    ITool* impl = tools_.get(tool);
+    if (!impl) {
+        result.ok = false;
+        result.content = {{"error", "unknown tool: " + tool}};
+        result.summary = "unknown tool: " + tool;
+        return result;
+    }
+    if (impl->isDeepTask()) {
+        const qint64 task_id = sched_.enqueue(tool, args, /*priority*/ 0);
+        result.ok = true;
+        result.content = {{"queued", true}, {"task_id", task_id}, {"tool", tool}};
+        result.summary = "Queued " + tool + " as background task " +
+                         std::to_string(task_id);
+        return result;
+    }
+    try {
+        result = impl->invoke(args, ctx);
+    } catch (const std::exception& e) {
+        result.ok = false;
+        result.content = {{"error", e.what()}};
+        result.summary = std::string("tool threw: ") + e.what();
+    }
+    return result;
+}
+
 bool AgentLoop::dispatchToolStep(GoalRec& goal, PlanStepRec& step,
                                  const Persona& persona, const QString& request_id) {
     auto& bus = EventBus::instance();
@@ -1625,35 +1627,13 @@ bool AgentLoop::dispatchToolStep(GoalRec& goal, PlanStepRec& step,
     bus.publishToolCall({request_id, QString::fromStdString(tool),
                          QString::fromStdString(args.dump())});
 
-    ITool* impl = tools_.get(tool);
-    if (!impl) {
-        step.result = {{"error", "unknown tool: " + tool}, {"ok", false}};
-        bus.publishToolResult({request_id, QString::fromStdString(tool),
-                               QString::fromStdString(step.result.dump()), false});
-        return false;
-    }
-
-    ToolResult result;
-    if (impl->isDeepTask()) {
-        const qint64 task_id = sched_.enqueue(tool, args, /*priority*/ 0);
-        result.ok = true;
-        result.content = {{"queued", true}, {"task_id", task_id}, {"tool", tool}};
-        result.summary = "Queued " + tool + " as background task " + std::to_string(task_id);
-    } else {
-        ToolContext tctx;
-        tctx.inference = &inf_;
-        tctx.db = &db_;
-        tctx.memory = memory_;
-        tctx.active_user_id = -1;
-        tctx.active_personality = persona.name;
-        try {
-            result = impl->invoke(args, tctx);
-        } catch (const std::exception& e) {
-            result.ok = false;
-            result.content = {{"error", e.what()}};
-            result.summary = std::string("tool threw: ") + e.what();
-        }
-    }
+    ToolContext tctx;
+    tctx.inference = &inf_;
+    tctx.db = &db_;
+    tctx.memory = memory_;
+    tctx.active_user_id = -1;
+    tctx.active_personality = persona.name;
+    ToolResult result = dispatchToolChecked(tool, args, tctx);
 
     const std::string resultJson = compactToolResult(result.content.dump());
     step.result = nlohmann::json::parse(resultJson, nullptr, false);
@@ -1751,15 +1731,53 @@ bool AgentLoop::dispatchSkillStep(GoalRec& goal, PlanStepRec& step) {
 }
 
 bool AgentLoop::dispatchAgentSessionStep(GoalRec& goal, PlanStepRec& step) {
-    // C4 owns AgentSessionService. Park the goal until a session event resumes it.
-    step.status = "pending";  // will be re-entered on resume
+    // Spawn an external agent session (via the shared agent_spawn tool), record
+    // the session id on the goal, and park waiting_agent until a Result/Error
+    // AgentSessionEvent rejoins it (A2 §3). When spawning is unavailable (no
+    // sessions service wired / refused), fall back to a plain park — the join
+    // timeout sweep runs a reflect round rather than hang forever.
+    // Spawn args may be nested under "args" or given flat on the step.
+    nlohmann::json spawnArgs =
+        (step.args.contains("args") && step.args["args"].is_object())
+            ? step.args["args"] : step.args;
+    if (!spawnArgs.is_object()) spawnArgs = nlohmann::json::object();
+    if (!spawnArgs.contains("provider") && step.args.contains("provider"))
+        spawnArgs["provider"] = step.args["provider"];
+
+    std::string session_id;
+    if (tools_.get("agent_spawn")) {
+        ToolContext tctx;
+        tctx.inference = &inf_;
+        tctx.db = &db_;
+        tctx.memory = memory_;
+        tctx.active_user_id = -1;
+        ToolResult res = dispatchToolChecked("agent_spawn", spawnArgs, tctx);
+        if (res.ok && res.content.is_object() && res.content.contains("session_id"))
+            session_id = res.content.value("session_id", "");
+        else
+            PM_INFO("AgentLoop: agent_session step {} could not spawn ({}) — "
+                    "parking without a live session", step.idx,
+                    res.summary.empty() ? std::string("unavailable") : res.summary);
+    }
+
+    step.status = "pending";  // re-entered on resume (marked done there)
     step.result = {{"parked", true}, {"kind", "agent_session"},
-                   {"summary", "Waiting on external agent session"}};
+                   {"session_id", session_id},
+                   {"summary", session_id.empty()
+                        ? std::string("Waiting on external agent session")
+                        : "Waiting on agent session " + session_id}};
     persistStep(step);
+
+    if (!goal.context.is_object()) goal.context = nlohmann::json::object();
+    goal.context["waiting_session_id"] = session_id;
+    goal.context["waiting_step_idx"]   = step.idx;
+    goal.context["waiting_since"]      = to_unix(Clock::now());
     persistGoalStatus(goal, "waiting_agent",
                       {{"summary", "Waiting on agent session"},
-                       {"step_idx", step.idx}});
-    appendTrace(goal, {{"event", "waiting_agent"}, {"idx", step.idx}});
+                       {"step_idx", step.idx},
+                       {"session_id", session_id}});
+    appendTrace(goal, {{"event", "waiting_agent"}, {"idx", step.idx},
+                       {"session_id", session_id}});
     return true;
 }
 
@@ -2044,7 +2062,8 @@ void AgentLoop::resumeActiveGoals() {
     db_.query("SELECT id FROM goals WHERE status='active' ORDER BY id ASC",
               {}, [&](const Row& r) { ids.push_back(r.i64(0)); });
     for (int64_t id : ids) {
-        // Only resume if there is pending work.
+        // Only resume if there is pending work. FIFO, one at a time — a single
+        // inference thread runs goals serially.
         int pending = 0;
         db_.query("SELECT COUNT(*) FROM plan_steps WHERE goal_id=?1 AND status='pending'",
                   {id}, [&](const Row& r) { pending = static_cast<int>(r.i64(0)); });
@@ -2052,9 +2071,148 @@ void AgentLoop::resumeActiveGoals() {
     }
 }
 
+// --- session rejoin (A2 §3) -------------------------------------------------
+
+int64_t AgentLoop::findGoalWaitingOnSession(const std::string& session_id) const {
+    int64_t found = 0;
+    db_.query("SELECT id, context_json FROM goals WHERE status='waiting_agent' "
+              "ORDER BY id ASC",
+              {}, [&](const Row& r) {
+                  if (found) return;
+                  auto ctx = nlohmann::json::parse(r.text(1), nullptr, false);
+                  if (ctx.is_object() &&
+                      ctx.value("waiting_session_id", std::string()) == session_id)
+                      found = r.i64(0);
+              });
+    return found;
+}
+
+void AgentLoop::continueParkedGoal(int64_t goal_id, int step_idx, bool failed,
+                                   const nlohmann::json& injected,
+                                   const std::string& reason) {
+    GoalRec goal = loadGoal(goal_id);
+    if (goal.id == 0) return;
+    if (goal.status != "waiting_agent") {
+        PM_INFO("AgentLoop: continueParkedGoal({}) not waiting_agent ({}) — skip",
+                goal_id, goal.status);
+        return;
+    }
+
+    // Locate the parked step (recorded idx first, else first pending session step).
+    PlanStepRec* parked = nullptr;
+    for (auto& s : goal.steps)
+        if (s.idx == step_idx) { parked = &s; break; }
+    if (!parked)
+        for (auto& s : goal.steps)
+            if (s.kind == "agent_session" && s.status == "pending") { parked = &s; break; }
+    if (!parked) {
+        PM_WARN("AgentLoop: continueParkedGoal({}) — no parked step to resume", goal_id);
+        return;
+    }
+
+    parked->result = injected;
+    parked->status = failed ? "failed" : "done";
+    persistStep(*parked);
+    PlanStepRec failedCopy = *parked;   // stable copy for reflect (goal reloads)
+
+    // Un-park: clear the waiting markers and set the goal active again.
+    if (!goal.context.is_object()) goal.context = nlohmann::json::object();
+    goal.context.erase("waiting_session_id");
+    goal.context.erase("waiting_step_idx");
+    goal.context.erase("waiting_since");
+    appendTrace(goal, {{"event", failed ? "agent_session_failed" : "agent_session_done"},
+                       {"idx", failedCopy.idx}, {"reason", reason}});
+    persistGoalStatus(goal, "active");
+
+    const Persona persona = loadActivePersona(db_);
+    const QString request_id =
+        goal.context.is_object() && goal.context.contains("request_id")
+            ? QString::fromStdString(goal.context.value("request_id",
+                  "goal:" + std::to_string(goal_id)))
+            : QStringLiteral("goal:%1").arg(goal_id);
+
+    if (failed) {
+        // Reflect round instead of hanging. If no model / unrecoverable, fail.
+        if (reflectAndReplan(goal, failedCopy, persona, request_id)) {
+            executeGoal(goal_id);
+        } else {
+            GoalRec g = loadGoal(goal_id);
+            const std::string summary = "Agent session " + reason;
+            persistGoalStatus(g, "failed", {{"summary", summary}});
+            deliverGoalTerminal(g, summary, g.origin == "voice");
+        }
+        return;
+    }
+    executeGoal(goal_id);
+}
+
+void AgentLoop::resumeForAgentSession(const std::string& session_id,
+                                      const std::string& kind,
+                                      const std::string& text) {
+    if (session_id.empty()) return;
+    // Only terminal kinds rejoin a parked goal.
+    const bool failed  = (kind == "Error");
+    const bool success = (kind == "Result");
+    if (!failed && !success) return;
+
+    const int64_t goal_id = findGoalWaitingOnSession(session_id);
+    if (goal_id == 0) return;   // no goal waits on this session
+
+    const GoalRec goal = loadGoal(goal_id);
+    const int step_idx = goal.context.is_object()
+        ? goal.context.value("waiting_step_idx", -1) : -1;
+
+    const std::string tail = fitTokens(text, 400);
+    nlohmann::json injected = {
+        {"ok", !failed},
+        {"kind", "agent_session"},
+        {"session_id", session_id},
+        {"event", kind},
+        {"summary", tail.empty()
+             ? (failed ? std::string("Agent session failed")
+                       : std::string("Agent session completed"))
+             : tail},
+        {"transcript_tail", tail},
+    };
+    PM_INFO("AgentLoop: rejoining goal {} on session {} ({})", goal_id, session_id, kind);
+    continueParkedGoal(goal_id, step_idx, failed, injected,
+                       failed ? "reported failure" : "completed");
+}
+
+void AgentLoop::sweepAgentJoinTimeouts() {
+    const int64_t now = to_unix(Clock::now());
+    const int64_t limit = static_cast<int64_t>(joinTimeoutMin()) * 60;
+    std::vector<std::pair<int64_t, int>> stale;   // goal_id, step_idx
+    db_.query("SELECT id, context_json, updated_at FROM goals "
+              "WHERE status='waiting_agent'",
+              {}, [&](const Row& r) {
+                  auto ctx = nlohmann::json::parse(r.text(1), nullptr, false);
+                  if (!ctx.is_object()) return;
+                  const int64_t since = ctx.value("waiting_since", r.i64(2));
+                  if (now - since >= limit)
+                      stale.emplace_back(r.i64(0), ctx.value("waiting_step_idx", -1));
+              });
+    for (const auto& [gid, sidx] : stale) {
+        PM_WARN("AgentLoop: goal {} exceeded agents.join_timeout_min ({} min) — "
+                "reflecting instead of hanging", gid, joinTimeoutMin());
+        nlohmann::json injected = {
+            {"ok", false}, {"kind", "agent_session"}, {"event", "Timeout"},
+            {"summary", "Agent session did not finish within " +
+                        std::to_string(joinTimeoutMin()) + " minutes"},
+        };
+        continueParkedGoal(gid, sidx, /*failed*/ true, injected, "join timeout");
+    }
+}
+
 int AgentLoop::goalTimeoutMin() const {
     int m = Config(db_).getInt(keys::AgentGoalTimeoutMin, 30);
     if (m <= 0) m = 30;
+    return m;
+}
+
+int AgentLoop::joinTimeoutMin() const {
+    int m = Config(db_).getInt(keys::AgentsJoinTimeoutMin, 120);
+    if (m <= 0) m = 120;
     return m;
 }
 

@@ -133,8 +133,33 @@ public:
                              const std::string& summary,
                              bool from_voice) const;
 
-    // Resume every active goal that still has pending work.
+    // Resume every active goal that still has pending work (simple FIFO, one at
+    // a time — a single inference thread executes goals serially). Also the
+    // "scan for the next runnable goal after one finishes" hook.
     void resumeActiveGoals();
+
+    // Single tool-invocation choke point for BOTH the goal and quick paths
+    // (A2 §4). Resolves the tool, routes deep tasks to the scheduler, and
+    // invokes with exception safety. A4 will insert SafetyPolicy enforcement
+    // here; today it is behavior-identical to a direct invoke().
+    ToolResult dispatchToolChecked(const std::string& tool,
+                                   const nlohmann::json& args,
+                                   ToolContext& ctx);
+
+    // Session rejoin (A2 §3): a finished/failed external agent session resumes
+    // the goal parked `waiting_agent` on it. `kind` is the AgentSessionEvent
+    // kind ("Result" = success, "Error" = failure); `text` is the transcript
+    // tail / result summary, injected as the parked step's result. No-op when no
+    // goal waits on `session_id`. Safe to call without a model on the success
+    // path (a failure path may run a reflect round if a model is present).
+    void resumeForAgentSession(const std::string& session_id,
+                               const std::string& kind,
+                               const std::string& text);
+
+    // Give up on any goal parked `waiting_agent` longer than
+    // agents.join_timeout_min: inject a timeout result and run a reflect round
+    // instead of hanging forever. Called periodically by the runtime.
+    void sweepAgentJoinTimeouts();
 
     static ContextBudgets defaultBudgets() { return {}; }
     static constexpr int kMaxPlanSteps     = 12;
@@ -243,6 +268,18 @@ private:
     // --- wall-clock guard ---------------------------------------------------
     bool goalTimedOut(const std::chrono::steady_clock::time_point& start) const;
     int  goalTimeoutMin() const;
+    int  joinTimeoutMin() const;
+
+    // --- session rejoin helpers ---------------------------------------------
+    // Id of the goal parked waiting_agent on `session_id` (scans context_json),
+    // or 0 if none.
+    int64_t findGoalWaitingOnSession(const std::string& session_id) const;
+    // Complete a parked goal: mark the parked step done|failed with `injected`
+    // as its result, clear the waiting_* markers, set the goal active, then run
+    // a reflect round (on failure) and continue executeGoal.
+    void continueParkedGoal(int64_t goal_id, int step_idx, bool failed,
+                            const nlohmann::json& injected,
+                            const std::string& reason);
 
     Database&         db_;
     InferenceManager& inf_;

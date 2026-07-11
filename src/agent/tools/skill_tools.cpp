@@ -2,6 +2,7 @@
 #include "skills/skill_registry.h"
 #include "tool_support.h"
 #include "database.h"
+#include "agent_runtime.h"   // requestGoalExecution (A2 §1 / B-DEADGOAL)
 #include "logging.h"
 
 // run_skill / save_skill — skill harness tools (03 §4). Classes are constructed
@@ -93,6 +94,13 @@ ToolResult RunSkillTool::invoke(const nlohmann::json& args, ToolContext& ctx) {
         content["goal_id"] = goal_id;
         PM_INFO("run_skill: skill={} goal_id={} status={} steps={}",
                 name, goal_id, status, steps.size());
+
+        // B-DEADGOAL fix: hand the goal to the AgentLoop for execution instead
+        // of leaving it silently parked. Confirm-gated skills stay waiting_user
+        // until the user approves (A4 will resume them); active skills run now
+        // (queued on the agent worker thread — never re-entrant).
+        if (!confirm)
+            requestGoalExecution(goal_id);
     } else {
         PM_INFO("run_skill: skill={} (no db — expanded only) steps={}",
                 name, content["steps"].size());
