@@ -22,11 +22,11 @@ Steady-state VRAM budget (Fast @ 4096 ctx + q8 KV + Embedding + OS) ≈ **5.7–
 | Gate | Status | Notes |
 |------|--------|--------|
 | Waves A–E (all nodes) | ✅ green | A1–A4, B1–B4, C1–C3, D1–D4, E1–E5, EV |
-| CPU Release + serial ctest | ✅ green | `build/cpu`, **21/21** suites (`ctest -j1`) |
+| CPU Release + serial ctest | ✅ green | `build/cpu`, **22/22** suites (`ctest -j1`, incl. `f2_youtube_tts`) |
 | `capture_views` | ✅ green | **19/19** PNGs (`captures_overhaul2/`) |
-| GPU tree (CUDA arch 75) | 🔄 F1 | `scripts/build-gpu.ps1` → `build/cuda` |
+| GPU tree (CUDA arch 75) | ✅ green | `scripts/build-gpu.ps1` → `build/cuda`; sm_75, `ggml-cuda` |
 | F2 live e2e | ✅ green | youtube_search ×3 + skill chains + Kokoro af_heart/af_sky (`f2_youtube_tts`) |
-| F3 tag + installer | ✅ tag | `v0.3.0-overhaul2`; ISCC rebuild if available on machine |
+| F3 tag + installer | ✅ green | tag `v0.3.0-overhaul2`; `Polymath-0.3.0-win64-cuda-Setup.exe` via ISCC |
 
 ## Build recipes
 

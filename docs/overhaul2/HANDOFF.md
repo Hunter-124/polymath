@@ -17,7 +17,11 @@ All waves A–F complete. Tag: `v0.3.0-overhaul2`.
 - CPU: `C:\pm\build\cpu\bin\Release\Polymath.exe`
 - GPU: `C:\pm\build\cuda\bin\Polymath.exe`
 
-### Installer (if ISCC present)
+### Installer (built 2026-07-11)
 ```
-ISCC /DAppVersion=0.3.0 /DFlavor=cuda scripts\installer\polymath.iss
+powershell -File scripts\package.ps1 -Flavor cuda -NoZip
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.3.0 /DFlavor=cuda scripts\installer\polymath.iss
 ```
+Artifacts (not in git):
+- `dist\Polymath-0.3.0-win64-cuda\` (portable stage, ~338 MB)
+- `dist\Polymath-0.3.0-win64-cuda-Setup.exe` (~127 MB)

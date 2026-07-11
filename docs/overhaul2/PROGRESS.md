@@ -26,3 +26,4 @@
 - Serial ctest always (`-j1`). Tool count = 42. +`f2_youtube_tts` suite.
 - Skills seed now merges missing starters (watch_video on upgrades).
 - Default TTS voice: `af_heart` (Kokoro).
+- Project version **0.3.0**; CUDA installer: `dist\Polymath-0.3.0-win64-cuda-Setup.exe`.

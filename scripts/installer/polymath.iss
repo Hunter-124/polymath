@@ -22,10 +22,10 @@
 ;         pwsh scripts\package.ps1 -Flavor cuda -NoZip
 ;       This writes dist\Polymath-<ver>-win64-cuda\.
 ;    2. Compile (pass the version + flavor so SourceDir resolves):
-;         "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ^
-;             /DAppVersion=0.1.0 /DFlavor=cuda scripts\installer\polymath.iss
-;       Output: dist\Polymath-0.1.0-win64-cuda-Setup.exe
-;    Defaults: AppVersion=0.1.0, Flavor=cuda. Override either with /D as above.
+;         "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" ^
+;             /DAppVersion=0.3.0 /DFlavor=cuda scripts\installer\polymath.iss
+;       Output: dist\Polymath-0.3.0-win64-cuda-Setup.exe
+;    Defaults: AppVersion=0.3.0, Flavor=cuda. Override either with /D as above.
 ;
 ;    Inno Setup is NOT installed on the current build machine. Install it with:
 ;         winget install JRSoftware.InnoSetup
@@ -53,7 +53,7 @@
 ; ============================================================================
 
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.3.0"
 #endif
 #ifndef Flavor
   #define Flavor "cuda"

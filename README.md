@@ -94,7 +94,7 @@ Package a distributable + build the installer:
 
 ```powershell
 pwsh scripts/package.ps1 -Flavor cuda    # stages dist/ + a portable zip
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.2.0 /DFlavor=cuda scripts/installer/polymath.iss
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=0.3.0 /DFlavor=cuda scripts/installer/polymath.iss
 ```
 
 See [`docs/SHIP.md`](docs/SHIP.md) for the full release checklist. Live status and verify

@@ -29,12 +29,24 @@
 [CmdletBinding()]
 param(
   [ValidateSet('cuda','cpu')] [string]$Flavor = 'cuda',
-  [string]$OutRoot = (Join-Path $PSScriptRoot '..\dist'),
+  [string]$OutRoot = '',
   [switch]$IncludeModels,
   [switch]$NoZip
 )
 $ErrorActionPreference = 'Stop'
-$repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+# $PSScriptRoot can be empty under Windows PowerShell 5.1 when invoked via
+# `powershell -File` from some hosts — resolve the script directory ourselves.
+$scriptDir = $PSScriptRoot
+if (-not $scriptDir) {
+  $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if (-not $scriptDir) {
+  $scriptDir = Split-Path -Parent $PSCommandPath
+}
+if (-not $OutRoot) {
+  $OutRoot = Join-Path $scriptDir '..\dist'
+}
+$repo = (Resolve-Path (Join-Path $scriptDir '..')).Path
 
 # Version from project(Polymath VERSION x.y.z)
 $ver = '0.0.0'
