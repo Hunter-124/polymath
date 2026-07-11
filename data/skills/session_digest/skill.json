@@ -1,0 +1,34 @@
+{
+  "name": "session_digest",
+  "description": "Summarize all external agent sessions and costs for the supervisor",
+  "triggers": [
+    "session digest",
+    "digest sessions",
+    "agent digest",
+    "summarize agents",
+    "how are my agents",
+    "agent status summary"
+  ],
+  "params": {
+    "type": "object",
+    "properties": {
+      "session_id": {
+        "type": "string",
+        "description": "Optional single session id to emphasize; omit for a full digest"
+      }
+    }
+  },
+  "confirm": false,
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "agent_status",
+      "description": "List all external agent sessions (status, last message, cost)",
+      "args": {}
+    },
+    {
+      "kind": "prompt",
+      "description": "Produce a supervisor-style session digest from agent_status. If a focus session_id was provided ({session_id}), call that session out first. Cover each session: title/id short form, status (working|needs_input|done|error|stopped), last useful message snippet, cost if present. Then totals: how many need input, how many failed, rough total cost. End with at most two recommended actions (e.g. answer needs_input, stop a stuck session, spawn a follow-up). If no sessions, say so in one sentence. Concise; suitable to speak aloud under 90 seconds."
+    }
+  ]
+}

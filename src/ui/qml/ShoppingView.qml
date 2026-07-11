@@ -110,7 +110,7 @@ Item {
                     iconName: "cart"
                     glyphColor: Style.sectionColor("Shopping")
                     title: "Your shopping list is empty"
-                    hint: "Add an item above, or just say \"add milk to the shopping list\" — it lands here."
+                    hint: "Add anything you need to buy — say 'add AA batteries to my list'."
                 }
             }
         }

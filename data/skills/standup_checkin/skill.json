@@ -1,0 +1,46 @@
+{
+  "name": "standup_checkin",
+  "description": "Supervisor standup: what are you working on today; schedule or delegate anything?",
+  "triggers": [
+    "standup",
+    "standup checkin",
+    "standup check-in",
+    "daily standup",
+    "check in with me",
+    "what am I working on"
+  ],
+  "params": {
+    "type": "object",
+    "properties": {}
+  },
+  "confirm": false,
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "recall",
+      "description": "Recall recent commitments and work-in-progress",
+      "args": {
+        "query": "working on commitments projects blockers yesterday today",
+        "k": 6
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "list_schedules",
+      "description": "See what is already scheduled so we do not double-book",
+      "args": {
+        "include_disabled": false
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "agent_status",
+      "description": "Any agent sessions already running that need babysitting",
+      "args": {}
+    },
+    {
+      "kind": "prompt",
+      "description": "Run a short standup check-in in a supervisor voice (spoken under ~60s). Structure: (1) one-sentence recap of known WIP / commitments from tools (or \"nothing on record\"), (2) ask what they are working on today, (3) ask whether anything should be scheduled (schedule_task) or delegated (agent_spawn / run_skill), (4) offer to remember decisions. Do not invent work. End with a clear question the user can answer in one breath."
+    }
+  ]
+}

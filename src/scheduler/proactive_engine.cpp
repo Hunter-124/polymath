@@ -36,6 +36,11 @@
 // terminal goal, plus TTS for origin=="voice"); since scheduled goals are
 // tagged origin="schedule" (not "voice"), onGoalUpdated() below adds the extra
 // spoken echo for rows whose `deliver` is "voice".
+//
+// D3 (Advisor): onAgentSessionEvent watches AgentSessionEvent for terminal
+// kinds Result|Error. If the user has seeded an enabled scheduled_goals row
+// with source="event:agent_session" and skill="session_digest", that skill is
+// fired (debounced) without advancing next_fire — pure event trigger.
 
 namespace polymath {
 
@@ -76,6 +81,11 @@ void ProactiveEngine::start() {
     // AgentLoop's goalUpdated emission happens on the agent worker thread).
     connect(&EventBus::instance(), &EventBus::goalUpdated,
             this, &ProactiveEngine::onGoalUpdated);
+
+    // D3: optional session-completion → session_digest skill (gated by an
+    // enabled scheduled_goals row with source=event:agent_session).
+    connect(&EventBus::instance(), &EventBus::agentSessionEvent,
+            this, &ProactiveEngine::onAgentSessionEvent);
 
     connect(&timer_, &QTimer::timeout, this, &ProactiveEngine::tick);
     timer_.start(30'000);
@@ -358,6 +368,95 @@ void ProactiveEngine::onGoalUpdated(const GoalUpdate& g) {
     say.voice = "";   // active personality voice resolved downstream by TTS
     say.request_id = QStringLiteral("schedule-speak:%1").arg(g.goal_id);
     EventBus::instance().publishSpeak(say);
+}
+
+// D3: terminal external-agent session → optional session_digest skill.
+// Gated by a user-seeded scheduled_goals row (source=event:agent_session,
+// skill=session_digest, enabled=1). Debounced so a burst of completions does
+// not spawn N digests. Quiet hours hold voice/chat digests (notify still fires).
+void ProactiveEngine::onAgentSessionEvent(const AgentSessionEvent& e) {
+    if (e.kind != QLatin1String("Result") && e.kind != QLatin1String("Error"))
+        return;
+
+    DueSchedule match;
+    bool found = false;
+    db_.query(
+        "SELECT id,title,prompt,skill,params_json,kind,spec,next_fire,deliver,source "
+        "FROM scheduled_goals WHERE enabled=1 AND skill='session_digest' "
+        "AND source='event:agent_session' ORDER BY id ASC LIMIT 1",
+        {},
+        [&](const Row& r) {
+            match.id          = r.i64(0);
+            match.title       = r.text(1);
+            match.prompt      = r.text(2);
+            match.skill       = r.text(3);
+            match.params_json = r.text(4);
+            match.kind        = r.text(5);
+            match.spec        = r.text(6);
+            match.next_fire   = r.isNull(7) ? 0 : r.i64(7);
+            match.deliver     = r.text(8);
+            match.source      = r.text(9);
+            found = true;
+        });
+    if (!found) return;
+
+    const int64_t now = to_unix(Clock::now());
+    // Debounce: at most one event-digest every 45s (covers multi-session finishes).
+    if (last_session_digest_unix_ > 0 && now - last_session_digest_unix_ < 45)
+        return;
+
+    if (inQuietHours() && match.deliver != "notify") {
+        PM_DEBUG("ProactiveEngine: session_digest held (quiet hours) for session {}",
+                 e.session_id.toStdString());
+        return;
+    }
+
+    last_session_digest_unix_ = now;
+    fireEventSessionDigest(match, e.session_id, e.kind);
+}
+
+void ProactiveEngine::fireEventSessionDigest(const DueSchedule& s,
+                                             const QString& session_id,
+                                             const QString& kind) {
+    const int64_t now = to_unix(Clock::now());
+    const std::string title = s.title.empty() ? "Session digest" : s.title;
+
+    nlohmann::json context = {
+        {"request_id", "event:agent_session:" + session_id.toStdString()},
+        {"schedule_id", s.id},
+        {"deliver", s.deliver},
+        {"session_id", session_id.toStdString()},
+        {"session_event_kind", kind.toStdString()},
+        {"trace", nlohmann::json::array()},
+    };
+    const int64_t goal_id = db_.exec(
+        "INSERT INTO goals(title,status,origin,context_json,created_at,updated_at) "
+        "VALUES(?1,'active','schedule',?2,?3,?3)",
+        {title, context.dump(), now});
+    if (goal_id < 0) {
+        PM_ERROR("ProactiveEngine: failed to create event session_digest goal "
+                 "for schedule {}", s.id);
+        return;
+    }
+
+    nlohmann::json params = nlohmann::json::parse(s.params_json, nullptr, false);
+    if (!params.is_object()) params = nlohmann::json::object();
+    if (!session_id.isEmpty())
+        params["session_id"] = session_id.toStdString();
+
+    nlohmann::json step_args = {{"name", "session_digest"}, {"params", params}};
+    db_.exec(
+        "INSERT INTO plan_steps(goal_id,idx,description,kind,tool,args_json,"
+        "status,attempts,updated_at) VALUES(?1,0,?2,'skill','session_digest',?3,"
+        "'pending',0,?4)",
+        {goal_id, "Run skill session_digest", step_args.dump(), now});
+
+    db_.exec("UPDATE scheduled_goals SET last_fire=?2 WHERE id=?1", {s.id, now});
+    // next_fire left as-is (often NULL for pure event rows) — no reschedule.
+
+    PM_INFO("ProactiveEngine: event session_digest goal={} schedule={} session={} kind={}",
+            goal_id, s.id, session_id.toStdString(), kind.toStdString());
+    requestGoalExecution(goal_id);
 }
 
 } // namespace polymath

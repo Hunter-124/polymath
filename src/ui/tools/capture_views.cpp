@@ -68,6 +68,18 @@ public:
     Q_INVOKABLE void removeItem(int) {}
     Q_INVOKABLE void clearDone() {}
     Q_INVOKABLE void setFilter(const QString&) {}
+    Q_INVOKABLE void setEnabled(int, bool) {}  // D1 ScheduledGoalsModel
+    // E2 PersonalityModel: name-keyed lookup + full row map for editor seed.
+    Q_INVOKABLE int indexOfName(const QString& name) const {
+        for (int i = 0; i < rows_.size(); ++i)
+            if (rows_.at(i).toMap().value(QStringLiteral("name")).toString() == name)
+                return i;
+        return -1;
+    }
+    Q_INVOKABLE QVariantMap get(int row) const {
+        if (row < 0 || row >= rows_.size()) return {};
+        return rows_.at(row).toMap();
+    }
     // Dashboard HUD: count rows whose "status" role matches (case-sensitive).
     Q_INVOKABLE int countByStatus(const QString& status) const {
         int n = 0;
@@ -170,12 +182,35 @@ public:
     Q_INVOKABLE void refreshShopping() {}
     Q_INVOKABLE void refreshCameras() {}
     Q_INVOKABLE void refreshTasks() {}
+    Q_INVOKABLE void refreshSchedules() {}  // D1 ScheduledGoalsModel
     Q_INVOKABLE void refreshTimeline() {}
     Q_INVOKABLE void openModelsFolder() {}
     Q_INVOKABLE void completeFirstRun() {}
     Q_INVOKABLE bool addModel(const QString&, const QString&) { return true; }
     Q_INVOKABLE void setModelRole(const QString&, const QString&) {}
     Q_INVOKABLE void spawnSurfaceDemo() {}
+
+    // E2 personality write-API pass-throughs (report success; no-op).
+    Q_INVOKABLE bool createPersonality(const QString&) { return true; }
+    Q_INVOKABLE bool savePersonality(const QString&, const QString&) { return true; }
+    Q_INVOKABLE bool setPersonalityAvatar(const QString&, const QString&) { return true; }
+    Q_INVOKABLE bool deletePersonality(const QString&) { return true; }
+    Q_INVOKABLE QStringList availableToolNames() const {
+        return {QStringLiteral("web_search"), QStringLiteral("fetch_page"),
+                QStringLiteral("remember"), QStringLiteral("recall"),
+                QStringLiteral("shopping_add"), QStringLiteral("reminder_set"),
+                QStringLiteral("ui_control"), QStringLiteral("youtube_search"),
+                QStringLiteral("screen_capture"), QStringLiteral("fs_read"),
+                QStringLiteral("fs_write"), QStringLiteral("run_command")};
+    }
+    Q_INVOKABLE QStringList availableModels() const {
+        return {QStringLiteral("fast"), QStringLiteral("heavy"),
+                QStringLiteral("gemma-3n-E4B-it-Q4_K_M"),
+                QStringLiteral("gemma-3-27b-it-Q4_K_M")};
+    }
+
+    // C1 confirm relay (mirror AppController).
+    Q_INVOKABLE void respondConfirm(const QString&, bool, bool = false) {}
 signals:
     void changed();
     void modelsChanged();
@@ -185,8 +220,16 @@ signals:
     void findObjectAnswered(QString, QString);
     void vramChanged();
     void wakeWordPulse();
-    void surfaceRequested(QString, QString, QString, QString, QString);
+    // A3 extended surfaceRequested (12 params; QML Connections may bind fewer).
+    void surfaceRequested(QString, QString, QString, QString, QString,
+                          QString, QString, double, double, double, double, QString);
     void goalUpdated(QString, QString, QString, QString);
+    // A3 / E4: page nav + window verbs.
+    void navigateRequested(QString);
+    void windowRequested(QString);
+    // C1 confirm dialog relay.
+    void confirmRequested(QString, QString, QString, QString, QString);
+    void confirmSettled(QString);
 private:
     QObject* chat_ = nullptr;
 };
@@ -202,21 +245,54 @@ class StubSettings : public QObject {
                NOTIFY effectsIntensityChanged)
     Q_PROPERTY(double fontScale READ fontScale WRITE setFontScale NOTIFY fontScaleChanged)
     Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY reduceMotionChanged)
+    // D4 Voice section (typed properties — SettingsView binds them directly).
+    Q_PROPERTY(QString ttsEngine READ ttsEngine WRITE setTtsEngine NOTIFY ttsEngineChanged)
+    Q_PROPERTY(QString ttsVoice  READ ttsVoice  WRITE setTtsVoice  NOTIFY ttsVoiceChanged)
+    Q_PROPERTY(double  ttsSpeed  READ ttsSpeed  WRITE setTtsSpeed  NOTIFY ttsSpeedChanged)
+    Q_PROPERTY(double  ttsVolume READ ttsVolume WRITE setTtsVolume NOTIFY ttsVolumeChanged)
 public:
     QString accent() const { return accent_; }
     bool effects() const { return effects_; }
     double effectsIntensity() const { return intensity_; }
     double fontScale() const { return scale_; }
     bool reduceMotion() const { return reduce_; }
+    QString ttsEngine() const { return tts_engine_; }
+    QString ttsVoice() const { return tts_voice_; }
+    double  ttsSpeed() const { return tts_speed_; }
+    double  ttsVolume() const { return tts_volume_; }
     void setAccent(const QString& v) { if (accent_ == v) return; accent_ = v; emit accentChanged(); emit settingChanged("ui.accent", v); }
     void setEffects(bool v) { if (effects_ == v) return; effects_ = v; emit effectsChanged(); emit settingChanged("ui.effects", v); }
     void setEffectsIntensity(double v) { if (intensity_ == v) return; intensity_ = v; emit effectsIntensityChanged(); }
     void setFontScale(double v) { if (scale_ == v) return; scale_ = v; emit fontScaleChanged(); }
     void setReduceMotion(bool v) { if (reduce_ == v) return; reduce_ = v; emit reduceMotionChanged(); }
+    void setTtsEngine(const QString& v) {
+        if (tts_engine_ == v) return; tts_engine_ = v;
+        emit ttsEngineChanged(); emit settingChanged("tts.engine", v);
+    }
+    void setTtsVoice(const QString& v) {
+        if (tts_voice_ == v) return; tts_voice_ = v;
+        emit ttsVoiceChanged(); emit settingChanged("tts.voice", v);
+    }
+    void setTtsSpeed(double v) { if (tts_speed_ == v) return; tts_speed_ = v; emit ttsSpeedChanged(); }
+    void setTtsVolume(double v) { if (tts_volume_ == v) return; tts_volume_ = v; emit ttsVolumeChanged(); }
 
-    Q_INVOKABLE QString getString(const QString&, const QString& def = {}) const { return def; }
+    // C1 Safety keys return sensible defaults when callers omit / use empty def.
+    Q_INVOKABLE QString getString(const QString& key, const QString& def = {}) const {
+        if (key == QLatin1String("safety.mode") && def.isEmpty())
+            return QStringLiteral("standard");
+        if (key == QLatin1String("safety.fs_allowed_roots") && def.isEmpty())
+            return QStringLiteral("Documents;Desktop;Downloads;@data");
+        if (key == QLatin1String("safety.cmd_denylist") && def.isEmpty())
+            return QStringLiteral("rm -rf;format;mkfs;del /f");
+        if (key == QLatin1String("safety.tool_overrides") && def.isEmpty())
+            return QStringLiteral("run_command");
+        return def;
+    }
     Q_INVOKABLE int getInt(const QString&, int def = 0) const { return def; }
-    Q_INVOKABLE bool getBool(const QString&, bool def = false) const { return def; }
+    Q_INVOKABLE bool getBool(const QString& key, bool def = false) const {
+        if (key == QLatin1String("safety.audit")) return true;
+        return def;
+    }
     Q_INVOKABLE double getReal(const QString&, double def = 0.0) const { return def; }
     Q_INVOKABLE void setString(const QString& k, const QString& v) { emit settingChanged(k, v); }
     Q_INVOKABLE void setInt(const QString& k, int v) { emit settingChanged(k, v); }
@@ -230,12 +306,25 @@ public:
         return {QVariantMap{{"id",""},{"label","System default"}},
                 QVariantMap{{"id","spk0"},{"label","Speakers"}}};
     }
+    // D4: populated voice combo for SettingsView + PersonalityEditor.
+    Q_INVOKABLE QVariantList ttsVoices() const {
+        return {
+            QVariantMap{{"id","af_heart"},{"label","Heart (US female, warm)"}},
+            QVariantMap{{"id","am_adam"},{"label","Adam (US male)"}},
+            QVariantMap{{"id","bf_emma"},{"label","Emma (UK female)"}},
+        };
+    }
+    Q_INVOKABLE void previewVoice(const QString& = QString()) {}
 signals:
     void accentChanged();
     void effectsChanged();
     void effectsIntensityChanged();
     void fontScaleChanged();
     void reduceMotionChanged();
+    void ttsEngineChanged();
+    void ttsVoiceChanged();
+    void ttsSpeedChanged();
+    void ttsVolumeChanged();
     void settingChanged(QString, QVariant);
 private:
     QString accent_ = QStringLiteral("#33E1FF");
@@ -243,6 +332,10 @@ private:
     double intensity_ = 0.6;
     double scale_ = 1.0;
     bool reduce_ = false;
+    QString tts_engine_ = QStringLiteral("auto");
+    QString tts_voice_  = QStringLiteral("af_heart");
+    double  tts_speed_  = 1.0;
+    double  tts_volume_ = 1.0;
 };
 
 // ---------------------------------------------------------------------------
@@ -254,16 +347,10 @@ class StubNotifications : public StubListModel {
 public:
     StubNotifications(QVariantList rows, QObject* parent = nullptr)
         : StubListModel(
-              {"id","severity","source","title","body","timestamp","timeLabel","read","category"},
+              {"id","severity","source","title","body","timestamp","timeLabel",
+               "read","category","pendingAction","confirmId"},
               std::move(rows), parent) {}
     int unreadCount() const {
-        int n = 0;
-        // rows_ is private in base — approximate from seeded data via data() API.
-        for (int i = 0; i < rowCount(); ++i) {
-            if (!data(index(i, 0), Qt::UserRole + 8).toBool()) // read role
-                ++n;
-        }
-        // Role mapping: Id=UserRole+1 ... Read=UserRole+8. Safer: store count.
         return unread_;
     }
     void setUnread(int n) { unread_ = n; emit unreadCountChanged(); }
@@ -271,6 +358,9 @@ public:
     Q_INVOKABLE void markRead(const QString&) {}
     Q_INVOKABLE void clearAll() {}
     Q_INVOKABLE void refreshFromEvents() {}
+    // C1 confirm inline actions (NotificationCenter chrome may use later).
+    Q_INVOKABLE void approveConfirm(const QString&) {}
+    Q_INVOKABLE void denyConfirm(const QString&) {}
 signals:
     void unreadCountChanged();
 private:
@@ -324,6 +414,82 @@ static bool grab(QQuickWindow* win, const QString& path) {
     return ok;
 }
 
+// B2 seed: VideoPickerSurface argsJson with 6 fake youtube_search-shaped results.
+// thumbnailUrl left blank so offline capture hits the deterministic "No thumbnail" path.
+static const char* kVideoPickerSeedJs =
+    "item.title = 'Watch: castles';\n"
+    "item.argsJson = JSON.stringify({results:["
+    "{videoId:'dQw4w9WgXcQ',title:'Castles of Scotland — a walking tour through 900 years of history',"
+    "channel:'Heritage Explorer',durationSec:754,views:'1.2M views',"
+    "publishedText:'3 years ago',thumbnailUrl:'',watchUrl:'https://www.youtube.com/watch?v=dQw4w9WgXcQ'},"
+    "{videoId:'aBcDeFgHiJk',title:'Neuschwanstein Castle drone footage 4K',"
+    "channel:'Skyline Drones',durationSec:312,views:'845K views',"
+    "publishedText:'1 year ago',thumbnailUrl:'',watchUrl:'https://www.youtube.com/watch?v=aBcDeFgHiJk'},"
+    "{videoId:'kLmNoPqRsTu',title:'How medieval castles actually defended against siege engines',"
+    "channel:'History Lab',durationSec:1123,views:'3.4M views',"
+    "publishedText:'8 months ago',thumbnailUrl:'',watchUrl:'https://www.youtube.com/watch?v=kLmNoPqRsTu'},"
+    "{videoId:'vWxYzAbCdEf',title:'Edinburgh Castle full tour (no talking, ambient only)',"
+    "channel:'Wander Quiet',durationSec:2640,views:'210K views',"
+    "publishedText:'2 weeks ago',thumbnailUrl:'',watchUrl:'https://www.youtube.com/watch?v=vWxYzAbCdEf'},"
+    "{videoId:'gHiJkLmNoPq',title:'Top 10 fairytale castles in Europe you can actually visit',"
+    "channel:'Offbeat Travel',durationSec:611,views:'5.7M views',"
+    "publishedText:'5 years ago',thumbnailUrl:'',watchUrl:'https://www.youtube.com/watch?v=gHiJkLmNoPq'},"
+    "{videoId:'rStUvWxYzAb',title:'Building a castle with hand tools only — 3 year timelapse',"
+    "channel:'Guédelon Project',durationSec:5431,views:'18M views',"
+    "publishedText:'10 months ago',thumbnailUrl:'',watchUrl:'https://www.youtube.com/watch?v=rStUvWxYzAb'}"
+    "]});\n";
+
+// E3 seed: NoteSurface markdown body + title.
+static const char* kNoteSeedJs =
+    "item.title = 'Castle research';\n"
+    "item.md = '# Neuschwanstein\\n\\nBuilt for **Ludwig II** starting 1869; "
+    "never fully completed. Known for its fairy-tale silhouette "
+    "and heavy Wagner influence.\\n\\n- Book tickets online\\n"
+    "- Bring good shoes\\n- [Official site](https://example.org)';\n";
+
+// E3 seed: ImageSurface caption bar + empty source (deterministic placeholder).
+static const char* kImageSeedJs =
+    "item.title = 'Exterior';\n"
+    "item.caption = 'West façade, autumn 2019';\n";
+
+// E3 board layout demo — full custom Window QML (calls SurfaceHost.spawn directly).
+// Uses video_picker (not WebEngine "video") so the harness stays headless-safe.
+static const char* kBoardDemoQml =
+    "import QtQuick\n"
+    "import Polymath\n"
+    "Window {\n"
+    "  width: 1280; height: 820; visible: true; color: Style.bg\n"
+    "  Component.onCompleted: Style.effectsEnabled = pmEffectsEnabled\n"
+    "  SurfaceHost {\n"
+    "    id: host\n"
+    "    anchors.fill: parent\n"
+    "    Component.onCompleted: {\n"
+    "      host.spawn('n1', 'note', 'Castle research',\n"
+    "        JSON.stringify({}), '',\n"
+    "        '# Neuschwanstein\\n\\nBuilt for **Ludwig II** starting 1869.\\n\\n'\n"
+    "        + '- Fairy-tale silhouette\\n- Heavy Wagner influence',\n"
+    "        -1, -1, -1, -1, 'Castles')\n"
+    "      host.spawn('i1', 'image', 'Exterior',\n"
+    "        JSON.stringify({}), 'West façade, autumn 2019', '',\n"
+    "        -1, -1, -1, -1, 'Castles')\n"
+    "      host.spawn('n2', 'note', 'Trip notes',\n"
+    "        JSON.stringify({}), '',\n"
+    "        '- Book tickets online\\n- Bring good shoes\\n- Check opening hours',\n"
+    "        -1, -1, -1, -1, 'Trip planning')\n"
+    "      host.spawn('i2', 'image', 'Approach map',\n"
+    "        JSON.stringify({}), 'Approach trail from the car park', '',\n"
+    "        -1, -1, -1, -1, 'Trip planning')\n"
+    "      host.spawn('v1', 'video_picker', 'Search: castle drone footage',\n"
+    "        JSON.stringify({results: [\n"
+    "          {videoId:'aBcDeFgHiJk', title:'Neuschwanstein Castle drone footage 4K',\n"
+    "           channel:'Skyline Drones', durationSec:312, views:'845K views',\n"
+    "           publishedText:'1 year ago', thumbnailUrl:'', watchUrl:''}\n"
+    "        ]}), '', '', -1, -1, -1, -1, 'Trip planning')\n"
+    "      host.arrange('board')\n"
+    "    }\n"
+    "  }\n"
+    "}\n";
+
 int main(int argc, char* argv[]) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);  // deterministic, GPU-free
@@ -376,6 +542,32 @@ int main(int argc, char* argv[]) {
             QVariantMap{{"type","Web fetch"},{"status","error"},{"detail","Source timed out after 3 retries"},{"priority",0}},
         }, &stub);
 
+    // D1: ScheduledGoalsModel for TaskQueueView "Scheduled" section.
+    auto schedules = empty
+        ? new StubListModel(
+              {"scheduleId","title","kind","spec","nextFire","lastFire","enabled",
+               "deliver","skill","prompt"}, {}, &stub)
+        : new StubListModel(
+              {"scheduleId","title","kind","spec","nextFire","lastFire","enabled",
+               "deliver","skill","prompt"},
+              QVariantList{
+                  QVariantMap{{"scheduleId",1},{"title","Morning briefing"},
+                              {"kind","rrule"},{"spec","FREQ=DAILY"},
+                              {"nextFire",2000000000},{"lastFire",0},
+                              {"enabled",true},{"deliver","voice"},
+                              {"skill",""},{"prompt","Give me my morning briefing"}},
+                  QVariantMap{{"scheduleId",2},{"title","Check the oven timer"},
+                              {"kind","at"},{"spec","1999999999"},
+                              {"nextFire",1999999999},{"lastFire",0},
+                              {"enabled",true},{"deliver","chat"},
+                              {"skill",""},{"prompt","Remind me to check the oven"}},
+                  QVariantMap{{"scheduleId",3},{"title","Weekly session digest"},
+                              {"kind","every"},{"spec","604800"},
+                              {"nextFire",2000100000},{"lastFire",1999500000},
+                              {"enabled",false},{"deliver","notify"},
+                              {"skill","session_digest"},{"prompt",""}},
+              }, &stub);
+
     auto timeline = empty ? new StubListModel({"category","kind","text","timestamp","timeLabel"}, {}, &stub)
         : new StubListModel({"category","kind","text","timestamp","timeLabel"}, QVariantList{
             QVariantMap{{"category","event"},{"kind","person"},{"text","Person detected at Front Door"},{"timeLabel","16:12"}},
@@ -385,20 +577,63 @@ int main(int argc, char* argv[]) {
             QVariantMap{{"category","transcript"},{"kind","ambient"},{"text","\"...let's plan the trip this weekend...\""},{"timeLabel","14:58"}},
         }, &stub);
 
+    // E2: PersonalityModel for PersonalitiesView + PersonalityEditor.
+    auto personalities = empty
+        ? new StubListModel(
+              {"name","systemPrompt","voice","preferredModel","wakePhrase","tools",
+               "temperature","topP","topK","repeatPenalty","maxTokens","avatarPath","isActive"},
+              {}, &stub)
+        : new StubListModel(
+              {"name","systemPrompt","voice","preferredModel","wakePhrase","tools",
+               "temperature","topP","topK","repeatPenalty","maxTokens","avatarPath","isActive"},
+              QVariantList{
+                  QVariantMap{{"name","Assistant"},
+                              {"systemPrompt","You are a helpful local home assistant."},
+                              {"voice",""},{"preferredModel","fast"},{"wakePhrase",""},
+                              {"tools",QStringList{}},
+                              {"temperature",0.7},{"topP",0.9},{"topK",40},
+                              {"repeatPenalty",1.1},{"maxTokens",1024},
+                              {"avatarPath",""},{"isActive",false}},
+                  QVariantMap{{"name","Marcus Aurelius"},
+                              {"systemPrompt","You are Marcus Aurelius, Roman emperor and Stoic philosopher. You speak with calm, measured wisdom..."},
+                              {"voice","en_GB-alan-medium"},{"preferredModel","fast"},{"wakePhrase","Marcus"},
+                              {"tools",QStringList{}},
+                              {"temperature",0.7},{"topP",0.9},{"topK",40},
+                              {"repeatPenalty",1.1},{"maxTokens",1024},
+                              {"avatarPath",""},{"isActive",true}},
+                  QVariantMap{{"name","Ada Lovelace"},
+                              {"systemPrompt","You are Ada Lovelace, mathematician and writer, the first computer programmer..."},
+                              {"voice","en_GB-jenny_dioco-medium"},{"preferredModel","fast"},{"wakePhrase","Ada"},
+                              {"tools",QStringList{}},
+                              {"temperature",0.75},{"topP",0.9},{"topK",40},
+                              {"repeatPenalty",1.1},{"maxTokens",1024},
+                              {"avatarPath",""},{"isActive",false}},
+              }, &stub);
+
     StubSettings stubSettings;
     auto notifRows = empty ? QVariantList{} : QVariantList{
         QVariantMap{{"id","n1"},{"severity","info"},{"source","system"},{"title","Welcome"},
                     {"body","Polymath is online."},{"timestamp",0},{"timeLabel","16:00"},
-                    {"read",false},{"category","notice"}},
+                    {"read",false},{"category","notice"},
+                    {"pendingAction",false},{"confirmId",""}},
         QVariantMap{{"id","n2"},{"severity","good"},{"source","tasks"},{"title","Lab report"},
                     {"body","done — weekly synthesis ready"},{"timestamp",0},{"timeLabel","15:40"},
-                    {"read",false},{"category","task"}},
+                    {"read",false},{"category","task"},
+                    {"pendingAction",false},{"confirmId",""}},
         QVariantMap{{"id","n3"},{"severity","warn"},{"source","reminders"},{"title","Reminder"},
                     {"body","Take out the recycling"},{"timestamp",0},{"timeLabel","14:00"},
-                    {"read",true},{"category","reminder"}},
+                    {"read",true},{"category","reminder"},
+                    {"pendingAction",false},{"confirmId",""}},
+        // C1: pending confirm row for NotificationCenter populated capture.
+        QVariantMap{{"id","cap-confirm-1"},{"severity","warn"},{"source","safety"},
+                    {"title","Needs approval: fs_write"},
+                    {"body","fs_write: C:/Users/…/Documents/notes.txt"},
+                    {"timestamp",0},{"timeLabel","12:00"},
+                    {"read",false},{"category","confirm"},
+                    {"pendingAction",true},{"confirmId","cap-confirm-1"}},
     };
     auto* notifications = new StubNotifications(notifRows, &stub);
-    notifications->setUnread(empty ? 0 : 2);
+    notifications->setUnread(empty ? 0 : 3);
 
     // C4: agentSessions model for AgentSessionsView (+ Dashboard agent count).
     auto agentSessions = empty
@@ -431,7 +666,11 @@ int main(int argc, char* argv[]) {
               }, &stub);
 
     // --- helper: render one QML file to PNG ---------------------------------
-    auto renderView = [&](const QString& qmlUrl, const QString& outPng, bool isWindow) -> bool {
+    // extraOnLoaded: JS run when Loader is Ready (surface seeds).
+    // customWindowQml: when non-empty, use as full Window QML (board demo).
+    auto renderView = [&](const QString& qmlUrl, const QString& outPng, bool isWindow,
+                          const QString& extraOnLoaded = {},
+                          const QString& customWindowQml = {}) -> bool {
         QQmlApplicationEngine engine;
         QQmlContext* ctx = engine.rootContext();
         ctx->setContextProperty("app", &stub);
@@ -439,7 +678,9 @@ int main(int argc, char* argv[]) {
         ctx->setContextProperty("shoppingModel", shopping);
         ctx->setContextProperty("cameraModel", cameras);
         ctx->setContextProperty("taskModel", tasks);
+        ctx->setContextProperty("scheduledGoalsModel", schedules);
         ctx->setContextProperty("timelineModel", timeline);
+        ctx->setContextProperty("personalityModel", personalities);
         // MobileAccessView reads a `gateway` context property at runtime; in the
         // headless harness we feed a stub seeded with a sample pairing payload so
         // the QR encoder + payload box render populated (and scannable).
@@ -449,6 +690,32 @@ int main(int argc, char* argv[]) {
         ctx->setContextProperty("agentSessions", agentSessions);
         // Software capture path: force faux-glass (no MultiEffect blur).
         ctx->setContextProperty("pmEffectsEnabled", false);
+
+        // E3 board demo (or any full custom Window string).
+        if (!customWindowQml.isEmpty()) {
+            QObject::connect(&engine, &QQmlApplicationEngine::warnings,
+                             [](const QList<QQmlError>& warnings) {
+                                 for (const auto& w : warnings)
+                                     fprintf(stderr, "  QML: %s\n", qPrintable(w.toString()));
+                             });
+            QQmlComponent comp(&engine);
+            comp.setData(customWindowQml.toUtf8(), QUrl("qrc:/wrapper-custom.qml"));
+            QObject* obj = comp.create(ctx);
+            if (!obj) {
+                fprintf(stderr, "  custom window failed: %s\n",
+                        qPrintable(comp.errorString()));
+                return false;
+            }
+            auto* win = qobject_cast<QQuickWindow*>(obj);
+            if (!win) { fprintf(stderr, "  custom not a window\n"); delete obj; return false; }
+            win->show();
+            // Board arrange needs a beat after spawn for loaders/layout.
+            settle(200);
+            const bool ok = grab(win, outPng);
+            win->close();
+            delete obj;
+            return ok;
+        }
 
         if (isWindow) {
             // Main.qml is an ApplicationWindow — load it and grab the window.
@@ -472,6 +739,13 @@ int main(int argc, char* argv[]) {
 
         // A plain Item view — wrap it in a sized window so it has a surface.
         // Bridge pmEffectsEnabled → Style so glass stays faux under Software.
+        // Optional extraOnLoaded seeds surface props (title/argsJson/md/…).
+        const QString onReady = extraOnLoaded.isEmpty()
+            ? QStringLiteral("if (status === Loader.Error) console.error('loader error')")
+            : QStringLiteral(
+                  "if (status === Loader.Ready) { %1 } "
+                  "else if (status === Loader.Error) console.error('loader error')")
+                  .arg(extraOnLoaded);
         const QString wrapper =
             "import QtQuick\n"
             "import Polymath\n"
@@ -479,7 +753,7 @@ int main(int argc, char* argv[]) {
             "  width: 1040; height: 760; visible: true; color: Style.bg\n"
             "  Component.onCompleted: Style.effectsEnabled = pmEffectsEnabled\n"
             "  Loader { anchors.fill: parent; source: \"" + qmlUrl + "\";\n"
-            "    onStatusChanged: if (status === Loader.Error) console.error('loader error') }\n"
+            "    onStatusChanged: " + onReady + " }\n"
             "}\n";
         QQmlComponent comp(&engine);
         comp.setData(wrapper.toUtf8(), QUrl("qrc:/wrapper.qml"));
@@ -498,7 +772,15 @@ int main(int argc, char* argv[]) {
         return ok;
     };
 
-    struct View { const char* file; const char* png; bool window; };
+    // file: QML under qml/ (or surfaces/…); empty for customWindow-only entries.
+    // extraOnLoaded / customWindow: optional seed paths (B2/E3 surfaces).
+    struct View {
+        const char* file;
+        const char* png;
+        bool window;
+        const char* extraOnLoaded = "";
+        const char* customWindow = nullptr;
+    };
     const std::vector<View> views = {
         {"Main.qml",              "01-main-shell",   true },
         {"Dashboard.qml",         "02-dashboard",    false},
@@ -508,19 +790,31 @@ int main(int argc, char* argv[]) {
         {"TimelineView.qml",      "06-timeline",     false},
         {"ShoppingView.qml",      "07-shopping",     false},
         {"PersonalitiesView.qml", "08-personalities",false},
+        {"PersonalityEditor.qml", "08b-personality-editor", false},  // E2 create-new state
         {"ModelManagerView.qml",  "09-models",       false},
         {"PrivacyView.qml",       "10-privacy",      false},
         {"MobileAccessView.qml",  "11-mobile-access",false},
         {"SettingsView.qml",      "12-settings",     false},
         {"AgentSessionsView.qml", "13-agents",       false},
+        // B2 / E3 standalone surfaces (seeded via extraOnLoaded).
+        {"surfaces/VideoPickerSurface.qml", "14-video-picker", false, kVideoPickerSeedJs},
+        {"surfaces/NoteSurface.qml",        "15-note-surface", false, kNoteSeedJs},
+        {"surfaces/ImageSurface.qml",       "16-image-surface", false, kImageSeedJs},
+        {"surfaces/PlaceholderSurface.qml", "17-placeholder-surface", false},
+        // E3 board layout demo (custom Window + SurfaceHost.spawn).
+        {nullptr, "18-surface-board", false, "", kBoardDemoQml},
     };
 
     int failures = 0;
     const QString suffix = empty ? "-empty" : "";
     for (const auto& v : views) {
-        const QString url = QStringLiteral("qrc:/qt/qml/Polymath/qml/") + v.file;
+        const QString url = v.file
+            ? (QStringLiteral("qrc:/qt/qml/Polymath/qml/") + v.file)
+            : QString();
         const QString out = outDir + "/" + v.png + suffix + ".png";
-        const bool ok = renderView(url, out, v.window);
+        const QString extra = v.extraOnLoaded ? QString::fromUtf8(v.extraOnLoaded) : QString();
+        const QString custom = v.customWindow ? QString::fromUtf8(v.customWindow) : QString();
+        const bool ok = renderView(url, out, v.window, extra, custom);
         fprintf(stderr, "%s  %s\n", ok ? "OK  " : "FAIL", qPrintable(out));
         if (!ok) ++failures;
     }

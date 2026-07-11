@@ -1,0 +1,47 @@
+{
+  "name": "project_review",
+  "description": "Delegate a project review to an external agent session, then digest findings for the user",
+  "triggers": [
+    "project review",
+    "review this project",
+    "review the project",
+    "code review this",
+    "supervise a review"
+  ],
+  "params": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Project working directory (must be under agents.allowed_dirs). Optional; omit for a prompt-only planning pass."
+      },
+      "focus": {
+        "type": "string",
+        "description": "Optional review focus (e.g. security, tests, UX)"
+      }
+    }
+  },
+  "confirm": false,
+  "steps": [
+    {
+      "kind": "agent_session",
+      "description": "Spawn external agent to review project at {path} (focus: {focus})",
+      "args": {
+        "provider": "claude-code",
+        "cwd": "{path}",
+        "title": "Project review",
+        "prompt": "You are doing a focused project review for a supervisor (not implementing changes). Working directory: {path}. Focus: {focus}. Produce: (1) executive summary, (2) strengths, (3) risks / bugs / debt, (4) recommended next steps ordered by leverage, (5) anything that needs human decision. Stay concise; prefer bullets."
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "agent_status",
+      "description": "Pull session status / last output after the review session finishes",
+      "args": {}
+    },
+    {
+      "kind": "prompt",
+      "description": "Digest the external project review for the human supervisor. If the agent session failed to spawn (empty cwd, path not allowed, or no session service), say so clearly and instead: (a) ask for an allowed path if {path} was missing/refused, (b) give a short review plan they can run once a session is available. If results exist, structure: executive summary, top risks, recommended next actions, open questions. Do not invent file-level findings. Offer to remember decisions or schedule follow-ups."
+    }
+  ]
+}

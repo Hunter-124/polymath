@@ -1,0 +1,62 @@
+{
+  "name": "daily_briefing",
+  "description": "Multi-source daily briefing: memory, open loops, schedules, shopping, and agent sessions — weather-free, calendar-less v1",
+  "triggers": [
+    "daily briefing",
+    "give me my briefing",
+    "my briefing",
+    "morning briefing",
+    "brief me for today",
+    "what's my briefing"
+  ],
+  "params": {
+    "type": "object",
+    "properties": {}
+  },
+  "confirm": false,
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "search_memory",
+      "description": "Pull recent daily summaries and notes from memory",
+      "args": {
+        "query": "yesterday summary events notes day decisions",
+        "k": 8,
+        "kind": "summary"
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "recall",
+      "description": "Recall open loops, commitments, and household context",
+      "args": {
+        "query": "commitments open loops tasks priorities today",
+        "k": 8
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "list_schedules",
+      "description": "List standing schedules and upcoming fires",
+      "args": {
+        "include_disabled": false
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "shopping_list",
+      "description": "Current shopping list for the digest",
+      "args": {}
+    },
+    {
+      "kind": "tool",
+      "tool": "agent_status",
+      "description": "Snapshot open external agent sessions",
+      "args": {}
+    },
+    {
+      "kind": "prompt",
+      "description": "Compose a concise spoken daily briefing (under 2 minutes aloud). Sections only when non-empty: (1) priorities / open loops from memory, (2) schedules due or standing, (3) shopping list highlights (count + top items), (4) agent session status (working / needs input / done + rough cost if known), (5) one suggested next action. Warm, supervisory tone. No weather, no invented calendar. Skip empty sections in one short clause."
+    }
+  ]
+}

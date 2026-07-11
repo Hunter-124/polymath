@@ -91,9 +91,9 @@ void testAllToolsDirect(const std::filesystem::path& root) {
     // C5: 17 legacy leaf tools + run_skill/save_skill + 5 agent_* + ui_control = 25.
     // overhaul2 B1: + youtube_search = 26. D1: + schedule_task/list_schedules/
     // cancel_schedule = 29. C2: +9 system tools = 38. C3: + screen_capture/
-    // screen_describe = 40.
+    // screen_describe = 40. D2: + spawn_subtask/subtask_status = 42.
     const auto names = reg.names();
-    assert(names.size() == 40 && "expected 40 builtin tools");
+    assert(names.size() == 42 && "expected 42 builtin tools");
     for (const char* n : {"shopping_add", "shopping_list", "shopping_remove",
                           "web_search", "fetch_page", "browser_drive", "draft_document",
                           "generate_lab_report", "print_document", "print_image",
@@ -105,7 +105,8 @@ void testAllToolsDirect(const std::filesystem::path& root) {
                           "schedule_task", "list_schedules", "cancel_schedule",
                           "fs_list", "fs_read", "fs_write", "fs_move", "fs_delete",
                           "run_command", "app_launch", "clipboard_read",
-                          "clipboard_write", "screen_capture", "screen_describe"})
+                          "clipboard_write", "screen_capture", "screen_describe",
+                          "spawn_subtask", "subtask_status"})
         assert(reg.get(n) != nullptr && "missing builtin tool");
 
     // Risk metadata (03 §5).

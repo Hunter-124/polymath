@@ -136,6 +136,11 @@ Item {
                     sub: "ESP32-CAM live tiles + object find"
                 }
                 Toggle {
+                    keyName: "privacy.screen_capture"
+                    caption: "Screen capture"
+                    sub: "AI can glance at your screen when asked"
+                }
+                Toggle {
                     keyName: "privacy.encrypt_at_rest"
                     caption: "Encrypt database at rest"
                     sub: "SQLCipher-keyed local store"

@@ -17,6 +17,7 @@
 #include "agent_session_tools.h"
 #include "system_tools.h"
 #include "screen_tools.h"
+#include "orchestration_tools.h"
 #include "skills/skill_registry.h"
 #include "paths.h"
 #include "logging.h"
@@ -123,6 +124,9 @@ void registerBuiltinTools(ToolRegistry& reg, BuiltinToolDeps deps) {
     // docs/overhaul2/results/D1_config.md.
     reg.add(std::make_shared<ScheduleTaskTool>(),       ToolRiskClass::WriteLocal);
     reg.add(std::make_shared<CancelScheduleTool>(),     ToolRiskClass::WriteLocal);
+    // D2: goal-tree orchestration (spawn child goals / inspect status).
+    reg.add(std::make_shared<SpawnSubtaskTool>(),       ToolRiskClass::WriteLocal);
+    reg.add(std::make_shared<SubtaskStatusTool>(),      ToolRiskClass::Read);
 
     // external (network / CLI side effects — auto, logged + notice)
     reg.add(std::make_shared<WebSearchTool>(),          ToolRiskClass::External);

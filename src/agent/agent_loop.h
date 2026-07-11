@@ -61,6 +61,10 @@ struct GoalRec {
     nlohmann::json          context = nlohmann::json::object();
     nlohmann::json          result;
     std::vector<PlanStepRec> steps;
+    // D2 goal-tree: 0 = root; join_policy applies when this goal is a parent
+    // parked waiting_children (all | any | first_success).
+    int64_t                 parent_id = 0;
+    std::string             join_policy = "all";
 };
 
 // Token budgets for n_ctx 4096 (03 §2.4). Public so tests can assert.
@@ -130,9 +134,10 @@ public:
     std::string compactToolResult(const std::string& result_json) const;
 
     // Publish GoalUpdate + notice + optional speak for a terminal goal.
+    // Non-const: a terminal child may resume its parent (D2 waiting_children).
     void deliverGoalTerminal(const GoalRec& goal,
                              const std::string& summary,
-                             bool from_voice) const;
+                             bool from_voice);
 
     // Resume every active goal that still has pending work (simple FIFO, one at
     // a time — a single inference thread executes goals serially). Also the
@@ -173,6 +178,18 @@ public:
     // requestGoalExecution, so this never re-enters a live turn. Public so tests
     // and the confirm UI relay (node C1) can drive it.
     void onConfirmResponse(const ConfirmResponse& r);
+
+    // D2: schema columns parent_id / join_policy on goals (idempotent ALTER).
+    // Called from recoverOnStartup and by orchestration tools before insert.
+    void ensureGoalTreeColumns() const;
+
+    // D2: goal currently inside executeGoal on this thread (0 if none). Used by
+    // spawn_subtask when the model omits parent_id.
+    static int64_t executingGoalId();
+
+    // D2 caps (hardcoded defaults; config keys agent.goal_tree_* optional later).
+    static constexpr int kGoalTreeDepthMax  = 2;
+    static constexpr int kGoalTreeChildCap  = 8;
 
     static ContextBudgets defaultBudgets() { return {}; }
     static constexpr int kMaxPlanSteps     = 12;
@@ -294,6 +311,28 @@ private:
                             const nlohmann::json& injected,
                             const std::string& reason);
 
+    // --- D2 goal-tree (waiting_children park / join / resume) ----------------
+    struct ChildStats {
+        int total = 0;
+        int done = 0;      // status == done
+        int failed = 0;    // status == failed | cancelled
+        int active = 0;    // non-terminal (active | waiting_*)
+    };
+    ChildStats collectChildStats(int64_t parent_id) const;
+    nlohmann::json buildChildrenDigest(int64_t parent_id) const;
+    static bool joinPolicySatisfied(const std::string& policy, const ChildStats& s);
+    static bool joinPolicySucceeded(const std::string& policy, const ChildStats& s);
+    // Depth of goal_id in the tree (root = 0).
+    int goalTreeDepth(int64_t goal_id) const;
+    // If goal has non-terminal children: park waiting_children (or immediately
+    // resume when join already satisfied). Returns true when the goal is left
+    // parked or was fully resolved as a parent join (caller must not deliver a
+    // plain terminal without children).
+    bool maybeParkOrJoinChildren(GoalRec& goal);
+    // Child reached a terminal status → if parent is waiting_children and join
+    // policy is satisfied, resume the parent with a results digest.
+    void tryResumeParentAfterChild(const GoalRec& child);
+
     // --- A4 risk-gate confirmation ------------------------------------------
     enum class ConfirmState { None, Approved, Denied };
 
@@ -337,6 +376,10 @@ private:
     // A4: EventBus::confirmResponse subscription (queued onto the worker thread
     // via collector_ as context). Disconnected in ~AgentLoop.
     QMetaObject::Connection confirm_conn_;
+
+    // D2: goal id of the executeGoal frame currently on this thread (0 = none).
+    // Single agent worker thread → plain static is enough (not cross-thread).
+    static int64_t s_executing_goal_id_;
 };
 
 // Free helpers shared with tests / runtime.

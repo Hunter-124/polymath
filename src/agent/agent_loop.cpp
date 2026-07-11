@@ -28,6 +28,9 @@
 
 namespace polymath {
 
+// D2: currently-executing goal for spawn_subtask parent inference.
+int64_t AgentLoop::s_executing_goal_id_ = 0;
+
 namespace {
 
 constexpr const char* kFinalAnswerTool = "final_answer";
@@ -466,6 +469,7 @@ void AgentLoop::ensureSummariesTable() const {
 void AgentLoop::recoverOnStartup() {
     ensureSummariesTable();
     ensureConfirmTable();
+    ensureGoalTreeColumns();
     const int64_t now = to_unix(Clock::now());
     // Crash recovery (03 §1): running steps → pending so goals resume.
     // Only log when something was actually stuck mid-flight (quiet restarts).
@@ -476,6 +480,31 @@ void AgentLoop::recoverOnStartup() {
     db_.exec("UPDATE plan_steps SET status='pending', updated_at=?1 "
              "WHERE status='running'", {now});
     PM_INFO("AgentLoop: recovered {} running plan_steps → pending", running);
+}
+
+// D2: additive columns for goal-tree orchestration (fresh DBs get them from
+// schema.h CREATE; existing DBs pick them up here via PRAGMA + ALTER).
+void AgentLoop::ensureGoalTreeColumns() const {
+    bool has_parent = false, has_join = false;
+    db_.query("PRAGMA table_info(goals)", {}, [&](const Row& r) {
+        // cid, name, type, notnull, dflt_value, pk
+        const std::string name = r.text(1);
+        if (name == "parent_id") has_parent = true;
+        if (name == "join_policy") has_join = true;
+    });
+    if (!has_parent) {
+        db_.exec("ALTER TABLE goals ADD COLUMN parent_id INTEGER");
+        PM_INFO("AgentLoop: ALTER goals ADD parent_id");
+    }
+    if (!has_join) {
+        db_.exec("ALTER TABLE goals ADD COLUMN join_policy TEXT NOT NULL DEFAULT 'all'");
+        PM_INFO("AgentLoop: ALTER goals ADD join_policy");
+    }
+    db_.exec("CREATE INDEX IF NOT EXISTS idx_goals_parent_id ON goals(parent_id)");
+}
+
+int64_t AgentLoop::executingGoalId() {
+    return s_executing_goal_id_;
 }
 
 // ---------------------------------------------------------------------------
@@ -1629,13 +1658,29 @@ void AgentLoop::executeGoal(int64_t goal_id) {
         PM_INFO("AgentLoop: goal {} already terminal ({})", goal_id, goal.status);
         return;
     }
-    // waiting_agent / waiting_user: only resume when caller forces execute; leave parked
-    // unless there are pending steps (session completion will re-call executeGoal).
-    if ((goal.status == "waiting_agent" || goal.status == "waiting_user") &&
+    // waiting_agent / waiting_user / waiting_children: only resume when caller
+    // forces execute with pending work (session/confirm/child rejoin re-calls).
+    if ((goal.status == "waiting_agent" || goal.status == "waiting_user" ||
+         goal.status == "waiting_children") &&
         std::none_of(goal.steps.begin(), goal.steps.end(),
                      [](const PlanStepRec& s) { return s.status == "pending"; })) {
-        return;
+        // D2: a parent parked waiting_children may already satisfy its join
+        // (children finished while it was still spawning) — try join now.
+        if (goal.status == "waiting_children") {
+            if (maybeParkOrJoinChildren(goal)) return;
+        } else {
+            return;
+        }
     }
+
+    // Pin executing goal so spawn_subtask can infer parent_id.
+    const int64_t prev_executing = s_executing_goal_id_;
+    s_executing_goal_id_ = goal_id;
+    struct ExecutingGoalClear {
+        int64_t& slot;
+        int64_t  prev;
+        ~ExecutingGoalClear() { slot = prev; }
+    } exec_clear{s_executing_goal_id_, prev_executing};
 
     const Persona persona = loadActivePersona(db_);
     const QString request_id = goal.context.is_object() && goal.context.contains("request_id")
@@ -1680,7 +1725,8 @@ void AgentLoop::executeGoal(int64_t goal_id) {
         const bool ok = executeStep(goal, step, persona, request_id);
         ++steps_run;
 
-        if (goal.status == "waiting_agent" || goal.status == "waiting_user") {
+        if (goal.status == "waiting_agent" || goal.status == "waiting_user" ||
+            goal.status == "waiting_children") {
             parked = true;
             break;
         }
@@ -1719,6 +1765,22 @@ void AgentLoop::executeGoal(int64_t goal_id) {
         return;
     }
 
+    // D2: no pending steps of our own — if we have live children, park
+    // waiting_children (or join immediately when already satisfied).
+    goal = loadGoal(goal_id);
+    if (maybeParkOrJoinChildren(goal)) {
+        if (goal.status == "waiting_children") {
+            PM_INFO("AgentLoop: goal {} parked (waiting_children)", goal_id);
+            EventBus::instance().publishGoalUpdate({
+                QString::number(goal.id),
+                QString::fromStdString(goal.title),
+                QStringLiteral("waiting_children"),
+                QStringLiteral("Waiting on subtasks…"),
+            });
+        }
+        return;
+    }
+
     // Success if every non-skipped step is done.
     goal = loadGoal(goal_id);
     bool any_failed = false;
@@ -1728,6 +1790,17 @@ void AgentLoop::executeGoal(int64_t goal_id) {
         if (s.status == "done" && s.result.is_object() && s.result.contains("summary")) {
             if (sum.tellp() > 0) sum << "; ";
             sum << s.result.value("summary", "");
+        }
+    }
+    // Prefer children digest summary when present (parent that already joined).
+    if (goal.context.is_object() && goal.context.contains("children_digest")) {
+        const auto& dig = goal.context["children_digest"];
+        if (dig.is_object() && dig.contains("summary")) {
+            const std::string ds = dig.value("summary", "");
+            if (!ds.empty()) {
+                if (sum.tellp() > 0) sum << "; ";
+                sum << ds;
+            }
         }
     }
     std::string summary = sum.str();
@@ -1763,7 +1836,8 @@ bool AgentLoop::executeStep(GoalRec& goal, PlanStepRec& step,
         return false;
     }
 
-    if (goal.status == "waiting_agent" || goal.status == "waiting_user") {
+    if (goal.status == "waiting_agent" || goal.status == "waiting_user" ||
+        goal.status == "waiting_children") {
         // Step left pending/parked; don't mark done.
         return true;
     }
@@ -2161,19 +2235,28 @@ int64_t AgentLoop::createGoal(const std::string& title,
                               const std::string& origin,
                               const nlohmann::json& context,
                               const std::vector<PlanStepRec>& steps) {
+    ensureGoalTreeColumns();
     const int64_t now = to_unix(Clock::now());
     nlohmann::json ctx = context.is_object() ? context : nlohmann::json::object();
     if (!ctx.contains("trace")) ctx["trace"] = nlohmann::json::array();
+    const int64_t parent_id = ctx.value("parent_id", int64_t{0});
+    std::string join_policy = ctx.value("join_policy", std::string("all"));
+    if (join_policy != "all" && join_policy != "any" && join_policy != "first_success")
+        join_policy = "all";
     const int64_t gid = db_.exec(
-        "INSERT INTO goals(title,status,origin,context_json,created_at,updated_at) "
-        "VALUES(?1,'active',?2,?3,?4,?4)",
-        {title, origin, ctx.dump(), now});
+        "INSERT INTO goals(title,status,origin,context_json,created_at,updated_at,"
+        "parent_id,join_policy) "
+        "VALUES(?1,'active',?2,?3,?4,?4,?5,?6)",
+        {title, origin, ctx.dump(), now,
+         parent_id > 0 ? nlohmann::json(parent_id) : nlohmann::json(nullptr),
+         join_policy});
     std::vector<PlanStepRec> copy = steps;
     // Cap plan length.
     if (static_cast<int>(copy.size()) > kMaxPlanSteps)
         copy.resize(kMaxPlanSteps);
     insertSteps(gid, copy);
-    PM_INFO("AgentLoop: created goal {} '{}' with {} step(s)", gid, title, copy.size());
+    PM_INFO("AgentLoop: created goal {} '{}' with {} step(s) parent={}",
+            gid, title, copy.size(), parent_id);
     return gid;
 }
 
@@ -2260,8 +2343,10 @@ void AgentLoop::replacePendingSteps(GoalRec& goal,
 
 GoalRec AgentLoop::loadGoal(int64_t goal_id) const {
     GoalRec g;
-    db_.query("SELECT id,title,status,origin,context_json,result_json FROM goals "
-              "WHERE id=?1",
+    // parent_id / join_policy may be missing on pre-D2 DBs until ensureGoalTreeColumns.
+    // Prefer the extended SELECT; fall back if prepare fails (handled by empty result).
+    db_.query("SELECT id,title,status,origin,context_json,result_json,"
+              "parent_id,join_policy FROM goals WHERE id=?1",
               {goal_id},
               [&](const Row& r) {
                   g.id = r.i64(0);
@@ -2274,7 +2359,27 @@ GoalRec AgentLoop::loadGoal(int64_t goal_id) const {
                       g.result = nlohmann::json::parse(r.text(5), nullptr, false);
                       if (g.result.is_discarded()) g.result = nlohmann::json();
                   }
+                  g.parent_id = r.isNull(6) ? 0 : r.i64(6);
+                  g.join_policy = r.isNull(7) || r.text(7).empty() ? "all" : r.text(7);
               });
+    if (g.id == 0) {
+        // Fallback for DBs without D2 columns (pre-migrate).
+        db_.query("SELECT id,title,status,origin,context_json,result_json FROM goals "
+                  "WHERE id=?1",
+                  {goal_id},
+                  [&](const Row& r) {
+                      g.id = r.i64(0);
+                      g.title = r.text(1);
+                      g.status = r.text(2);
+                      g.origin = r.text(3);
+                      g.context = nlohmann::json::parse(r.text(4), nullptr, false);
+                      if (g.context.is_discarded()) g.context = nlohmann::json::object();
+                      if (!r.isNull(5)) {
+                          g.result = nlohmann::json::parse(r.text(5), nullptr, false);
+                          if (g.result.is_discarded()) g.result = nlohmann::json();
+                      }
+                  });
+    }
     if (g.id == 0) return g;
 
     db_.query("SELECT id,goal_id,idx,description,kind,tool,args_json,status,"
@@ -2305,7 +2410,7 @@ GoalRec AgentLoop::loadGoal(int64_t goal_id) const {
 
 void AgentLoop::deliverGoalTerminal(const GoalRec& goal,
                                     const std::string& summary,
-                                    bool from_voice) const {
+                                    bool from_voice) {
     auto& bus = EventBus::instance();
     const QString status = QString::fromStdString(goal.status);
     bus.publishGoalUpdate({
@@ -2336,6 +2441,9 @@ void AgentLoop::deliverGoalTerminal(const GoalRec& goal,
     // Inject assistant transcript line for chat history.
     persistTranscript(line.toStdString(), /*assistant*/ true);
     PM_INFO("AgentLoop: goal {} terminal {} — {}", goal.id, goal.status, summary);
+
+    // D2: a finished child may rejoin a parent parked waiting_children.
+    tryResumeParentAfterChild(goal);
 }
 
 void AgentLoop::resumeActiveGoals() {
@@ -2663,6 +2771,244 @@ bool AgentLoop::goalTimedOut(const std::chrono::steady_clock::time_point& start)
     const auto elapsed = std::chrono::steady_clock::now() - start;
     const auto limit = std::chrono::minutes(goalTimeoutMin());
     return elapsed >= limit;
+}
+
+// --- D2 goal-tree (waiting_children park / join / resume) --------------------
+
+AgentLoop::ChildStats AgentLoop::collectChildStats(int64_t parent_id) const {
+    ChildStats s;
+    if (parent_id <= 0) return s;
+    db_.query("SELECT status FROM goals WHERE parent_id=?1", {parent_id},
+              [&](const Row& r) {
+                  ++s.total;
+                  const std::string st = r.text(0);
+                  if (st == "done") ++s.done;
+                  else if (st == "failed" || st == "cancelled") ++s.failed;
+                  else ++s.active;   // active | waiting_*
+              });
+    return s;
+}
+
+nlohmann::json AgentLoop::buildChildrenDigest(int64_t parent_id) const {
+    nlohmann::json children = nlohmann::json::array();
+    int done = 0, failed = 0, active = 0;
+    db_.query("SELECT id,title,status,result_json FROM goals WHERE parent_id=?1 "
+              "ORDER BY id ASC",
+              {parent_id},
+              [&](const Row& r) {
+                  nlohmann::json c;
+                  c["id"] = r.i64(0);
+                  c["title"] = r.text(1);
+                  c["status"] = r.text(2);
+                  const std::string st = r.text(2);
+                  if (st == "done") ++done;
+                  else if (st == "failed" || st == "cancelled") ++failed;
+                  else ++active;
+                  std::string summary;
+                  if (!r.isNull(3)) {
+                      auto res = nlohmann::json::parse(r.text(3), nullptr, false);
+                      if (res.is_object()) summary = res.value("summary", "");
+                  }
+                  c["summary"] = summary;
+                  children.push_back(std::move(c));
+              });
+    std::ostringstream sum;
+    sum << "subtasks: " << done << " done, " << failed << " failed, "
+        << active << " active (" << children.size() << " total)";
+    for (const auto& c : children) {
+        if (sum.tellp() > 400) break;
+        sum << "; #" << c.value("id", 0) << " " << c.value("status", "")
+            << " " << c.value("title", "");
+        const std::string s = c.value("summary", "");
+        if (!s.empty()) sum << " — " << s.substr(0, 80);
+    }
+    return {
+        {"children", std::move(children)},
+        {"done", done},
+        {"failed", failed},
+        {"active", active},
+        {"summary", sum.str()},
+    };
+}
+
+bool AgentLoop::joinPolicySatisfied(const std::string& policy, const ChildStats& s) {
+    if (s.total == 0) return true;
+    if (policy == "first_success")
+        return s.done >= 1 || s.active == 0;
+    if (policy == "any")
+        // Any terminal child (success or not) is enough; if only failures so far
+        // but others still active, keep waiting for a possible success.
+        return s.done >= 1 || s.active == 0;
+    // all (default): every child must be terminal
+    return s.active == 0;
+}
+
+bool AgentLoop::joinPolicySucceeded(const std::string& policy, const ChildStats& s) {
+    if (s.total == 0) return true;
+    if (policy == "first_success" || policy == "any")
+        return s.done >= 1;
+    // all: succeed only when every child done and none failed
+    return s.active == 0 && s.failed == 0 && s.done == s.total;
+}
+
+int AgentLoop::goalTreeDepth(int64_t goal_id) const {
+    int depth = 0;
+    int64_t cur = goal_id;
+    for (int i = 0; i < 16 && cur > 0; ++i) {
+        int64_t parent = 0;
+        db_.query("SELECT parent_id FROM goals WHERE id=?1", {cur},
+                  [&](const Row& r) {
+                      if (!r.isNull(0)) parent = r.i64(0);
+                  });
+        if (parent <= 0) break;
+        ++depth;
+        cur = parent;
+    }
+    return depth;
+}
+
+bool AgentLoop::maybeParkOrJoinChildren(GoalRec& goal) {
+    const ChildStats stats = collectChildStats(goal.id);
+    if (stats.total == 0) return false;
+
+    const std::string policy =
+        goal.join_policy.empty() ? "all" : goal.join_policy;
+
+    if (!joinPolicySatisfied(policy, stats)) {
+        // Still waiting on children — park.
+        if (!goal.context.is_object()) goal.context = nlohmann::json::object();
+        goal.context["waiting_since"] = to_unix(Clock::now());
+        goal.context["waiting_children"] = true;
+        persistGoalStatus(goal, "waiting_children",
+                          {{"summary", "Waiting on " + std::to_string(stats.active) +
+                                       " subtask(s)"},
+                           {"children_total", stats.total},
+                           {"children_active", stats.active}});
+        appendTrace(goal, {{"event", "waiting_children"},
+                           {"active", stats.active},
+                           {"total", stats.total},
+                           {"policy", policy}});
+        PM_INFO("AgentLoop: goal {} → waiting_children ({} active / {} total, policy={})",
+                goal.id, stats.active, stats.total, policy);
+        return true;
+    }
+
+    // Join ready: stash digest and either continue (pending steps / reflect) or
+    // let the caller deliver a normal terminal.
+    const nlohmann::json digest = buildChildrenDigest(goal.id);
+    if (!goal.context.is_object()) goal.context = nlohmann::json::object();
+    goal.context["children_digest"] = digest;
+    goal.context.erase("waiting_children");
+    goal.context.erase("waiting_since");
+    appendTrace(goal, {{"event", "children_joined"},
+                       {"policy", policy},
+                       {"digest_summary", digest.value("summary", "")}});
+
+    const bool ok = joinPolicySucceeded(policy, stats);
+    const bool partial_fail = !ok && (stats.failed > 0 || stats.done < stats.total);
+
+    if (partial_fail || !ok) {
+        // Reflect on partial failure at most once (spec §3) — never loop.
+        const bool already_reflected =
+            goal.context.is_object() &&
+            goal.context.value("children_join_reflected", false);
+
+        if (!already_reflected) {
+            PlanStepRec synthetic;
+            synthetic.idx = -1;
+            synthetic.description = "subtask join (" + policy + ")";
+            synthetic.kind = "fanout";
+            synthetic.status = "failed";
+            synthetic.result = digest;
+
+            const Persona persona = loadActivePersona(db_);
+            const QString request_id =
+                goal.context.contains("request_id")
+                    ? QString::fromStdString(goal.context.value(
+                          "request_id", "goal:" + std::to_string(goal.id)))
+                    : QStringLiteral("goal:%1").arg(goal.id);
+
+            goal.context["children_join_reflected"] = true;
+            goal.context["children_digest"] = digest;
+            persistGoalStatus(goal, "active",
+                              {{"summary", digest.value("summary", "subtasks finished")},
+                               {"children_digest", digest}});
+            if (reflectAndReplan(goal, synthetic, persona, request_id)) {
+                PM_INFO("AgentLoop: goal {} reflected after partial child failure",
+                        goal.id);
+                executeGoal(goal.id);
+                return true;
+            }
+        }
+        // Unrecoverable (or already reflected once): fail parent with digest.
+        const std::string summary =
+            "Subtasks failed: " + digest.value("summary", std::string("join failed"));
+        persistGoalStatus(goal, "failed",
+                          {{"summary", summary}, {"children_digest", digest}});
+        GoalRec g = loadGoal(goal.id);
+        g.status = "failed";
+        g.result = {{"summary", summary}, {"children_digest", digest}};
+        deliverGoalTerminal(g, summary, g.origin == "voice");
+        return true;
+    }
+
+    // All good under the policy. If parent has more pending steps, keep going;
+    // otherwise caller delivers terminal with digest in context.
+    persistGoalStatus(goal, "active",
+                      {{"summary", digest.value("summary", "subtasks done")},
+                       {"children_digest", digest}});
+    goal = loadGoal(goal.id);
+    const bool has_pending = std::any_of(
+        goal.steps.begin(), goal.steps.end(),
+        [](const PlanStepRec& s) { return s.status == "pending"; });
+    if (has_pending) {
+        executeGoal(goal.id);
+        return true;
+    }
+    // No pending work: fall through so executeGoal's normal success path can
+    // mark done (caller already past the step loop). Signal "not parked" so
+    // caller delivers terminal — return false.
+    // But we must not lose the digest: already in context_json.
+    return false;
+}
+
+void AgentLoop::tryResumeParentAfterChild(const GoalRec& child) {
+    if (child.parent_id <= 0) return;
+    GoalRec parent = loadGoal(child.parent_id);
+    if (parent.id == 0) return;
+    // Only rejoin when the parent is actually waiting on children. If the
+    // parent is still actively spawning, it will park/join itself later.
+    if (parent.status != "waiting_children") {
+        PM_INFO("AgentLoop: child {} terminal; parent {} status={} — not waiting yet",
+                child.id, parent.id, parent.status);
+        return;
+    }
+
+    const ChildStats stats = collectChildStats(parent.id);
+    const std::string policy =
+        parent.join_policy.empty() ? "all" : parent.join_policy;
+    if (!joinPolicySatisfied(policy, stats)) {
+        PM_INFO("AgentLoop: parent {} still waiting ({} active, policy={})",
+                parent.id, stats.active, policy);
+        return;
+    }
+
+    PM_INFO("AgentLoop: rejoining parent {} after child {} (policy={})",
+            parent.id, child.id, policy);
+
+    // Resume under the runtime busy-guard when available; fall back to direct
+    // executeGoal (tests / no live runtime). maybeParkOrJoinChildren inside
+    // executeGoal will join + reflect/continue.
+    // Clear waiting markers first so executeGoal does not early-return as parked.
+    if (!parent.context.is_object()) parent.context = nlohmann::json::object();
+    parent.context.erase("waiting_children");
+    parent.context.erase("waiting_since");
+    // Stash a partial digest now; maybeParkOrJoinChildren rebuilds it.
+    parent.context["children_digest"] = buildChildrenDigest(parent.id);
+    persistGoalStatus(parent, "active");
+
+    // Prefer queued execution so we never re-enter a live turn from deliver.
+    requestGoalExecution(parent.id);
 }
 
 } // namespace polymath

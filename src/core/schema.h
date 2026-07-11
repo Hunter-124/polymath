@@ -7,7 +7,10 @@
 namespace polymath {
 
 // v3: scheduled_goals (overhaul2 D1 — timed/recurring agent goals).
-inline constexpr int kSchemaVersion = 3;
+// v4: goals.parent_id + join_policy (overhaul2 D2 — goal-tree orchestration).
+//     Existing DBs pick up the columns via AgentLoop::ensureGoalTreeColumns()
+//     (PRAGMA table_info + ALTER TABLE ADD COLUMN); CREATE below covers fresh DBs.
+inline constexpr int kSchemaVersion = 4;
 
 inline constexpr const char* kSchemaSQL = R"SQL(
 PRAGMA journal_mode = WAL;
@@ -140,14 +143,19 @@ CREATE TABLE IF NOT EXISTS goals (
     id            INTEGER PRIMARY KEY,
     title         TEXT NOT NULL,
     status        TEXT NOT NULL DEFAULT 'active',
-      -- active | waiting_user | waiting_agent | done | failed | cancelled
+      -- active | waiting_user | waiting_agent | waiting_children | done | failed | cancelled
     origin        TEXT NOT NULL DEFAULT 'chat',
       -- chat | voice | schedule | skill | agent
     context_json  TEXT NOT NULL DEFAULT '{}',
     result_json   TEXT,
     created_at    INTEGER,
-    updated_at    INTEGER
+    updated_at    INTEGER,
+    -- D2 goal-tree: NULL/0 = root; children of a parent join via join_policy
+    parent_id     INTEGER,                  -- REFERENCES goals(id); root when NULL
+    join_policy   TEXT NOT NULL DEFAULT 'all'
+      -- all | any | first_success (how a parent waiting_children resumes)
 );
+CREATE INDEX IF NOT EXISTS idx_goals_parent_id ON goals(parent_id);
 CREATE TABLE IF NOT EXISTS plan_steps (
     id            INTEGER PRIMARY KEY,
     goal_id       INTEGER NOT NULL REFERENCES goals(id),

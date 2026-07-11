@@ -254,7 +254,7 @@ Item {
                     iconName: "chat"
                     glyphColor: Style.sectionColor("Chat")
                     title: "Start a conversation"
-                    hint: "Ask anything, or hold Push-to-talk in the sidebar. Try \"where did I leave my keys?\" or \"add milk to the shopping list\"."
+                    hint: "Ask anything, or hold Push-to-talk in the sidebar. Try \"watch this YouTube video\", \"schedule a briefing at 9am\", \"what's on my screen?\", or \"create a file called ideas.txt\"."
                 }
             }
         }

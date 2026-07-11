@@ -37,6 +37,10 @@ private slots:
     // when its deliver mode is "voice" (deliverGoalTerminal only auto-speaks
     // origin=="voice" goals, and scheduled goals are tagged origin="schedule").
     void onGoalUpdated(const polymath::GoalUpdate& g);
+    // D3: when an external agent session reaches Result/Error and an enabled
+    // scheduled_goals row has source=event:agent_session + skill=session_digest,
+    // fire that skill once (debounced) as a real schedule-origin goal.
+    void onAgentSessionEvent(const polymath::AgentSessionEvent& e);
 
 private:
     // A scheduled_goals row that is due to fire.
@@ -61,10 +65,14 @@ private:
     // D1: create a real goal for a due scheduled_goals row (mirrors run_skill's
     // own goal-creation shape), launch it, then reschedule/disable the row.
     void fireScheduledGoal(const DueSchedule& s);
+    // D3: fire session_digest without advancing next_fire (event-triggered row).
+    void fireEventSessionDigest(const DueSchedule& s, const QString& session_id,
+                                const QString& kind);
 
     Database& db_;
     QTimer    timer_;
     int64_t   last_presence_unix_ = 0;              // refreshed by detection events
+    int64_t   last_session_digest_unix_ = 0;        // debounce event digests
 };
 
 class IdleDetector : public QObject, public IService {
