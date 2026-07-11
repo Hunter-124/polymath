@@ -187,7 +187,23 @@ public:
     Q_INVOKABLE void openModelsFolder() {}
     Q_INVOKABLE void completeFirstRun() {}
     Q_INVOKABLE bool addModel(const QString&, const QString&) { return true; }
+    Q_INVOKABLE bool pickAndAddModel(const QString&) { return true; }
     Q_INVOKABLE void setModelRole(const QString&, const QString&) {}
+    Q_INVOKABLE QVariantList listMemories(const QString& = {}, int = 100) const {
+        return {
+            QVariantMap{{"id", 1}, {"kind", "note"},
+                        {"text", "Owner prefers af_heart TTS voice."},
+                        {"source", "ui"}, {"userId", -1}, {"ts", 1720000000}},
+            QVariantMap{{"id", 2}, {"kind", "fact"},
+                        {"text", "Polymath runs on RTX 2070 Max-Q 8 GB."},
+                        {"source", "agent"}, {"userId", -1}, {"ts", 1720001000}},
+        };
+    }
+    Q_INVOKABLE bool deleteMemory(qint64) { return true; }
+    Q_INVOKABLE bool rememberNote(const QString&, const QString& = {}) { return true; }
+    Q_INVOKABLE qint64 activeUserId() const { return -1; }
+    Q_INVOKABLE void setActiveUserId(qint64) {}
+    Q_INVOKABLE QVariantList listUsers() const { return {}; }
     Q_INVOKABLE void spawnSurfaceDemo() {}
 
     // E2 personality write-API pass-throughs (report success; no-op).
@@ -788,6 +804,7 @@ int main(int argc, char* argv[]) {
         {"CamerasView.qml",       "04-cameras",      false},
         {"TaskQueueView.qml",     "05-tasks",        false},
         {"TimelineView.qml",      "06-timeline",     false},
+        {"MemoryView.qml",        "06b-memories",    false},
         {"ShoppingView.qml",      "07-shopping",     false},
         {"PersonalitiesView.qml", "08-personalities",false},
         {"PersonalityEditor.qml", "08b-personality-editor", false},  // E2 create-new state

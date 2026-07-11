@@ -7,14 +7,16 @@
 // page finishes loading. See docs/overhaul2/results/B3_contract.md for the
 // exact injection contract B2 (WebSurface.qml) implements against this file.
 //
-// Responsibilities (SponsorBlock-style segment skipping is explicitly OUT of
-// scope for B3 — Z-backlog):
+// Responsibilities:
 //   1. Inject CSS that hides 2026-era YouTube ad DOM (pre-roll/mid-roll
 //      overlays, in-feed/masthead/display ad slots, paid-promo panels).
 //   2. Auto-click "Skip Ad" buttons on a ~400ms interval.
 //   3. Mute the <video> element while an ad is showing; unmute afterwards.
 //   4. Work on both /watch pages and /embed/<id> pages.
-//   5. Be idempotent — safe to inject more than once (double-injection is
+//   5. SponsorBlock segment skip (Wave Z): fetch skipSegments and seek past
+//      sponsor/intro/selfpromo/interaction when video.sponsorblock is on
+//      (default). Set window.__pmSponsorBlock = false before inject to disable.
+//   6. Be idempotent — safe to inject more than once (double-injection is
 //      expected: onLoadingChanged fires per navigation, and YouTube's watch
 //      page is a SPA that soft-navigates without a full reload).
 //
@@ -30,6 +32,68 @@
   // second setInterval or append a second <style> block.
   if (window.__pmYtCleanInstalled) return;
   window.__pmYtCleanInstalled = true;
+
+  // SponsorBlock: default on unless host sets window.__pmSponsorBlock = false.
+  var sbEnabled = (window.__pmSponsorBlock !== false);
+  var sbSegments = [];   // [{start, end, category}, ...]
+  var sbVideoId = '';
+  var sbFetchInFlight = false;
+
+  function parseVideoId() {
+    try {
+      var u = new URL(location.href);
+      if (u.hostname.indexOf('youtu.be') >= 0) {
+        return (u.pathname || '').replace(/^\//, '').split('/')[0] || '';
+      }
+      var v = u.searchParams.get('v');
+      if (v) return v;
+      // /embed/VIDEOID or /shorts/VIDEOID
+      var m = (u.pathname || '').match(/\/(?:embed|shorts)\/([A-Za-z0-9_-]{6,})/);
+      return m ? m[1] : '';
+    } catch (e) { return ''; }
+  }
+
+  function fetchSponsorSegments(vid) {
+    if (!sbEnabled || !vid || sbFetchInFlight) return;
+    if (vid === sbVideoId && sbSegments.length) return;
+    sbFetchInFlight = true;
+    sbVideoId = vid;
+    sbSegments = [];
+    var cats = ['sponsor', 'intro', 'selfpromo', 'interaction', 'outro', 'preview', 'music_offtopic'];
+    var url = 'https://sponsor.ajay.app/api/skipSegments?videoID=' +
+              encodeURIComponent(vid) + '&categories=' +
+              encodeURIComponent(JSON.stringify(cats));
+    fetch(url, { method: 'GET', mode: 'cors', credentials: 'omit' })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (data) {
+        sbFetchInFlight = false;
+        if (!Array.isArray(data)) return;
+        sbSegments = data.map(function (s) {
+          var seg = s.segment || [];
+          return {
+            start: Number(seg[0]) || 0,
+            end: Number(seg[1]) || 0,
+            category: s.category || 'sponsor'
+          };
+        }).filter(function (s) { return s.end > s.start; });
+      })
+      .catch(function () { sbFetchInFlight = false; /* offline / CORS: ignore */ });
+  }
+
+  function skipSponsorSegments(video) {
+    if (!sbEnabled || !video || !sbSegments.length) return;
+    if (video.paused && !video.seeking) return; // only while playing-ish
+    var t = video.currentTime;
+    if (!isFinite(t)) return;
+    for (var i = 0; i < sbSegments.length; i++) {
+      var s = sbSegments[i];
+      // Enter segment (with small lead-in) → seek to end + 0.05s
+      if (t >= s.start && t < s.end - 0.05) {
+        try { video.currentTime = s.end + 0.05; } catch (e) {}
+        break;
+      }
+    }
+  }
 
   // --- 1. CSS: hide 2026 YouTube ad DOM ---------------------------------
   var AD_HIDE_CSS = [
@@ -123,6 +187,12 @@
       v.muted = false;
       v.__pmMutedForAd = false;
     }
+
+    // SponsorBlock: refresh segments on soft-nav video change; skip while playing.
+    var vid = parseVideoId();
+    if (vid && vid !== sbVideoId) fetchSponsorSegments(vid);
+    else if (vid && !sbSegments.length && !sbFetchInFlight) fetchSponsorSegments(vid);
+    if (!ad) skipSponsorSegments(v);
   }
 
   // ~400ms per the B3 spec — frequent enough to catch short skip-button

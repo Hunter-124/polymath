@@ -34,14 +34,26 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: Style.gap
-            PmButton {
-                text: "Add GGUF…"
-                onClicked: app.openModelsFolder()
-            }
             PmComboBox {
+                id: roleCombo
                 Layout.preferredWidth: 150
                 tone: Style.sectionColor("Models")
                 model: ["fast", "heavy", "vision", "embedding"]
+            }
+            PmButton {
+                text: "Add GGUF…"
+                onClicked: {
+                    // Prefer native picker (C++ QFileDialog); fall back to folder open.
+                    if (typeof app.pickAndAddModel === "function")
+                        app.pickAndAddModel(roleCombo.currentText || "fast")
+                    else
+                        app.openModelsFolder()
+                    root.reload()
+                }
+            }
+            PmButton {
+                text: "Open folder"
+                onClicked: app.openModelsFolder()
             }
             Item { Layout.fillWidth: true }
             PmButton {

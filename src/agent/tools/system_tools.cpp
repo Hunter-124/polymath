@@ -1,8 +1,12 @@
 #include "system_tools.h"
+#include "database.h"
 #include "logging.h"
+#include "paths.h"
 
 #include <QByteArray>
 #include <QClipboard>
+#include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -13,6 +17,7 @@
 #include <QStringList>
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -225,11 +230,68 @@ ToolResult FsReadTool::invoke(const nlohmann::json& args, ToolContext&) {
                       : "Read " + qToStd(path)};
 }
 
-// --- fs_write ---------------------------------------------------------------
+// --- fs_write / undo journal ------------------------------------------------
+
+namespace {
+
+constexpr int kUndoMaxEntries = 50;
+constexpr qint64 kUndoMaxAgeMs = 7LL * 24 * 3600 * 1000;
+
+// Copy existing file to data/undo/fs/ and index it when Database is available.
+std::string backupForOverwrite(const QString& path, ToolContext& ctx) {
+    if (!QFileInfo::exists(path) || !QFileInfo(path).isFile()) return {};
+    namespace fs = std::filesystem;
+    fs::path undoDir;
+    const auto& appRoot = Paths::instance().root();
+    if (!appRoot.empty())
+        undoDir = appRoot / "undo" / "fs";
+    else
+        undoDir = fs::temp_directory_path() / "polymath_undo_fs";
+    std::error_code ec;
+    fs::create_directories(undoDir, ec);
+
+    const QByteArray hash = QCryptographicHash::hash(
+        path.toUtf8(), QCryptographicHash::Sha1).toHex().left(16);
+    const qint64 ts = QDateTime::currentSecsSinceEpoch();
+    const QString leaf = QString::fromLatin1(hash) + QLatin1Char('-')
+                         + QString::number(ts) + QStringLiteral(".bak");
+    const QString bak = QString::fromStdString((undoDir / leaf.toStdString()).string());
+    if (!QFile::copy(path, bak)) return {};
+
+    const qint64 bytes = QFileInfo(bak).size();
+    if (ctx.db) {
+        ctx.db->exec(
+            "INSERT INTO fs_undo_journal(path,backup_path,bytes,ts) VALUES(?1,?2,?3,?4)",
+            {qToStd(QDir::fromNativeSeparators(path)), qToStd(QDir::fromNativeSeparators(bak)),
+             static_cast<int64_t>(bytes), static_cast<int64_t>(ts)});
+        // Prune: age + keep newest kUndoMaxEntries.
+        const qint64 cutoff = ts - (kUndoMaxAgeMs / 1000);
+        std::vector<std::pair<int64_t, std::string>> doomed;
+        ctx.db->query(
+            "SELECT id,backup_path FROM fs_undo_journal WHERE ts<?1",
+            {cutoff},
+            [&](const Row& r) { doomed.emplace_back(r.i64(0), r.text(1)); });
+        std::vector<std::pair<int64_t, std::string>> all;
+        ctx.db->query(
+            "SELECT id,backup_path FROM fs_undo_journal ORDER BY ts DESC",
+            {},
+            [&](const Row& r) { all.emplace_back(r.i64(0), r.text(1)); });
+        for (size_t i = static_cast<size_t>(kUndoMaxEntries); i < all.size(); ++i)
+            doomed.push_back(all[i]);
+        for (const auto& [rid, bpath] : doomed) {
+            QFile::remove(QString::fromStdString(bpath));
+            ctx.db->exec("DELETE FROM fs_undo_journal WHERE id=?1", {rid});
+        }
+    }
+    return qToStd(QDir::fromNativeSeparators(bak));
+}
+
+} // namespace
 
 std::string FsWriteTool::name() const { return "fs_write"; }
 std::string FsWriteTool::description() const {
     return "Write text to a file. mode: create (fail if exists), overwrite, or append. "
+           "Overwrite of an existing file saves a backup (fs_undo can restore). "
            "Example: {\"path\":\"C:/Users/Me/Desktop/hi.txt\",\"content\":\"hello\","
            "\"mode\":\"create\"}";
 }
@@ -247,7 +309,7 @@ nlohmann::json FsWriteTool::parametersSchema() const {
     };
 }
 
-ToolResult FsWriteTool::invoke(const nlohmann::json& args, ToolContext&) {
+ToolResult FsWriteTool::invoke(const nlohmann::json& args, ToolContext& ctx) {
     const std::string raw = args.value("path", "");
     if (raw.empty())
         return {false, {{"error", "path required"}}, "fs_write: missing path"};
@@ -284,6 +346,10 @@ ToolResult FsWriteTool::invoke(const nlohmann::json& args, ToolContext&) {
                     "fs_write: mkpath failed: " + qToStd(parent)};
     }
 
+    std::string backup;
+    if (mode == "overwrite" && exists && fi.isFile())
+        backup = backupForOverwrite(path, ctx);
+
     QIODevice::OpenMode flags = QIODevice::WriteOnly;
     if (mode == "append")
         flags = QIODevice::WriteOnly | QIODevice::Append;
@@ -303,12 +369,70 @@ ToolResult FsWriteTool::invoke(const nlohmann::json& args, ToolContext&) {
                 "fs_write: short write to " + qToStd(path)};
 
     PM_INFO("fs_write: {} bytes mode={} path={}", n, mode, qToStd(path));
-    return {true,
-            {{"path", qToStd(path)},
-             {"mode", mode},
-             {"bytes", static_cast<int64_t>(n)},
-             {"created", !exists && mode != "append"}},
+    nlohmann::json data = {
+        {"path", qToStd(path)},
+        {"mode", mode},
+        {"bytes", static_cast<int64_t>(n)},
+        {"created", !exists && mode != "append"},
+    };
+    if (!backup.empty()) data["backup"] = backup;
+    return {true, data,
             "Wrote " + std::to_string(n) + " bytes (" + mode + ") to " + qToStd(path)};
+}
+
+std::string FsUndoTool::name() const { return "fs_undo"; }
+std::string FsUndoTool::description() const {
+    return "Restore the most recent fs_write overwrite backup for a path. "
+           "Example: {\"path\":\"C:/Users/Me/Desktop/hi.txt\"}";
+}
+
+nlohmann::json FsUndoTool::parametersSchema() const {
+    return {
+        {"type", "object"},
+        {"properties", {
+            {"path", {{"type", "string"},
+                      {"description", "File path to restore (uses latest journal entry)"}}},
+        }},
+        {"required", {"path"}},
+    };
+}
+
+ToolResult FsUndoTool::invoke(const nlohmann::json& args, ToolContext& ctx) {
+    const std::string raw = args.value("path", "");
+    if (raw.empty())
+        return {false, {{"error", "path required"}}, "fs_undo: missing path"};
+    if (!ctx.db)
+        return {false, {{"error", "database unavailable"}}, "fs_undo: no db"};
+
+    const QString path = QDir::fromNativeSeparators(normalizePath(raw));
+    int64_t id = 0;
+    std::string bak;
+    ctx.db->query(
+        "SELECT id,backup_path FROM fs_undo_journal WHERE path=?1 OR path=?2 "
+        "ORDER BY ts DESC LIMIT 1",
+        {qToStd(path), qToStd(normalizePath(raw))},
+        [&](const Row& r) {
+            id = r.i64(0);
+            bak = r.text(1);
+        });
+    if (id == 0 || bak.empty())
+        return {false, {{"error", "no backup for path"}, {"path", qToStd(path)}},
+                "fs_undo: nothing to restore for " + qToStd(path)};
+    if (!QFileInfo::exists(QString::fromStdString(bak)))
+        return {false, {{"error", "backup file missing"}, {"backup", bak}},
+                "fs_undo: backup missing"};
+
+    // Overwrite current with backup.
+    QFile::remove(path);
+    if (!QFile::copy(QString::fromStdString(bak), path))
+        return {false, {{"error", "restore copy failed"}, {"path", qToStd(path)}},
+                "fs_undo: copy failed"};
+
+    ctx.db->exec("DELETE FROM fs_undo_journal WHERE id=?1", {id});
+    PM_INFO("fs_undo: restored {} from {}", qToStd(path), bak);
+    return {true,
+            {{"path", qToStd(path)}, {"backup", bak}, {"restored", true}},
+            "Restored " + qToStd(path)};
 }
 
 // --- fs_move ----------------------------------------------------------------

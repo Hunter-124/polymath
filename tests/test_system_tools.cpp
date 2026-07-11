@@ -7,6 +7,8 @@
 
 #include "tool_registry.h"
 #include "tools/system_tools.h"
+#include "database.h"
+#include "paths.h"
 
 #include <QGuiApplication>
 #include <QClipboard>
@@ -46,10 +48,10 @@ int main(int argc, char** argv) {
     {
         ToolRegistry reg;
         registerBuiltinTools(reg);
-        for (const char* n : {"fs_list", "fs_read", "fs_write", "fs_move", "fs_delete",
+        for (const char* n : {"fs_list", "fs_read", "fs_write", "fs_undo", "fs_move", "fs_delete",
                               "run_command", "app_launch", "clipboard_read",
                               "clipboard_write"}) {
-            assert(reg.get(n) != nullptr && "missing C2 tool");
+            assert(reg.get(n) != nullptr && "missing C2/Z tool");
         }
         assert(reg.riskOf("fs_list") == ToolRiskClass::Read);
         assert(reg.riskOf("fs_read") == ToolRiskClass::Read);
@@ -109,16 +111,30 @@ int main(int argc, char** argv) {
         std::puts("  fs_write append OK");
     }
 
-    // --- fs_write overwrite -------------------------------------------------
+    // --- fs_write overwrite + fs_undo ---------------------------------------
     {
+        Paths::instance().setRoot(root);
+        const auto dbPath = root / "undo_test.db";
+        Database db;
+        assert(db.open(dbPath.string()) && "open undo test db");
+        ToolContext uctx;
+        uctx.db = &db;
+
         const std::string path = join(root, "hello.txt");
         auto o = write.invoke({{"path", path},
                                {"content", "reset"},
-                               {"mode", "overwrite"}}, ctx);
+                               {"mode", "overwrite"}}, uctx);
         assert(o.ok);
-        auto r = read.invoke({{"path", path}}, ctx);
+        assert(o.content.contains("backup") && "overwrite should journal backup");
+        auto r = read.invoke({{"path", path}}, uctx);
         assert(r.ok && r.content.value("content", "") == "reset");
-        std::puts("  fs_write overwrite OK");
+
+        FsUndoTool undo;
+        auto u = undo.invoke({{"path", path}}, uctx);
+        assert(u.ok && "fs_undo should restore");
+        auto r2 = read.invoke({{"path", path}}, uctx);
+        assert(r2.ok && r2.content.value("content", "") == "hello polymath!");
+        std::puts("  fs_write overwrite + fs_undo OK");
     }
 
     // --- fs_list ------------------------------------------------------------

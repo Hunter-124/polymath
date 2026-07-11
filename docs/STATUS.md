@@ -1,8 +1,7 @@
 # Build status
 
-**Overhaul 2 → v0.3.0** (waves A–F). Master plan: [`docs/overhaul2/00_MASTER_PLAN.md`](overhaul2/00_MASTER_PLAN.md).
-DAG: [`docs/overhaul2/01_DAG.md`](overhaul2/01_DAG.md). Ledger: [`docs/overhaul2/PROGRESS.md`](overhaul2/PROGRESS.md).
-Handoff cursor: [`docs/overhaul2/HANDOFF.md`](overhaul2/HANDOFF.md).
+**Overhaul 2 → v0.3.0** + **Wave Z → v0.3.1**. Master plan: [`docs/overhaul2/00_MASTER_PLAN.md`](overhaul2/00_MASTER_PLAN.md).
+Wave Z ledger: [`docs/overhaul2/PROGRESS_Z.md`](overhaul2/PROGRESS_Z.md). Handoff: [`docs/overhaul2/HANDOFF.md`](overhaul2/HANDOFF.md).
 
 Hardware truth and resource budget: [`docs/overhaul/04_VOICE_RESOURCES.md`](overhaul/04_VOICE_RESOURCES.md) §1.
 
@@ -27,6 +26,8 @@ Steady-state VRAM budget (Fast @ 4096 ctx + q8 KV + Embedding + OS) ≈ **5.7–
 | GPU tree (CUDA arch 75) | ✅ green | `scripts/build-gpu.ps1` → `build/cuda`; sm_75, `ggml-cuda` |
 | F2 live e2e | ✅ green | youtube_search ×3 + skill chains + Kokoro af_heart/af_sky (`f2_youtube_tts`) |
 | F3 tag + installer | ✅ green | tag `v0.3.0-overhaul2`; `Polymath-0.3.0-win64-cuda-Setup.exe` via ISCC |
+| Wave Z (residual + backlog) | ✅ green | LICENSE, undo journal, browser allowlist, SponsorBlock, Memory UI, calendar/inbox tools, sign/smoke scripts; **45** tools; tag `v0.3.1-wavez` |
+| Wave Z installer | ✅ green | `Polymath-0.3.1-win64-cuda-Setup.exe` (unsigned; `scripts/sign-release.ps1` ready) |
 
 ## Build recipes
 
@@ -54,7 +55,8 @@ pwsh scripts/build-gpu.ps1 -Arch 75   # → build/cuda/bin/Polymath.exe
 | **Advisor** | Advisor persona + daily_briefing / standup / project_review / session_digest skills |
 | **GUI** | Chat select+scroll; personalities editor; NoteSurface + research boards; window takeover (present/Esc/pill); copy polish |
 | **TTS v2** | engine/voice/speed config + Settings Voice; default `af_heart` |
-| **Tools** | **42** registered tools |
+| **Tools** | **45** registered tools (+ `fs_undo`, `calendar_read`, `inbox_notes`) |
+| **Wave Z** | MIT LICENSE; GGUF picker; fs undo; browser allowlist; SponsorBlock; MemoryView; identity.active_user_id; sign-release + smoke-install scripts |
 
 ## Tests (CPU Release, serial)
 

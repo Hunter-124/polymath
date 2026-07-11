@@ -41,6 +41,12 @@ std::string toLower(std::string s) {
     return s;
 }
 
+// Wave Z: household user for memory namespaces (set by UI / face match).
+int64_t activeUserFromDb(Database& db) {
+    const std::string auid = db.getSetting(keys::ActiveUserId, "-1");
+    try { return std::stoll(auid); } catch (...) { return -1; }
+}
+
 bool containsAny(const std::string& hay, std::initializer_list<const char*> needles) {
     for (const char* n : needles) {
         if (hay.find(n) != std::string::npos) return true;
@@ -1013,7 +1019,7 @@ std::string AgentLoop::sanitizeFinalAnswer(const std::string& raw,
             tctx.inference = &inf_;
             tctx.db = &db_;
             tctx.memory = memory_;
-            tctx.active_user_id = -1;
+            tctx.active_user_id = activeUserFromDb(db_);
             tctx.active_personality = persona.name;
             ToolResult result = dispatchToolChecked(tool, args, tctx);
             const std::string resultJson = compactToolResult(result.content.dump());
@@ -1373,7 +1379,7 @@ std::string AgentLoop::runQuick(const std::string& user_text,
         tctx.inference = &inf_;
         tctx.db = &db_;
         tctx.memory = memory_;
-        tctx.active_user_id = -1;
+        tctx.active_user_id = activeUserFromDb(db_);
         tctx.active_personality = persona.name;
         ToolResult result = dispatchToolChecked(tool, args, tctx);
         ++toolCalls;
@@ -1941,7 +1947,7 @@ bool AgentLoop::dispatchToolStep(GoalRec& goal, PlanStepRec& step,
     tctx.inference = &inf_;
     tctx.db = &db_;
     tctx.memory = memory_;
-    tctx.active_user_id = -1;
+    tctx.active_user_id = activeUserFromDb(db_);
     tctx.active_personality = persona.name;
 
     ToolResult result;
@@ -2106,7 +2112,7 @@ bool AgentLoop::dispatchAgentSessionStep(GoalRec& goal, PlanStepRec& step) {
         tctx.inference = &inf_;
         tctx.db = &db_;
         tctx.memory = memory_;
-        tctx.active_user_id = -1;
+        tctx.active_user_id = activeUserFromDb(db_);
         ToolResult res = dispatchToolChecked("agent_spawn", spawnArgs, tctx);
         if (res.ok && res.content.is_object() && res.content.contains("session_id"))
             session_id = res.content.value("session_id", "");

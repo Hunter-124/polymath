@@ -10,7 +10,8 @@ namespace polymath {
 // v4: goals.parent_id + join_policy (overhaul2 D2 — goal-tree orchestration).
 //     Existing DBs pick up the columns via AgentLoop::ensureGoalTreeColumns()
 //     (PRAGMA table_info + ALTER TABLE ADD COLUMN); CREATE below covers fresh DBs.
-inline constexpr int kSchemaVersion = 4;
+// v5: fs_undo_journal (Wave Z — content backup before fs_write overwrite).
+inline constexpr int kSchemaVersion = 5;
 
 inline constexpr const char* kSchemaSQL = R"SQL(
 PRAGMA journal_mode = WAL;
@@ -195,6 +196,17 @@ CREATE TABLE IF NOT EXISTS scheduled_goals (
     created_at    INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_scheduled_goals_next_fire ON scheduled_goals(next_fire);
+
+-- Wave Z: pre-overwrite backups for fs_write (content-addressed under data/undo/fs/)
+CREATE TABLE IF NOT EXISTS fs_undo_journal (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    path          TEXT NOT NULL,            -- absolute path that was overwritten
+    backup_path   TEXT NOT NULL,            -- copy under data/undo/fs/
+    bytes         INTEGER DEFAULT 0,
+    ts            INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fs_undo_path ON fs_undo_journal(path);
+CREATE INDEX IF NOT EXISTS idx_fs_undo_ts ON fs_undo_journal(ts);
 )SQL";
 
 } // namespace polymath

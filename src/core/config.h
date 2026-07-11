@@ -87,6 +87,22 @@ namespace keys {
     // confirm dialog's "Always allow this tool". Deny (path/cmd/write-cap) still
     // wins — overrides only skip the risk/mode Confirm gate.
     inline constexpr const char* SafetyToolOverrides   = "safety.tool_overrides";
+
+    // Wave Z: browser_drive host allowlist (';'-separated hosts; empty = open).
+    inline constexpr const char* BrowserAllowlist      = "browser.allowlist";
+    // When true (default), file:// navigations are denied for browser_drive.
+    inline constexpr const char* BrowserBlockFile      = "browser.block_file";
+    // YouTube SponsorBlock segment skip (YtClean).
+    inline constexpr const char* VideoSponsorBlock     = "video.sponsorblock";
+    // Local .ics paths for advisor calendar_read (';'-separated).
+    inline constexpr const char* AdvisorCalendarPaths  = "advisor.calendar_paths";
+    // Local drop folder for inbox_notes (.eml/.txt).
+    inline constexpr const char* AdvisorInboxDir       = "advisor.inbox_dir";
+    // Opt-in update check URL (JSON: version, url, sha256).
+    inline constexpr const char* UpdatesEnabled        = "updates.enabled";
+    inline constexpr const char* UpdatesCheckUrl       = "updates.check_url";
+    // Wave Z: face-matched household user (-1 or empty = shared).
+    inline constexpr const char* ActiveUserId          = "identity.active_user_id";
 }
 
 class Config {

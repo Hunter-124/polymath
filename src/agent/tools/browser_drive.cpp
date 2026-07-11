@@ -1,4 +1,6 @@
 #include "browser_drive.h"
+#include "config.h"
+#include "database.h"
 #include "event_bus.h"
 #include "logging.h"
 #include "paths.h"
@@ -18,6 +20,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -595,7 +598,55 @@ nlohmann::json BrowserDriveTool::parametersSchema() const {
     };
 }
 
-ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext&) {
+namespace {
+
+// Extract host from http(s) URL for allowlist checks (lowercase, no port).
+std::string urlHost(const std::string& url) {
+    auto schemeEnd = url.find("://");
+    if (schemeEnd == std::string::npos) return {};
+    size_t start = schemeEnd + 3;
+    size_t end = url.find_first_of("/?#", start);
+    std::string hostport = (end == std::string::npos) ? url.substr(start)
+                                                      : url.substr(start, end - start);
+    auto colon = hostport.rfind(':');
+    // IPv6 [::1]:port is rare here; strip simple :port for hostnames.
+    if (colon != std::string::npos && hostport.find(']') == std::string::npos)
+        hostport = hostport.substr(0, colon);
+    for (char& c : hostport) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return hostport;
+}
+
+bool hostAllowed(const std::string& host, const std::string& allowlistCsv) {
+    if (allowlistCsv.empty()) return true;  // empty = open mode
+    if (host.empty()) return false;
+    // Split on ';'
+    size_t i = 0;
+    while (i < allowlistCsv.size()) {
+        size_t j = allowlistCsv.find(';', i);
+        if (j == std::string::npos) j = allowlistCsv.size();
+        std::string entry = allowlistCsv.substr(i, j - i);
+        // trim spaces
+        while (!entry.empty() && (entry.front() == ' ' || entry.front() == '\t'))
+            entry.erase(entry.begin());
+        while (!entry.empty() && (entry.back() == ' ' || entry.back() == '\t'))
+            entry.pop_back();
+        for (char& c : entry) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (!entry.empty()) {
+            if (host == entry) return true;
+            // suffix match: allowlist "example.com" matches "www.example.com"
+            if (host.size() > entry.size() + 1 &&
+                host.compare(host.size() - entry.size(), entry.size(), entry) == 0 &&
+                host[host.size() - entry.size() - 1] == '.')
+                return true;
+        }
+        i = j + 1;
+    }
+    return false;
+}
+
+} // namespace
+
+ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext& ctx) {
     const bool close_after = args.value("close", false);
     const bool reuse = args.value("reuse", true);
     const bool want_shot = args.value("screenshot", true);
@@ -603,7 +654,7 @@ ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext&) {
     const std::string session_key = args.value("session", std::string{"default"});
     const std::string url = args.value("url", "");
 
-    // close-only: tear down without navigating.
+    // close-only: tear down without navigating (also wipes profile temp dir).
     if (close_after && url.empty() && !args.contains("click") && !args.contains("type_into")) {
         std::lock_guard<std::mutex> lock(g_browser_mu);
         auto it = g_browsers.find(session_key);
@@ -611,7 +662,14 @@ ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext&) {
             it->second->teardown();
             g_browsers.erase(it);
         }
-        return {true, {{"closed", true}, {"session", session_key}},
+        // Optional durable session profile wipe under data/browser/<session>
+        try {
+            namespace fs = std::filesystem;
+            const fs::path prof = Paths::instance().root() / "browser" / session_key;
+            std::error_code ec;
+            if (fs::exists(prof, ec)) fs::remove_all(prof, ec);
+        } catch (...) {}
+        return {true, {{"closed", true}, {"session", session_key}, {"profile_wiped", true}},
                 "browser_drive: closed session " + session_key};
     }
 
@@ -623,6 +681,32 @@ ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext&) {
         url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0 &&
         url.rfind("file://", 0) != 0)
         return {false, {{"error", "url must be http(s)/file"}}, "browser_drive: bad url"};
+
+    // Wave Z: block_file + host allowlist (settings via Database when present).
+    if (!url.empty()) {
+        // With a live DB, default block file:// (seeded "1"). Tests without a DB
+        // stay open so CDP round-trips using file:// fixtures still work.
+        bool blockFile = false;
+        std::string allowlist;
+        if (ctx.db) {
+            blockFile = ctx.db->getSetting(keys::BrowserBlockFile, "1") != "0";
+            allowlist = ctx.db->getSetting(keys::BrowserAllowlist, "");
+        }
+        if (blockFile && url.rfind("file://", 0) == 0)
+            return {false,
+                    {{"error", "file:// blocked by browser.block_file"},
+                     {"url", url}},
+                    "browser_drive: file:// denied"};
+        if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
+            const std::string host = urlHost(url);
+            if (!hostAllowed(host, allowlist))
+                return {false,
+                        {{"error", "host not in browser.allowlist"},
+                         {"host", host},
+                         {"allowlist", allowlist}},
+                        "browser_drive: host denied: " + host};
+        }
+    }
 
     size_t max_chars = static_cast<size_t>(args.value("max_chars", 6000));
     if (max_chars == 0 || max_chars > 64000) max_chars = 6000;

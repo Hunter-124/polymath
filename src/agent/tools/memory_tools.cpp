@@ -40,13 +40,25 @@ std::vector<std::string> tokenize(const std::string& q) {
 // Keyword-scored recall: rank recent memories by how many query tokens they
 // contain (fallback when MemoryService / embedder is unavailable).
 nlohmann::json keywordRecall(Database& db, const std::string& query, int k,
-                             const std::string& kindFilter) {
+                             const std::string& kindFilter,
+                             int64_t userId = -1) {
     const auto tokens = tokenize(query);
 
     // Pull a bounded candidate window (most recent first), then score in-memory.
-    std::string sql = "SELECT id,kind,text,source,ts FROM memories";
+    // Wave Z: when userId >= 0 include that user's rows + shared (NULL/-1).
+    std::string sql = "SELECT id,kind,text,source,ts,user_id FROM memories";
     std::vector<nlohmann::json> params;
-    if (!kindFilter.empty()) { sql += " WHERE kind=?1"; params.push_back(kindFilter); }
+    if (!kindFilter.empty() && userId >= 0) {
+        sql += " WHERE kind=?1 AND (user_id IS NULL OR user_id=-1 OR user_id=?2)";
+        params.push_back(kindFilter);
+        params.push_back(userId);
+    } else if (!kindFilter.empty()) {
+        sql += " WHERE kind=?1";
+        params.push_back(kindFilter);
+    } else if (userId >= 0) {
+        sql += " WHERE (user_id IS NULL OR user_id=-1 OR user_id=?1)";
+        params.push_back(userId);
+    }
     sql += " ORDER BY ts DESC LIMIT 500";
 
     struct Cand { int64_t id; std::string kind, text, source; int64_t ts; int score; };
@@ -206,7 +218,7 @@ ToolResult RecallTool::invoke(const nlohmann::json& args, ToolContext& ctx) {
 
     // Keyword fallback when embedder/index is unavailable or returned nothing.
     if (hits.empty() && ctx.db)
-        hits = keywordRecall(*ctx.db, query, k, /*kindFilter*/ "");
+        hits = keywordRecall(*ctx.db, query, k, /*kindFilter*/ "", ctx.active_user_id);
 
     const size_t n = hits.size();
     nlohmann::json content = {{"query", query}, {"memories", std::move(hits)}};
@@ -255,7 +267,7 @@ ToolResult SearchMemoryTool::invoke(const nlohmann::json& args, ToolContext& ctx
     }
 
     if (hits.empty() && ctx.db)
-        hits = keywordRecall(*ctx.db, query, k, kind);
+        hits = keywordRecall(*ctx.db, query, k, kind, ctx.active_user_id);
 
     const size_t n = hits.size();
     nlohmann::json content = {{"query", query}, {"kind", kind}, {"results", std::move(hits)}};

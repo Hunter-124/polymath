@@ -167,12 +167,24 @@ public:
     // (fast|heavy|vision|embedding). Validates the path exists; returns false and
     // posts a notice on bad input. Triggers a registry reload + models refresh.
     Q_INVOKABLE bool addModel(const QString& path, const QString& role);
+    // Native file picker (C++ QFileDialog — no QtQuick.Dialogs deploy dep) then
+    // addModel. Returns true if a file was chosen and registered.
+    Q_INVOKABLE bool pickAndAddModel(const QString& role);
     // Reassign an existing model's role (backs the role ComboBox). Reloads the
     // registry and refreshes the Model Manager list.
     Q_INVOKABLE void setModelRole(const QString& id, const QString& role);
     // Persist that the first-run flow has been acknowledged (hides the first-run
     // opt-in banner from then on, even before any model is added).
     Q_INVOKABLE void completeFirstRun();
+
+    // Wave Z: Memory dashboard (browse/search/delete long-term memories table).
+    Q_INVOKABLE QVariantList listMemories(const QString& query = QString(), int limit = 100) const;
+    Q_INVOKABLE bool deleteMemory(qint64 id);
+    Q_INVOKABLE bool rememberNote(const QString& text, const QString& kind = QStringLiteral("note"));
+    // Active household user for memory namespaces (-1 = none / shared).
+    Q_INVOKABLE qint64 activeUserId() const { return active_user_id_; }
+    Q_INVOKABLE void setActiveUserId(qint64 id);
+    Q_INVOKABLE QVariantList listUsers() const;
 
     // Dev/demo: publish a placeholder SurfaceRequest (bus → surfaceRequested).
     Q_INVOKABLE void spawnSurfaceDemo();
@@ -189,6 +201,8 @@ signals:
     void activePersonalityChanged();
     void modelStatusChanged();
     void modelsChanged();      // model registry changed (add/role/load-state)
+    void memoriesChanged();    // Wave Z Memory dashboard
+    void activeUserChanged();
     void firstRunChanged();    // first-run state changed (model added / acknowledged)
     void assistantToken(QString request_id, QString text, bool done);  // -> chat view
     void noticePosted(QString level, QString source, QString message); // -> toasts/log
@@ -271,6 +285,8 @@ private:
     QString model_status_ = "no model loaded";
     int     vram_used_mib_ = 0;
     int     vram_total_mib_ = 0;
+    // Wave Z: face-matched household user for memory namespaces (-1 = shared).
+    qint64  active_user_id_ = -1;
     // C1: ConfirmRequest id → tool name (for always-allow override writes).
     QHash<QString, QString> pending_confirm_tools_;
 };

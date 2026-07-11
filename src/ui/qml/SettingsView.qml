@@ -62,6 +62,10 @@ Item {
     property string safetyDenylist: settings.getString("safety.cmd_denylist", "")
     property string safetyToolOverrides: settings.getString("safety.tool_overrides", "")
     property string safetyRootDraft: ""
+    // Wave Z: browser + video
+    property string browserAllowlist: settings.getString("browser.allowlist", "")
+    property bool browserBlockFile: settings.getBool("browser.block_file", true)
+    property bool videoSponsorBlock: settings.getBool("video.sponsorblock", true)
 
     property var inputDevices: []
     property var outputDevices: []
@@ -979,6 +983,56 @@ Item {
                                     font.family: Style.fontFamily
                                     font.pixelSize: Style.fsTiny
                                     wrapMode: Text.WrapAnywhere
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: "Browser allowlist (';'-separated hosts; empty = open)"
+                            color: Style.textDim
+                            font.family: Style.fontFamily
+                            font.pixelSize: Style.fsSmall
+                        }
+                        PmTextField {
+                            Layout.fillWidth: true
+                            text: root.browserAllowlist
+                            placeholderText: "e.g. youtube.com;github.com"
+                            onEditingFinished: {
+                                root.browserAllowlist = text
+                                settings.setString("browser.allowlist", text)
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                Layout.fillWidth: true
+                                text: "Block file:// in browser_drive"
+                                color: Style.text
+                                font.family: Style.fontFamily
+                                font.pixelSize: Style.fsBody
+                            }
+                            PmSwitch {
+                                checked: root.browserBlockFile
+                                onToggled: {
+                                    root.browserBlockFile = checked
+                                    settings.setBool("browser.block_file", checked)
+                                }
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                Layout.fillWidth: true
+                                text: "YouTube SponsorBlock skip"
+                                color: Style.text
+                                font.family: Style.fontFamily
+                                font.pixelSize: Style.fsBody
+                            }
+                            PmSwitch {
+                                checked: root.videoSponsorBlock
+                                onToggled: {
+                                    root.videoSponsorBlock = checked
+                                    settings.setBool("video.sponsorblock", checked)
                                 }
                             }
                         }

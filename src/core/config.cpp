@@ -86,6 +86,15 @@ void Config::seedDefaults() {
         {keys::SafetyAudit,              "1"},
         // C1: per-tool "always allow" list (written by ConfirmDialog Always allow).
         {keys::SafetyToolOverrides,      ""},
+        // Wave Z
+        {keys::BrowserAllowlist,         ""},
+        {keys::BrowserBlockFile,         "1"},
+        {keys::VideoSponsorBlock,        "1"},
+        {keys::AdvisorCalendarPaths,     ""},
+        {keys::AdvisorInboxDir,          ""},
+        {keys::UpdatesEnabled,           "0"},
+        {keys::UpdatesCheckUrl,          ""},
+        {keys::ActiveUserId,             "-1"},
     };
     // INSERT OR IGNORE seeds only missing keys (never clobbers user changes),
     // since settings.key is the PRIMARY KEY.

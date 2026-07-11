@@ -53,7 +53,7 @@
 ; ============================================================================
 
 #ifndef AppVersion
-  #define AppVersion "0.3.0"
+  #define AppVersion "0.3.1"
 #endif
 #ifndef Flavor
   #define Flavor "cuda"

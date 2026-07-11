@@ -38,6 +38,15 @@ public:
     ToolResult invoke(const nlohmann::json& args, ToolContext& ctx) override;
 };
 
+// Restore last fs_write overwrite backup for a path (Wave Z undo journal).
+class FsUndoTool : public ITool {
+public:
+    std::string name() const override;
+    std::string description() const override;
+    nlohmann::json parametersSchema() const override;
+    ToolResult invoke(const nlohmann::json& args, ToolContext& ctx) override;
+};
+
 class FsMoveTool : public ITool {
 public:
     std::string name() const override;

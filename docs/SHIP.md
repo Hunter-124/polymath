@@ -44,25 +44,25 @@ Models: minimal set (Fast + whisper + embeddings ≈ a few GB) vs full (~28 GB) 
 
 ## Residual gaps / honest TODOs ⏳
 
-1. **Code signing.** Installers ship **unsigned** → SmartScreen warns on first download. Procedure is
-   documented in `PACKAGING.md`; needs an Authenticode/EV cert.
-2. **Clean-VM smoke.** Install→first-run→model-fetch was validated by simulation (extract-and-run,
-   silent per-user install) on the dev box, **not** on a pristine Windows image. Do one clean Win10/11
-   VM pass before a public release (SmartScreen, no-VC++-redist, ISCC signing).
-3. **GPU perception.** YOLO/SCRFD/ArcFace run on **CPU** by design (we ship the CPU ONNX Runtime;
-   `error 126` on `onnxruntime_providers_shared.dll` is the expected CPU fallback). Drop in the CUDA ORT
-   package to accelerate; the code already requests the CUDA EP and falls back cleanly. llama/whisper are
-   CUDA-accelerated.
-4. **Heavy 27B on 12 GB.** Gemma 3 27B partial-offloads (VRAM budgeter trims layers) → correct but slow
-   on a 12 GB card. A 12–14B Heavy fits far more.
-5. **"Add GGUF…" file picker.** Opens the models folder (drop file + Refresh) because `QtQuick.Dialogs`
-   isn't in the deployed Qt kit; `addModel(path, role)` is the live backing API. Add the module for a
-   native picker.
-6. **Optional Qt6::WebSockets** for `browser_drive` (currently a minimal RFC6455 client on `QTcpSocket`,
-   fully working — no new dependency needed).
-7. **Cosmetic.** Benign startup `UNIQUE constraint failed: models.id` warnings from model auto-register
-   (registry ends correct); `windeployqt` "VCINSTALLDIR not set" warning (deploy still completes).
-8. **License.** No `LICENSE` file yet — pick one before opening the repo widely (defaults to all-rights-reserved).
+1. **Code signing execution.** Installers still ship **unsigned** until you supply a cert.
+   Script ready: `scripts/sign-release.ps1` (supports `-DryRun`, `-Pfx`, `-Thumbprint`). Procedure in
+   `PACKAGING.md` + `polymath.iss` header.
+2. **Clean-VM smoke (pristine image).** Dev-box silent install script: `scripts/smoke-install.ps1`.
+   Still recommend one pass on a clean Win10/11 VM before a public download page.
+3. **GPU ORT redistributable (optional).** YOLO/SCRFD already request CUDA EP and fall back to CPU.
+   Shipping the CUDA ORT package is optional packaging; llama/whisper remain CUDA-accelerated.
+4. **Heavy 27B on 8 GB.** Partial-offload is correct but slow; prefer a smaller Heavy on this machine.
+
+### Closed in Wave Z (v0.3.1)
+- MIT `LICENSE` + `THIRD_PARTY_NOTICES.md`
+- GGUF native picker (`pickAndAddModel`)
+- models.id UNIQUE spam quieted
+- `fs_write` undo journal + `fs_undo`
+- `browser_drive` allowlist + block_file + session wipe
+- SponsorBlock in `YtClean.js`
+- Desktop Memory dashboard
+- `calendar_read` / `inbox_notes` (local files only)
+- identity.active_user_id for memory namespaces
 
 ## First-run leftover
 

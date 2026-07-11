@@ -29,6 +29,7 @@ qt_add_qml_module(pm_ui
         qml/CamerasView.qml
         qml/TaskQueueView.qml
         qml/TimelineView.qml
+        qml/MemoryView.qml
         qml/ShoppingView.qml
         qml/PersonalitiesView.qml
         qml/PersonalityEditor.qml

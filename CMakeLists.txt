@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.25)
-project(Polymath VERSION 0.3.0 LANGUAGES C CXX)   # C: sqlite3 amalgamation + ggml
+﻿cmake_minimum_required(VERSION 3.25)
+project(Polymath VERSION 0.3.1 LANGUAGES C CXX)   # C: sqlite3 amalgamation + ggml
 
 # ---------------------------------------------------------------------------
 # Global settings
@@ -18,13 +18,13 @@ if(MSVC)
   # Gate every MSVC "/flag" with $<COMPILE_LANGUAGE> so it reaches C/C++ but NOT CUDA:
   # CMake forwards COMPILE_OPTIONS verbatim to nvcc (no -Xcompiler wrap), and a raw
   # "/flag" makes nvcc abort ("nvcc fatal: A single input file is required for a
-  # non-link phase..." — it misparses the /flag as an input file).
+  # non-link phase..." â€” it misparses the /flag as an input file).
   #
   # /Zc:char8_t- keeps u8"" literals as const char* for any C++20 translation unit. It
   # is added via add_compile_options (NOT CMAKE_CXX_FLAGS) on purpose: COMPILE_OPTIONS
   # are emitted *after* the /std:c++NN flag, and since /std:c++20 re-enables char8_t the
   # later flag must win. (The vendored engines dodge char8_t entirely by building at
-  # C++17 — see the CMAKE_CXX_STANDARD scope around add_subdirectory(third_party) below.)
+  # C++17 â€” see the CMAKE_CXX_STANDARD scope around add_subdirectory(third_party) below.)
   add_compile_options(
     "$<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>"
     "$<$<COMPILE_LANGUAGE:C,CXX>:/MP>"
@@ -41,19 +41,19 @@ qt_standard_project_setup(REQUIRES 6.5)
 
 find_package(OpenCV CONFIG REQUIRED)
 # sqlite3 is vendored (amalgamation, static) in third_party/ and exposed as the
-# aliased target unofficial::sqlite3::sqlite3 — avoids the vcpkg sqlite3 DLL.
+# aliased target unofficial::sqlite3::sqlite3 â€” avoids the vcpkg sqlite3 DLL.
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 
-# ONNX Runtime (GPU) — prebuilt package located via POLYMATH_ONNXRUNTIME_ROOT.
+# ONNX Runtime (GPU) â€” prebuilt package located via POLYMATH_ONNXRUNTIME_ROOT.
 # Wrapped in cmake/FindONNXRuntime.cmake (created in Wave 0) into target onnxruntime::onnxruntime.
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 find_package(ONNXRuntime REQUIRED)
 
 # Vendored native inference engines (built with CUDA when POLYMATH_USE_CUDA=ON).
 # Build them at their native C++17. ggml already pins 17 ("don't bump"), but llama's
-# src/ + common/ and whisper otherwise inherit our global C++20 — which enables char8_t
+# src/ + common/ and whisper otherwise inherit our global C++20 â€” which enables char8_t
 # and splits the llama tree irreconcilably: llama-chat.cpp passes u8"" literals where a
 # const char* is wanted (needs char8_t OFF) while common/vendor/nlohmann/json.hpp uses
 # std::u8string (needs char8_t ON). C++17 has no char8_t, so neither path triggers.

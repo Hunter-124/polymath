@@ -18,6 +18,7 @@
 #include "system_tools.h"
 #include "screen_tools.h"
 #include "orchestration_tools.h"
+#include "advisor_tools.h"
 #include "skills/skill_registry.h"
 #include "paths.h"
 #include "logging.h"
@@ -148,6 +149,7 @@ void registerBuiltinTools(ToolRegistry& reg, BuiltinToolDeps deps) {
     reg.add(std::make_shared<FsReadTool>(),             ToolRiskClass::Read);
     reg.add(std::make_shared<ClipboardReadTool>(),      ToolRiskClass::Read);
     reg.add(std::make_shared<FsWriteTool>(),            ToolRiskClass::WriteLocal);
+    reg.add(std::make_shared<FsUndoTool>(),             ToolRiskClass::WriteLocal);
     reg.add(std::make_shared<ClipboardWriteTool>(),     ToolRiskClass::WriteLocal);
     // overwrite of existing files stays WriteLocal; C1/A4 Confirm is by risk
     // ceiling / mode, not a special mode=overwrite escalate (see C2_notes).
@@ -159,6 +161,9 @@ void registerBuiltinTools(ToolRegistry& reg, BuiltinToolDeps deps) {
     // C3: screen awareness (privacy-gated by privacy.screen_capture).
     reg.add(std::make_shared<ScreenCaptureTool>(),     ToolRiskClass::Read);
     reg.add(std::make_shared<ScreenDescribeTool>(),    ToolRiskClass::Read);
+    // Wave Z: local advisor inputs (no cloud OAuth).
+    reg.add(std::make_shared<CalendarReadTool>(),      ToolRiskClass::Read);
+    reg.add(std::make_shared<InboxNotesTool>(),        ToolRiskClass::Read);
 
     // skills (write_local: expand/persist goals or author skill.json)
     if (skills) {

@@ -31,7 +31,9 @@
 #include "gateway_service.h"
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QDesktopServices>
+#include <QDir>
 #include <QFileInfo>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -39,6 +41,17 @@
 #include <QUrl>
 #include <QUuid>
 #include <QVariantMap>
+
+#ifdef Q_OS_WIN
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
+#  include <commdlg.h>
+#  ifdef _MSC_VER
+#    pragma comment(lib, "comdlg32.lib")
+#  endif
+#endif
 
 #include <filesystem>
 #include <nlohmann/json.hpp>
@@ -680,26 +693,38 @@ bool AppController::addModel(const QString& path, const QString& role) {
     if (r != "fast" && r != "heavy" && r != "vision" && r != "embedding")
         r = QStringLiteral("fast");
 
-    const std::string p  = fi.absoluteFilePath().toStdString();
+    // Normalize path separators so auto-discover and UI adds share one key.
+    QString abs = QDir::fromNativeSeparators(fi.absoluteFilePath());
+    const std::string p  = abs.toStdString();
     const std::string id = fi.completeBaseName().toStdString();   // stem, e.g. "gemma-3n"
     const std::string rs = r.toStdString();
 
     // Skip if this exact path is already registered (mirrors auto-discover).
     bool exists = false;
-    db_.query("SELECT 1 FROM models WHERE path=?1", {p}, [&](const Row&) { exists = true; });
+    db_.query("SELECT 1 FROM models WHERE path=?1 OR path=?2",
+              {p, fi.absoluteFilePath().toStdString()},
+              [&](const Row&) { exists = true; });
     if (exists) {
         emit noticePosted(QStringLiteral("info"), QStringLiteral("models"),
-                          QStringLiteral("Model already registered: %1").arg(path));
+                          QStringLiteral("Model already registered: %1").arg(abs));
     } else {
-        // Insert the row the same way auto-register does (id == display_name, all
-        // GPU layers requested; is_active=1 only if no other model holds this role
-        // yet). n_ctx mirrors auto-discover's per-role default.
+        // INSERT OR IGNORE: id collisions with auto-register are expected and quiet.
         const int n_ctx = (rs == "embedding") ? 2048 : 8192;
         db_.exec(
-            "INSERT INTO models(id,display_name,path,role,n_ctx,n_gpu_layers,"
+            "INSERT OR IGNORE INTO models(id,display_name,path,role,n_ctx,n_gpu_layers,"
             "chat_template,mmproj_path,is_active) VALUES(?1,?1,?2,?3,?4,999,'','',"
             "(SELECT CASE WHEN EXISTS(SELECT 1 FROM models WHERE role=?3) THEN 0 ELSE 1 END))",
             {id, p, rs, n_ctx});
+        // Confirm row exists (INSERT OR IGNORE may no-op on id collision).
+        bool haveId = false;
+        std::string existingPath;
+        db_.query("SELECT path FROM models WHERE id=?1", {id}, [&](const Row& row) {
+            haveId = true;
+            existingPath = row.text(0);
+        });
+        if (haveId && existingPath != p) {
+            db_.exec("UPDATE models SET path=?1, role=?2 WHERE id=?3", {p, rs, id});
+        }
         emit noticePosted(QStringLiteral("info"), QStringLiteral("models"),
                           QStringLiteral("Registered %1 as %2").arg(fi.fileName(), r));
     }
@@ -712,6 +737,113 @@ bool AppController::addModel(const QString& path, const QString& role) {
     emit modelsChanged();
     emit firstRunChanged();
     return true;
+}
+
+bool AppController::pickAndAddModel(const QString& role) {
+    // Native Win32 dialog — avoids QtWidgets / QApplication (app is QGuiApplication).
+#ifdef Q_OS_WIN
+    const QString startDir = QString::fromStdString(Paths::instance().models().string());
+    wchar_t fileBuf[MAX_PATH] = {};
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.lpstrFile = fileBuf;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrFilter = L"GGUF models (*.gguf)\0*.gguf\0All files (*.*)\0*.*\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrTitle = L"Add GGUF model";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
+    std::wstring initial = startDir.toStdWString();
+    ofn.lpstrInitialDir = initial.c_str();
+    if (!GetOpenFileNameW(&ofn)) return false;
+    return addModel(QString::fromWCharArray(fileBuf), role);
+#else
+    emit noticePosted(QStringLiteral("info"), QStringLiteral("models"),
+                      QStringLiteral("Drop a .gguf into the models folder, then Refresh."));
+    openModelsFolder();
+    Q_UNUSED(role);
+    return false;
+#endif
+}
+
+QVariantList AppController::listMemories(const QString& query, int limit) const {
+    QVariantList out;
+    if (limit <= 0 || limit > 500) limit = 100;
+    const std::string q = query.trimmed().toStdString();
+    auto& db = const_cast<Database&>(db_);
+    if (q.empty()) {
+        db.query(
+            "SELECT id,kind,text,source,user_id,ts FROM memories "
+            "ORDER BY ts DESC LIMIT ?1",
+            {limit},
+            [&](const Row& r) {
+                QVariantMap m;
+                m.insert(QStringLiteral("id"), static_cast<qint64>(r.i64(0)));
+                m.insert(QStringLiteral("kind"), QString::fromStdString(r.text(1)));
+                m.insert(QStringLiteral("text"), QString::fromStdString(r.text(2)));
+                m.insert(QStringLiteral("source"), QString::fromStdString(r.text(3)));
+                m.insert(QStringLiteral("userId"), static_cast<qint64>(r.i64(4)));
+                m.insert(QStringLiteral("ts"), static_cast<qint64>(r.i64(5)));
+                out.push_back(m);
+            });
+    } else {
+        // Simple LIKE filter (UI search).
+        const std::string like = "%" + q + "%";
+        db.query(
+            "SELECT id,kind,text,source,user_id,ts FROM memories "
+            "WHERE text LIKE ?1 ORDER BY ts DESC LIMIT ?2",
+            {like, limit},
+            [&](const Row& r) {
+                QVariantMap m;
+                m.insert(QStringLiteral("id"), static_cast<qint64>(r.i64(0)));
+                m.insert(QStringLiteral("kind"), QString::fromStdString(r.text(1)));
+                m.insert(QStringLiteral("text"), QString::fromStdString(r.text(2)));
+                m.insert(QStringLiteral("source"), QString::fromStdString(r.text(3)));
+                m.insert(QStringLiteral("userId"), static_cast<qint64>(r.i64(4)));
+                m.insert(QStringLiteral("ts"), static_cast<qint64>(r.i64(5)));
+                out.push_back(m);
+            });
+    }
+    return out;
+}
+
+bool AppController::deleteMemory(qint64 id) {
+    if (id <= 0) return false;
+    db_.exec("DELETE FROM memories WHERE id=?1", {static_cast<int64_t>(id)});
+    emit memoriesChanged();
+    return true;
+}
+
+bool AppController::rememberNote(const QString& text, const QString& kind) {
+    const QString t = text.trimmed();
+    if (t.isEmpty()) return false;
+    QString k = kind.trimmed().isEmpty() ? QStringLiteral("note") : kind.trimmed();
+    const int64_t ts = QDateTime::currentSecsSinceEpoch();
+    const int64_t uid = active_user_id_ >= 0 ? active_user_id_ : -1;
+    db_.exec(
+        "INSERT INTO memories(kind,text,vector_id,source,user_id,ts) "
+        "VALUES(?1,?2,NULL,'ui',?3,?4)",
+        {k.toStdString(), t.toStdString(), uid, ts});
+    emit memoriesChanged();
+    return true;
+}
+
+void AppController::setActiveUserId(qint64 id) {
+    if (active_user_id_ == id) return;
+    active_user_id_ = id;
+    db_.setSetting(keys::ActiveUserId, std::to_string(static_cast<long long>(id)));
+    emit activeUserChanged();
+}
+
+QVariantList AppController::listUsers() const {
+    QVariantList out;
+    auto& db = const_cast<Database&>(db_);
+    db.query("SELECT id,name FROM users ORDER BY name", {}, [&](const Row& r) {
+        QVariantMap m;
+        m.insert(QStringLiteral("id"), static_cast<qint64>(r.i64(0)));
+        m.insert(QStringLiteral("name"), QString::fromStdString(r.text(1)));
+        out.push_back(m);
+    });
+    return out;
 }
 
 void AppController::setModelRole(const QString& id, const QString& role) {
