@@ -20,6 +20,7 @@ qt_add_library(pm_agent STATIC
     tools/shopping_tool.cpp
     tools/web_search.cpp
     tools/fetch_page.cpp
+    tools/youtube_search.cpp
     tools/browser_drive.cpp
     tools/documents.cpp
     tools/print.cpp

@@ -1,0 +1,114 @@
+{
+  "estimatedResults": "3",
+  "contents": {
+    "twoColumnSearchResultsRenderer": {
+      "primaryContents": {
+        "sectionListRenderer": {
+          "contents": [
+            {
+              "itemSectionRenderer": {
+                "contents": [
+                  {
+                    "videoRenderer": {
+                      "videoId": "aBcD12345_x",
+                      "thumbnail": {
+                        "thumbnails": [
+                          { "url": "https://i.ytimg.com/vi/aBcD12345_x/hqdefault.jpg?sqp=small", "width": 168, "height": 94 },
+                          { "url": "https://i.ytimg.com/vi/aBcD12345_x/hqdefault.jpg", "width": 480, "height": 270 }
+                        ]
+                      },
+                      "title": {
+                        "runs": [
+                          { "text": "Lofi Hip Hop Radio - beats to relax/study to" }
+                        ],
+                        "accessibility": {
+                          "accessibilityData": { "label": "Lofi Hip Hop Radio - beats to relax/study to by Lofi Girl 3 years ago 1 hour, 2 minutes, 3 seconds 12M views" }
+                        }
+                      },
+                      "longBylineText": {
+                        "runs": [
+                          { "text": "Lofi Girl", "navigationEndpoint": { "browseEndpoint": { "browseId": "UCSJ4gkVC6NrvII8umztf0Ow" } } }
+                        ]
+                      },
+                      "ownerText": {
+                        "runs": [
+                          { "text": "Lofi Girl", "navigationEndpoint": { "browseEndpoint": { "browseId": "UCSJ4gkVC6NrvII8umztf0Ow" } } }
+                        ]
+                      },
+                      "publishedTimeText": { "simpleText": "3 years ago" },
+                      "lengthText": {
+                        "accessibility": { "accessibilityData": { "label": "1 hour, 2 minutes, 3 seconds" } },
+                        "simpleText": "1:02:03"
+                      },
+                      "viewCountText": { "simpleText": "12,345,678 views" },
+                      "shortViewCountText": { "simpleText": "12M views" }
+                    }
+                  },
+                  {
+                    "channelRenderer": {
+                      "channelId": "UCnotAVideo0000000000000",
+                      "title": { "simpleText": "Some Channel (not a video, must be skipped)" }
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "xyz9876543A",
+                      "thumbnail": {
+                        "thumbnails": [
+                          { "url": "https://i.ytimg.com/vi/xyz9876543A/hqdefault.jpg", "width": 480, "height": 270 }
+                        ]
+                      },
+                      "title": {
+                        "runs": [
+                          { "text": "Castles of Europe: A Short Tour" }
+                        ]
+                      },
+                      "ownerText": {
+                        "runs": [
+                          { "text": "History Byte" }
+                        ]
+                      },
+                      "publishedTimeText": { "simpleText": "2 weeks ago" },
+                      "lengthText": { "simpleText": "3:45" },
+                      "viewCountText": { "simpleText": "845,201 views" },
+                      "shortViewCountText": { "simpleText": "845K views" }
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "live12345678",
+                      "thumbnail": {
+                        "thumbnails": [
+                          { "url": "https://i.ytimg.com/vi/live12345678/hqdefault.jpg", "width": 480, "height": 270 }
+                        ]
+                      },
+                      "title": {
+                        "runs": [
+                          { "text": "24/7 Chillstep Radio - LIVE" }
+                        ]
+                      },
+                      "ownerText": {
+                        "runs": [
+                          { "text": "Chillstep Network" }
+                        ]
+                      },
+                      "badges": [
+                        { "metadataBadgeRenderer": { "style": "BADGE_STYLE_TYPE_LIVE_NOW", "label": "LIVE" } }
+                      ],
+                      "viewCountText": {
+                        "runs": [
+                          { "text": "12,345" },
+                          { "text": " watching" }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

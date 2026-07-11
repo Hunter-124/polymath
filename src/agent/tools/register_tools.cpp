@@ -3,6 +3,7 @@
 #include "shopping_tool.h"
 #include "web_search.h"
 #include "fetch_page.h"
+#include "youtube_search.h"
 #include "browser_drive.h"
 #include "documents.h"
 #include "print.h"
@@ -115,6 +116,7 @@ void registerBuiltinTools(ToolRegistry& reg, BuiltinToolDeps deps) {
     // external (network / CLI side effects — auto, logged + notice)
     reg.add(std::make_shared<WebSearchTool>(),          ToolRiskClass::External);
     reg.add(std::make_shared<FetchPageTool>(),          ToolRiskClass::External);
+    reg.add(std::make_shared<YoutubeSearchTool>(),      ToolRiskClass::External);
     reg.add(std::make_shared<BrowserDriveTool>(),       ToolRiskClass::External);
     reg.add(std::make_shared<AgentSpawnTool>(),         ToolRiskClass::External);
     reg.add(std::make_shared<AgentSendTool>(),          ToolRiskClass::External);
