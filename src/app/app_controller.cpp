@@ -44,6 +44,25 @@
 
 namespace polymath {
 
+namespace {
+// Internal multi-phase generations stream under a suffixed request_id
+// (<base>:route / :plan<N> / :gen / :reflect / :step<N> / :final). Only the
+// bare, user-visible request_id may render in chat — the agent forwards
+// sanitized final prose under the bare id itself (see
+// AgentLoop::finalizeAndPublishAnswer). Without this guard the raw :final
+// generation (which can be tool-call JSON) would create its own assistant
+// bubble. This is the single choke point closing that leak (overhaul2 A1).
+bool isInternalStreamId(const QString& rid) {
+    const int c = rid.lastIndexOf(QLatin1Char(':'));
+    if (c < 0) return false;
+    QString seg = rid.mid(c + 1);
+    while (!seg.isEmpty() && seg.back().isDigit()) seg.chop(1);
+    return seg == QLatin1String("route")   || seg == QLatin1String("plan")   ||
+           seg == QLatin1String("gen")     || seg == QLatin1String("reflect")||
+           seg == QLatin1String("step")    || seg == QLatin1String("final");
+}
+} // namespace
+
 AppController::AppController(QObject* parent) : QObject(parent) {}
 
 AppController::~AppController() { shutdown(); }
@@ -131,6 +150,7 @@ void AppController::wireEventBus() {
 
     // Backend -> UI
     connect(&bus, &EventBus::tokenStreamed, this, [this](const TokenChunk& t) {
+        if (isInternalStreamId(t.request_id)) return;   // never surface internal phases
         emit assistantToken(t.request_id, t.text, t.done);
     });
     connect(&bus, &EventBus::notice, this, [this](const Notice& n) {
@@ -236,11 +256,22 @@ void AppController::wireEventBus() {
     // SurfaceHost / goal delivery relays (bus → QML-friendly signals).
     connect(&bus, &EventBus::surfaceRequested, this,
             [this](const SurfaceRequest& r) {
-                emit surfaceRequested(r.id, r.action, r.type, r.title, r.args_json);
+                emit surfaceRequested(r.id, r.action, r.type, r.title, r.args_json,
+                                       r.caption, r.md, r.x, r.y, r.w, r.h, r.group);
             });
     connect(&bus, &EventBus::goalUpdated, this,
             [this](const GoalUpdate& g) {
                 emit goalUpdated(g.goal_id, g.title, g.status, g.summary);
+            });
+    // A3: open_page / window relays (bus → QML-friendly signals; QML handlers
+    // in Main.qml land in E4).
+    connect(&bus, &EventBus::navigateRequested, this,
+            [this](const NavigateRequest& n) {
+                emit navigateRequested(n.page);
+            });
+    connect(&bus, &EventBus::windowRequested, this,
+            [this](const WindowRequest& w) {
+                emit windowRequested(w.verb);
             });
 }
 
@@ -279,6 +310,7 @@ void AppController::wireModels() {
     // UI thread because the bus emits from the inference worker.
     connect(&bus, &EventBus::tokenStreamed, chat_model_.get(),
             [this](const TokenChunk& t) {
+                if (isInternalStreamId(t.request_id)) return;   // internal phase — don't render
                 chat_model_->appendAssistantToken(t.request_id, t.text, t.done);
             });
 

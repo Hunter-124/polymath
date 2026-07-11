@@ -26,6 +26,8 @@ EventBus::EventBus() {
     qRegisterMetaType<polymath::SurfaceRequest>("polymath::SurfaceRequest");
     qRegisterMetaType<polymath::GoalUpdate>("polymath::GoalUpdate");
     qRegisterMetaType<polymath::AgentSessionEvent>("polymath::AgentSessionEvent");
+    qRegisterMetaType<polymath::NavigateRequest>("polymath::NavigateRequest");
+    qRegisterMetaType<polymath::WindowRequest>("polymath::WindowRequest");
 }
 
 } // namespace polymath

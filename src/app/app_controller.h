@@ -161,9 +161,18 @@ signals:
     void findObjectAnswered(QString query, QString answer);
     void vramChanged();
     void wakeWordPulse();
+    // A3: SurfaceRequest flattened 1:1, including the extended spawn_surface
+    // hints (caption/md/x/y/w/h/group — blank/-1 when not set). Appended after
+    // the original 5 params, so existing QML handlers with fewer formal
+    // parameters keep working unchanged.
     void surfaceRequested(QString id, QString action, QString type,
-                          QString title, QString argsJson);
+                          QString title, QString argsJson,
+                          QString caption, QString md,
+                          double x, double y, double w, double h, QString group);
     void goalUpdated(QString goalId, QString title, QString status, QString summary);
+    // A3: ui_control open_page / window relays (QML handlers land in E4).
+    void navigateRequested(QString page);
+    void windowRequested(QString verb);
 
 private:
     void wireEventBus();
