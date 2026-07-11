@@ -114,12 +114,17 @@ Name: "{app}\data\models"
 Name: "{app}\data\logs"
 
 [Icons]
-Name: "{group}\Polymath"; Filename: "{app}\Polymath.exe"; WorkingDir: "{app}"
+; Prefer Run-Polymath.cmd so WorkingDir is always the install folder (DLL search
+; path) even if Explorer launches without a proper start-in directory.
+Name: "{group}\Polymath"; Filename: "{app}\Run-Polymath.cmd"; WorkingDir: "{app}"; \
+      IconFilename: "{app}\Polymath.exe"; Comment: "Launch Polymath (local AI home assistant)"
+Name: "{group}\Polymath (direct)"; Filename: "{app}\Polymath.exe"; WorkingDir: "{app}"
 Name: "{group}\Polymath first-run setup"; Filename: "powershell.exe"; \
       Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\first-run.ps1"""; \
       WorkingDir: "{app}"; Comment: "GPU check + guided model download"
 Name: "{group}\{cm:UninstallProgram,Polymath}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Polymath"; Filename: "{app}\Polymath.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\Polymath"; Filename: "{app}\Run-Polymath.cmd"; WorkingDir: "{app}"; \
+      IconFilename: "{app}\Polymath.exe"; Tasks: desktopicon
 
 [Run]
 ; Post-install: if the user ticked "Download models now", run the first-run
@@ -133,7 +138,7 @@ Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\first-run.ps1"""; \
     WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent; \
     Description: "Run first-run setup (GPU check + model download)"; Tasks: fetchmodels
-Filename: "{app}\Polymath.exe"; WorkingDir: "{app}"; \
+Filename: "{app}\Run-Polymath.cmd"; WorkingDir: "{app}"; \
     Flags: postinstall nowait skipifsilent unchecked; \
     Description: "Launch Polymath now"; Tasks: not fetchmodels
 

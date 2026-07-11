@@ -31,7 +31,9 @@ param(
   [ValidateSet('cuda','cpu')] [string]$Flavor = 'cuda',
   [string]$OutRoot = '',
   [switch]$IncludeModels,
-  [switch]$NoZip
+  [switch]$NoZip,
+  # Opt-in: also ship ORT CUDA EP providers (needs full CUDA/cuDNN on the machine).
+  [switch]$IncludeOrtCuda
 )
 $ErrorActionPreference = 'Stop'
 # $PSScriptRoot can be empty under Windows PowerShell 5.1 when invoked via
@@ -84,16 +86,131 @@ foreach ($d in 'msvcp140.dll','msvcp140_1.dll','vcruntime140.dll','vcruntime140_
   if (Test-Path $p) { Copy-Item $p $stage -Force }
 }
 
-# 3b) ONNX Runtime GPU provider DLLs if present (CUDA EP for YOLO/face).
-$ortCudaMarker = Join-Path $repo 'build\deps\ort-cuda-root.txt'
-if (Test-Path $ortCudaMarker) {
-  $ortRoot = (Get-Content $ortCudaMarker -Raw).Trim()
-  if (Test-Path $ortRoot) {
-    Get-ChildItem $ortRoot -Recurse -Filter '*.dll' -ErrorAction SilentlyContinue |
-      Where-Object { $_.Name -match 'onnxruntime' } |
-      ForEach-Object { Copy-Item $_.FullName $stage -Force }
-    Write-Host "  bundled ORT CUDA DLLs from $ortRoot" -ForegroundColor Cyan
+# 3b) Hard requirements often missing from a partial build-tree deploy.
+#     Without these, Windows shows a "missing DLL" dialog on Start Menu launch.
+function Copy-IfExists([string]$src, [string]$destDir) {
+  if (Test-Path $src) { Copy-Item $src $destDir -Force; return $true }
+  return $false
+}
+
+# OpenCV (linked by Polymath.exe for vision).
+$ocvBin = Join-Path $repo 'build\deps\opencv\build\x64\vc16\bin'
+if (-not (Test-Path (Join-Path $stage 'opencv_world490.dll'))) {
+  Get-ChildItem $ocvBin -Filter 'opencv_world*.dll' -ErrorAction SilentlyContinue |
+    Where-Object Name -notmatch 'd\.dll$' |
+    ForEach-Object { Copy-Item $_.FullName $stage -Force; Write-Host "  + $($_.Name)" -ForegroundColor Cyan }
+  Get-ChildItem $ocvBin -Filter 'opencv_videoio_ffmpeg*.dll' -ErrorAction SilentlyContinue |
+    ForEach-Object { Copy-Item $_.FullName $stage -Force }
+}
+
+# CUDA runtime for ggml-cuda (and optional ORT CUDA EP).
+if ($Flavor -eq 'cuda') {
+  $cudaRoots = @(
+    'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3',
+    'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9',
+    'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6',
+    (Join-Path $repo 'build\deps\cuda\toolkit')
+  )
+  $need = @('cudart64_*.dll','cublas64_*.dll','cublasLt64_*.dll')
+  foreach ($root in $cudaRoots) {
+    foreach ($sub in @('bin\x64','bin')) {
+      $dir = Join-Path $root $sub
+      if (-not (Test-Path $dir)) { continue }
+      foreach ($pat in $need) {
+        Get-ChildItem $dir -Filter $pat -ErrorAction SilentlyContinue | ForEach-Object {
+          if (-not (Test-Path (Join-Path $stage $_.Name))) {
+            Copy-Item $_.FullName $stage -Force
+            Write-Host "  + CUDA $($_.Name)" -ForegroundColor Cyan
+          }
+        }
+      }
+    }
   }
+}
+
+# Qt WebEngine helper process (YouTube / WebSurface). Name is QtWebEngineProcess.exe
+# in Qt 6.6 kits (not Qt6WebEngineProcess).
+$qtCandidates = @(
+  'C:\Qt\6.6.3\msvc2019_64',
+  'C:\Qt\6.7.0\msvc2019_64',
+  'C:\Qt\6.5.3\msvc2019_64'
+)
+foreach ($qt in $qtCandidates) {
+  $proc = Join-Path $qt 'bin\QtWebEngineProcess.exe'
+  if (Test-Path $proc) {
+    Copy-IfExists $proc $stage | Out-Null
+    # resources + locales if missing from stage
+    foreach ($rel in @('resources','translations\qtwebengine_locales')) {
+      $src = Join-Path $qt $rel
+      $dst = Join-Path $stage $rel
+      if ((Test-Path $src) -and -not (Test-Path $dst)) {
+        Copy-Item $src $dst -Recurse -Force
+        Write-Host "  + Qt $rel" -ForegroundColor Cyan
+      }
+    }
+    break
+  }
+}
+# Always ensure the Windows platform plugin exists (Start Menu GUI launch).
+$qwindows = @(
+  (Join-Path $bin 'platforms\qwindows.dll'),
+  'C:\Qt\6.6.3\msvc2019_64\plugins\platforms\qwindows.dll'
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($qwindows) {
+  New-Item -ItemType Directory -Force (Join-Path $stage 'platforms') | Out-Null
+  Copy-Item $qwindows (Join-Path $stage 'platforms\qwindows.dll') -Force
+}
+
+# ONNX Runtime: ship the CPU package by default for a reliable Start Menu launch.
+# The CUDA EP providers need a full CUDA+cuDNN stack and caused missing-DLL dialogs
+# when only providers_cuda was copied. Vision still requests CUDA EP and falls back.
+# Pass -IncludeOrtCuda to opt into the huge GPU ORT providers once CUDA is complete.
+$ortCpu = Join-Path $repo 'build\deps\onnxruntime-win-x64-1.17.3\lib\onnxruntime.dll'
+if (Test-Path $ortCpu) {
+  # Remove half-broken GPU provider DLLs that load at process init on some ORT builds.
+  Get-ChildItem $stage -Filter 'onnxruntime_providers_*.dll' -ErrorAction SilentlyContinue |
+    ForEach-Object {
+      Remove-Item $_.FullName -Force
+      Write-Host "  - removed $($_.Name) (use CPU ORT for stable launch)" -ForegroundColor Yellow
+    }
+  Copy-Item $ortCpu $stage -Force
+  Write-Host "  + onnxruntime.dll (CPU — stable vision fallback)" -ForegroundColor Cyan
+}
+if ($IncludeOrtCuda) {
+  $ortCudaMarker = Join-Path $repo 'build\deps\ort-cuda-root.txt'
+  if (Test-Path $ortCudaMarker) {
+    $ortRoot = (Get-Content $ortCudaMarker -Raw).Trim()
+    Get-ChildItem $ortRoot -Recurse -Filter 'onnxruntime*.dll' -ErrorAction SilentlyContinue |
+      ForEach-Object { Copy-Item $_.FullName $stage -Force }
+    Write-Host "  + ORT CUDA providers from $ortRoot" -ForegroundColor Cyan
+  }
+}
+
+# Fail fast if critical files are still missing (prevents shipping a broken Setup).
+$required = @('Polymath.exe','Qt6Core.dll','Qt6Gui.dll','Qt6Quick.dll','platforms\qwindows.dll')
+if ($Flavor -eq 'cuda') {
+  $required += @('ggml-cuda.dll')
+}
+$missing = @()
+foreach ($r in $required) {
+  if (-not (Test-Path (Join-Path $stage $r))) { $missing += $r }
+}
+# OpenCV + CUDA runtime soft-required (warn loudly)
+foreach ($soft in @('opencv_world490.dll','cudart64_13.dll','cudart64_12.dll','QtWebEngineProcess.exe')) {
+  # any one of the cudart versions is fine
+}
+if (-not (Test-Path (Join-Path $stage 'opencv_world490.dll'))) {
+  Write-Warning "opencv_world490.dll still missing — vision will fail at load"
+}
+$hasCudart = (Test-Path (Join-Path $stage 'cudart64_13.dll')) -or (Test-Path (Join-Path $stage 'cudart64_12.dll'))
+if (($Flavor -eq 'cuda') -and -not $hasCudart) {
+  throw "CUDA package missing cudart64_*.dll — fix CUDA toolkit path before shipping"
+}
+if (-not (Test-Path (Join-Path $stage 'QtWebEngineProcess.exe'))) {
+  Write-Warning "QtWebEngineProcess.exe missing — YouTube/WebSurface will fail"
+}
+if ($missing.Count -gt 0) {
+  throw "Package incomplete, missing: $($missing -join ', ')"
 }
 
 # 4) Models. ~28 GB — opt-in. Otherwise ship the fetcher + an empty models\ dir.
