@@ -333,9 +333,18 @@ Item {
                 root.spawn(id, type, title, argsJson, caption, md, x, y, w, h, group)
             else if (action === "close" || action === "close_surface")
                 root.closeSurface(id)
-            else if (action === "arrange")
-                root.arrange(type || "tile")  // layout name may arrive in type or title
-            else if (action === "open_page") {
+            else if (action === "arrange") {
+                // Layout may arrive in type, title, or argsJson.layout
+                var layout = type || title || "tile"
+                if ((!layout || layout.length === 0 || layout === "placeholder")
+                        && argsJson && argsJson.length > 0) {
+                    try {
+                        var a = JSON.parse(argsJson)
+                        if (a && a.layout) layout = a.layout
+                    } catch (e) { /* ignore */ }
+                }
+                root.arrange(layout || "tile")
+            } else if (action === "open_page") {
                 // Page navigation is C1 / shell concern; no-op here.
             }
         }

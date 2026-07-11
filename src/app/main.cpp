@@ -71,6 +71,26 @@ static std::filesystem::path resolveAppRoot() {
 int main(int argc, char* argv[]) try {
     // D5: WebEngine requires shared GL contexts + initialize() before the app.
     QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+
+    // Stabilize embedded Chromium on Windows hybrid-GPU laptops (e.g. RTX Max-Q
+    // + Intel iGPU). Blank WebEngineViews are often GPU-process / occlusion bugs.
+    // Autoplay without a click is required for AI-spawned YouTube surfaces.
+    if (qEnvironmentVariableIsEmpty("QTWEBENGINE_CHROMIUM_FLAGS")) {
+        qputenv("QTWEBENGINE_CHROMIUM_FLAGS",
+                "--autoplay-policy=no-user-gesture-required "
+                "--disable-features=CalculateNativeWinOcclusion "
+                "--ignore-gpu-blocklist");
+    }
+    // Point Chromium at the deployed helper next to Polymath.exe *before*
+    // QtWebEngineQuick::initialize() so the subprocess path is fixed.
+    if (qEnvironmentVariableIsEmpty("QTWEBENGINEPROCESS_PATH") && argc > 0 && argv[0]) {
+        const QFileInfo exeInfo(QString::fromLocal8Bit(argv[0]));
+        const QString proc = exeInfo.absolutePath()
+                             + QStringLiteral("/QtWebEngineProcess.exe");
+        if (QFileInfo::exists(proc))
+            qputenv("QTWEBENGINEPROCESS_PATH", QFile::encodeName(proc));
+    }
+
     QtWebEngineQuick::initialize();
 
     QGuiApplication app(argc, argv);

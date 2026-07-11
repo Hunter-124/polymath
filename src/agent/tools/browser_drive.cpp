@@ -557,11 +557,14 @@ std::string saveScreenshotPng(const std::string& b64) {
 std::string BrowserDriveTool::name() const { return "browser_drive"; }
 
 std::string BrowserDriveTool::description() const {
-    return "Drive a real Chrome browser via the DevTools Protocol: navigate, "
-           "optionally click/type (CSS selectors), extract title + text, and "
-           "optionally capture a screenshot into the tool result. Sessions are "
-           "reused across calls (set reuse=false or close=true to tear down). "
-           "Prefer fetch_page for simple static reads.";
+    return "Headless web AUTOMATION only (Chrome DevTools Protocol): navigate, "
+           "click/type (CSS selectors), extract title + text, optional screenshot. "
+           "Runs headless — it does NOT show a browser window to the user and is "
+           "NOT for watching YouTube or displaying websites. "
+           "To SHOW a page/video inside Polymath's glass UI cards, use ui_control "
+           "spawn_surface type=web|video (or the watch_video skill). "
+           "Prefer fetch_page for simple static reads. Sessions are reused across "
+           "calls (set reuse=false or close=true to tear down).";
 }
 
 nlohmann::json BrowserDriveTool::parametersSchema() const {
@@ -584,7 +587,9 @@ nlohmann::json BrowserDriveTool::parametersSchema() const {
             {"max_chars", {{"type", "integer"},
                            {"description", "Truncate extracted text to N chars (default 6000)"}}},
             {"headless",  {{"type", "boolean"},
-                           {"description", "Run Chrome headless (default true; only on new session)"}}},
+                           {"description", "Always headless (true). Headed Chrome is "
+                                           "disabled so pages never open as a separate "
+                                           "window; use ui_control to show content."}}},
             {"reuse",     {{"type", "boolean"},
                            {"description", "Reuse a persistent browser session (default true)"}}},
             {"session",   {{"type", "string"},
@@ -650,7 +655,14 @@ ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext& ctx
     const bool close_after = args.value("close", false);
     const bool reuse = args.value("reuse", true);
     const bool want_shot = args.value("screenshot", true);
-    const bool headless = args.value("headless", true);
+    // Always headless: a headed Chrome window is never the intended UX. User-
+    // visible browsing/YouTube belongs in WebSurface via ui_control.
+    const bool headless = true;
+    if (args.contains("headless") && args["headless"].is_boolean() &&
+        !args["headless"].get<bool>()) {
+        PM_INFO("browser_drive: ignoring headless=false (headed Chrome disabled; "
+                "use ui_control spawn_surface to show pages)");
+    }
     const std::string session_key = args.value("session", std::string{"default"});
     const std::string url = args.value("url", "");
 

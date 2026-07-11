@@ -75,22 +75,35 @@ std::string UiControlTool::name() const { return "ui_control"; }
 std::string UiControlTool::description() const {
     return
         "Control the on-screen layout: navigate the nav rail, spawn/close/arrange "
-        "floating surfaces (image, web, video, monitor, placeholder), and drive the "
-        "app window (fullscreen/present/restore/...). Pick exactly one action.\n"
+        "floating glass surfaces (embedded web pages, YouTube players, images, notes), "
+        "and drive the app window (fullscreen/present/restore/...). "
+        "THIS is how you show websites and videos to the user — they render inside "
+        "Polymath content cards that share the menu styling. Do NOT use browser_drive "
+        "or app_launch/Chrome to display pages for the user.\n"
         "\n"
         "actions:\n"
         "  open_page      args: {page}. Switch the main view to a nav-rail page.\n"
         "  spawn_surface  args: {type, id?, title?, caption?, md?, x?, y?, w?, h?, "
-        "group?, args?}. Open a floating card. type: placeholder|image|web|video|"
-        "monitor. group tags surfaces that belong together (a research board).\n"
+        "group?, args?}. Open a floating glass card. type: placeholder|image|web|"
+        "video|video_picker|note|monitor. group tags surfaces that belong together "
+        "(a research board). x/y/w/h are optional layout hints (pixels).\n"
         "  close_surface  args: {id}. Remove a surface.\n"
         "  arrange        args: {layout}. layout: tile|stack|split-left|split-right|"
-        "full.\n"
+        "full|board.\n"
         "  window         args: {verb}. verb: present|fullscreen|restore|"
         "always_on_top|normal|raise|hide_to_tray. present = raise + activate + show "
         "surfaces — the \"AI takes over the screen to show you something\" verb.\n"
         "\n"
+        "surface args by type:\n"
+        "  web   → args.url (required, http(s)), optional args.title\n"
+        "  video → args.videoId and/or args.url (YouTube); plays in-app with adblock\n"
+        "  video_picker → args.results (array from youtube_search)\n"
+        "  image → args.url or args.path; optional caption\n"
+        "  note  → md (markdown body) and/or caption\n"
+        "\n"
         "examples:\n"
+        "  \"open wikipedia about mars\" -> {\"action\":\"spawn_surface\","
+        "\"type\":\"web\",\"title\":\"Mars\",\"args\":{\"url\":\"https://en.wikipedia.org/wiki/Mars\"}}\n"
         "  \"pull up a video about castles\" -> {\"action\":\"spawn_surface\","
         "\"type\":\"video\",\"title\":\"Castles\",\"args\":{\"videoId\":\"...\"}}\n"
         "  \"go to settings\" -> {\"action\":\"open_page\",\"page\":\"settings\"}\n"
@@ -123,8 +136,11 @@ nlohmann::json UiControlTool::parametersSchema() const {
                        {"description", "Surface id (close/arrange; auto-generated on spawn)"}}},
             {"type",  {{"type", "string"},
                        {"enum", nlohmann::json::array(
-                           {"placeholder", "image", "web", "video", "monitor"})},
-                       {"description", "Surface kind for spawn_surface"}}},
+                           {"placeholder", "image", "web", "video", "video_picker",
+                            "note", "monitor"})},
+                       {"description", "Surface kind for spawn_surface. "
+                                       "web/video embed inside the app (not a "
+                                       "separate browser window)."}}},
             {"title", {{"type", "string"},
                        {"description", "Surface title"}}},
             {"caption", {{"type", "string"},
@@ -143,7 +159,8 @@ nlohmann::json UiControlTool::parametersSchema() const {
                        {"description", "Surface-specific args (url, path, mode, …)"}}},
             {"layout",{{"type", "string"},
                        {"enum", nlohmann::json::array(
-                           {"tile", "stack", "split-left", "split-right", "full"})},
+                           {"tile", "stack", "split-left", "split-right", "full",
+                            "board"})},
                        {"description", "Layout for arrange"}}},
             {"verb",  {{"type", "string"},
                        {"enum", nlohmann::json(windowVerbs())},
@@ -205,16 +222,52 @@ ToolResult UiControlTool::invoke(const nlohmann::json& args, ToolContext& /*ctx*
     SurfaceRequest r;
     if (action == "spawn_surface") {
         r.action = QStringLiteral("spawn");
-        r.type = QString::fromStdString(args.value("type", "placeholder"));
+        std::string type = args.value("type", "placeholder");
+        // Aliases models often invent when they mean "embedded page".
+        if (type == "browser" || type == "webpage" || type == "website" ||
+            type == "page" || type == "url")
+            type = "web";
+        if (type == "youtube" || type == "yt" || type == "player")
+            type = "video";
+        if (type == "picker" || type == "results")
+            type = "video_picker";
+        if (type == "text" || type == "markdown" || type == "card")
+            type = "note";
+        r.type = QString::fromStdString(type);
         r.title = QString::fromStdString(args.value("title", "Surface"));
         std::string id = args.value("id", "");
         if (id.empty())
             id = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
         r.id = QString::fromStdString(id);
+
+        nlohmann::json surfaceArgs = nlohmann::json::object();
         if (args.contains("args") && args["args"].is_object())
-            r.args_json = QString::fromStdString(args["args"].dump());
-        else
-            r.args_json = QStringLiteral("{}");
+            surfaceArgs = args["args"];
+        // Promote top-level url/videoId if the model put them outside args{}.
+        if (!surfaceArgs.contains("url") && args.contains("url") && args["url"].is_string())
+            surfaceArgs["url"] = args["url"];
+        if (!surfaceArgs.contains("videoId") && args.contains("videoId") &&
+            args["videoId"].is_string())
+            surfaceArgs["videoId"] = args["videoId"];
+        if (!surfaceArgs.contains("results") && args.contains("results"))
+            surfaceArgs["results"] = args["results"];
+        // web without url but with a title that looks like a URL — promote it.
+        if ((type == "web" || type == "video") &&
+            (!surfaceArgs.contains("url") || surfaceArgs["url"].get<std::string>().empty())) {
+            const std::string titleGuess = args.value("title", "");
+            if (titleGuess.rfind("http://", 0) == 0 || titleGuess.rfind("https://", 0) == 0)
+                surfaceArgs["url"] = titleGuess;
+        }
+        if (type == "web" &&
+            (!surfaceArgs.contains("url") ||
+             !surfaceArgs["url"].is_string() ||
+             surfaceArgs["url"].get<std::string>().empty())) {
+            return {false,
+                    {{"error", "spawn_surface type=web requires args.url (http/https)"},
+                     {"hint", "Embed pages with ui_control; do not open an external browser."}},
+                    "ui_control: web surface missing url"};
+        }
+        r.args_json = QString::fromStdString(surfaceArgs.dump());
 
         // A3: optional extended spawn args (backward compatible — all default-empty).
         r.caption = QString::fromStdString(args.value("caption", ""));
@@ -234,8 +287,12 @@ ToolResult UiControlTool::invoke(const nlohmann::json& args, ToolContext& /*ctx*
     } else if (action == "arrange") {
         r.action = QStringLiteral("arrange");
         r.id = QString::fromStdString(args.value("id", ""));
+        // SurfaceHost.arrange reads the layout name from `type` (see
+        // SurfaceHost.qml onSurfaceRequested). Also mirror into args_json.
+        const std::string layout = args.value("layout", "tile");
+        r.type = QString::fromStdString(layout);
         nlohmann::json a = nlohmann::json::object();
-        if (args.contains("layout")) a["layout"] = args["layout"];
+        a["layout"] = layout;
         if (args.contains("args") && args["args"].is_object()) {
             for (auto it = args["args"].begin(); it != args["args"].end(); ++it)
                 a[it.key()] = it.value();

@@ -9,6 +9,9 @@ import Polymath
 // support for arbitrary web pages. Clean-mode script is fetched from the qrc
 // resource YtClean.js (B3) instead of an inline string — see
 // docs/overhaul2/results/B3_contract.md for the injection contract.
+//
+// IMPORTANT: content is rendered INSIDE this glass card (not a separate OS
+// browser window). The AI positions cards via SurfaceHost / ui_control x,y,w,h.
 GlassCard {
     id: root
     property string title: "Web"
@@ -57,7 +60,7 @@ GlassCard {
     // we have a resolvable video id; otherwise fall back to whatever URL/page
     // was requested.
     readonly property string embedUrl: resolvedVideoId.length > 0
-        ? ("https://www.youtube-nocookie.com/embed/" + resolvedVideoId + "?autoplay=1&rel=0")
+        ? ("https://www.youtube-nocookie.com/embed/" + resolvedVideoId + "?autoplay=1&rel=0&modestbranding=1")
         : ""
     readonly property string effectiveUrl: embedUrl.length > 0 ? embedUrl : resolvedUrl
 
@@ -65,6 +68,7 @@ GlassCard {
         if (resolvedVideoId.length > 0) return true
         var u = (effectiveUrl || "").toLowerCase()
         return u.indexOf("youtube.com") >= 0 || u.indexOf("youtu.be") >= 0
+                || u.indexOf("youtube-nocookie.com") >= 0
     }
 
     // B3 contract: fetch the standalone clean-mode script from its qrc path
@@ -73,10 +77,34 @@ GlassCard {
     // guard inside the script) — safe, and expected, to re-inject on every
     // load / soft-nav.
     property string ytCleanScript: ""
+    property string loadError: ""
+    property int loadProgress: 0
+    property bool hasLoadedOnce: false
 
     function injectClean() {
-        if ((root.isYouTube || root.resolvedMode === "video") && root.ytCleanScript.length > 0)
+        if ((root.isYouTube || root.resolvedMode === "video") && root.ytCleanScript.length > 0
+                && web && web.url && web.url.toString().indexOf("about:blank") < 0) {
             web.runJavaScript(root.ytCleanScript)
+        }
+    }
+
+    function navigateTo(target) {
+        root.loadError = ""
+        var u = (target || "").trim()
+        if (!u || u.length === 0) {
+            web.url = "about:blank"
+            return
+        }
+        if (u.indexOf("://") < 0 && u.indexOf(".") >= 0)
+            u = "https://" + u
+        web.url = u
+    }
+
+    function applyEffectiveUrl() {
+        if (root.effectiveUrl && root.effectiveUrl.length > 0)
+            navigateTo(root.effectiveUrl)
+        else
+            navigateTo("about:blank")
     }
 
     ColumnLayout {
@@ -101,39 +129,140 @@ GlassCard {
             }
         }
 
+        // Address bar (web pages only — video embeds hide chrome for a player look)
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.gapSm
+            visible: !root.isYouTube || root.resolvedMode === "page"
+            PmTextField {
+                id: urlField
+                Layout.fillWidth: true
+                text: root.effectiveUrl
+                placeholderText: "https://"
+                onAccepted: root.navigateTo(text)
+            }
+            PmButton {
+                text: "Go"
+                flat: true
+                onClicked: root.navigateTo(urlField.text)
+            }
+        }
+
         Item {
+            id: webHost
             Layout.fillWidth: true
             Layout.fillHeight: true
+            // Opaque host so WebEngine compositing isn't mixed with glass alpha
+            // (common cause of blank Chromium surfaces on Windows / hybrid GPUs).
             clip: true
+
+            Rectangle {
+                anchors.fill: parent
+                radius: Style.radiusSm
+                color: "#0b0d12"
+                border.width: 1
+                border.color: Style.glassBorder
+            }
 
             WebEngineView {
                 id: web
                 anchors.fill: parent
-                url: root.effectiveUrl.length > 0 ? root.effectiveUrl : "about:blank"
+                anchors.margins: 1
+                // Bind once; further navigations go through navigateTo / goBack.
+                url: "about:blank"
+                backgroundColor: "#0b0d12"
                 settings.javascriptEnabled: true
-                settings.pluginsEnabled: true
                 settings.playbackRequiresUserGesture: false
                 settings.localContentCanAccessRemoteUrls: true
+                settings.errorPageEnabled: true
+                settings.focusOnNavigationEnabled: true
 
                 onLoadingChanged: function(loadRequest) {
-                    if (loadRequest.status === WebEngineView.LoadSucceededStatus)
+                    if (loadRequest.status === WebEngineView.LoadStartedStatus) {
+                        root.loadError = ""
+                        root.loadProgress = 0
+                    } else if (loadRequest.status === WebEngineView.LoadSucceededStatus) {
+                        root.hasLoadedOnce = true
+                        root.loadError = ""
+                        root.loadProgress = 100
                         root.injectClean()
+                        if (urlField && !root.isYouTube)
+                            urlField.text = web.url.toString()
+                    } else if (loadRequest.status === WebEngineView.LoadFailedStatus) {
+                        // Ignore empty/cancelled loads (rapid reloads / parent resize).
+                        var es = (loadRequest.errorString || "").toLowerCase()
+                        if (es.indexOf("cancel") >= 0 || es.indexOf("aborted") >= 0)
+                            return
+                        root.loadError = loadRequest.errorString
+                                || ("Load failed (code " + loadRequest.errorCode + ")")
+                        console.warn("[WebSurface] load failed:", loadRequest.errorString,
+                                     loadRequest.errorCode, loadRequest.url)
+                    } else if (loadRequest.status === WebEngineView.LoadStoppedStatus) {
+                        // User/stop — keep whatever we had.
+                    }
                 }
                 onUrlChanged: Qt.callLater(root.injectClean)
+                onLoadingProgressChanged: root.loadProgress = web.loadingProgress
             }
 
+            // Loading overlay
             Rectangle {
                 anchors.fill: parent
+                anchors.margins: 1
                 color: Style.bgDeep
                 opacity: web.loading ? 0.55 : 0
                 visible: opacity > 0.01
                 Behavior on opacity { NumberAnimation { duration: 120 } }
-                Text {
+                Column {
                     anchors.centerIn: parent
-                    text: "Loading..."
-                    color: Style.textDim
-                    font.family: Style.fontFamily
-                    font.pixelSize: Style.fsBody
+                    spacing: 6
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "Loading..."
+                        color: Style.textDim
+                        font.family: Style.fontFamily
+                        font.pixelSize: Style.fsBody
+                    }
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible: root.loadProgress > 0 && root.loadProgress < 100
+                        text: root.loadProgress + "%"
+                        color: Style.textFaint
+                        font.family: Style.fontFamily
+                        font.pixelSize: Style.fsTiny
+                    }
+                }
+            }
+
+            // Error / empty state
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: 1
+                color: Style.bgDeep
+                visible: (!web.loading && root.loadError.length > 0)
+                         || (!web.loading && !root.hasLoadedOnce
+                             && (!root.effectiveUrl || root.effectiveUrl.length === 0))
+                Column {
+                    anchors.centerIn: parent
+                    width: parent.width - 32
+                    spacing: Style.gapSm
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        text: root.loadError.length > 0
+                              ? root.loadError
+                              : "No URL — pass args.url (web) or args.videoId (YouTube)"
+                        color: Style.textDim
+                        font.family: Style.fontFamily
+                        font.pixelSize: Style.fsSmall
+                    }
+                    PmButton {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible: root.loadError.length > 0
+                        text: "Retry"
+                        onClicked: web.reload()
+                    }
                 }
             }
         }
@@ -151,6 +280,14 @@ GlassCard {
                 onClicked: web.goBack()
             }
             PmButton {
+                text: "Reload"
+                flat: true
+                onClicked: {
+                    root.loadError = ""
+                    web.reload()
+                }
+            }
+            PmButton {
                 text: web.audioMuted ? "Unmute" : "Mute"
                 flat: true
                 onClicked: web.audioMuted = !web.audioMuted
@@ -162,6 +299,12 @@ GlassCard {
                 onClicked: root.requestClose()
             }
         }
+    }
+
+    onEffectiveUrlChanged: {
+        // When argsJson / videoId resolve after Loader sets properties, navigate.
+        if (root.effectiveUrl && root.effectiveUrl.length > 0)
+            Qt.callLater(root.applyEffectiveUrl)
     }
 
     Component.onCompleted: {
@@ -180,5 +323,29 @@ GlassCard {
             }
         }
         xhr.send()
+
+        // Navigate after the item has a real size — WebEngineView often paints
+        // blank if the first load happens at 0×0 inside a Loader.
+        Qt.callLater(function() {
+            if (webHost.width > 2 && webHost.height > 2)
+                root.applyEffectiveUrl()
+            else
+                sizeKick.start()
+        })
+    }
+
+    // Retry navigation once the host is laid out (SurfaceHost animates size).
+    Timer {
+        id: sizeKick
+        interval: 50
+        repeat: true
+        property int tries: 0
+        onTriggered: {
+            tries++
+            if ((webHost.width > 2 && webHost.height > 2) || tries > 40) {
+                stop()
+                root.applyEffectiveUrl()
+            }
+        }
     }
 }

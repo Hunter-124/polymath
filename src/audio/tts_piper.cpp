@@ -36,9 +36,12 @@ namespace {
 // utterance complete (engine blocks on the next stdin line when done).
 // First-byte budget is larger: cold start loads ONNX / espeak data.
 // Kokoro first sentence can take a few seconds on CPU after model load.
-constexpr int kUtteranceIdleMs    = 280;
-constexpr int kFirstByteMs        = 30000;
+constexpr int kUtteranceIdleMs    = 350;
+constexpr int kFirstByteMs        = 45000;
 constexpr int kUtteranceMaxMs     = 120000;
+// Kokoro cold-load can take 15–45 s on a busy laptop; fail closed so we
+// never claim "ready" and then hang the first speak with empty PCM.
+constexpr int kKokoroBootMs       = 90000;
 
 bool isSentenceEnd(char c) {
     return c == '.' || c == '!' || c == '?' || c == ';' || c == '\n';
@@ -280,6 +283,74 @@ struct TtsPiper::Impl {
         killProcUnlocked();
     }
 
+    // Build argv for a Kokoro worker process (shared by ensureProc / synthOnce).
+    bool configureKokoroProcess(QProcess& p, const std::string& kvoice) {
+        const auto engDir = piper_exe.parent_path();
+        const auto py     = engDir / "venv" / "Scripts" / "python.exe";
+        const auto worker = engDir / "kokoro_worker.py";
+        const auto modelp = engDir / "kokoro-v1.0.onnx";
+        const auto voices = engDir / "voices-v1.0.bin";
+
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
+        env.insert(QStringLiteral("KOKORO_VOICE"), QString::fromStdString(kvoice));
+        env.insert(QStringLiteral("KOKORO_SPEED"), QString::number(speed, 'f', 3));
+        p.setProcessEnvironment(env);
+        p.setWorkingDirectory(QString::fromStdString(engDir.string()));
+        p.setProcessChannelMode(QProcess::SeparateChannels);
+
+        if (std::filesystem::exists(py) && std::filesystem::exists(worker) &&
+            std::filesystem::exists(modelp) && std::filesystem::exists(voices)) {
+            // -u: force unbuffered stdio so PCM flushes immediately under QProcess.
+            p.setProgram(QString::fromStdString(py.string()));
+            p.setArguments(QStringList{}
+                << QStringLiteral("-u")
+                << QString::fromStdString(worker.string())
+                << QStringLiteral("--model")  << QString::fromStdString(modelp.string())
+                << QStringLiteral("--voices") << QString::fromStdString(voices.string())
+                << QStringLiteral("--voice")  << QString::fromStdString(kvoice)
+                << QStringLiteral("--speed")  << QString::number(speed, 'f', 3)
+                << QStringLiteral("--sample-rate") << QStringLiteral("24000"));
+            return true;
+        }
+        if (std::filesystem::exists(piper_exe)) {
+            // Fall back: cmd.exe /c kokoro_worker.cmd
+            p.setProgram(QStringLiteral("cmd.exe"));
+            p.setArguments(QStringList{}
+                << QStringLiteral("/c")
+                << QString::fromStdString(piper_exe.string())
+                << QStringLiteral("--voice") << QString::fromStdString(kvoice));
+            return true;
+        }
+        PM_ERROR("audio.tts: Kokoro worker/model missing under {}", engDir.string());
+        return false;
+    }
+
+    // Block until kokoro_worker prints "ready" on stderr (or fail).
+    bool waitKokoroReady(QProcess& p, QByteArray* err_out = nullptr) {
+        QElapsedTimer boot;
+        boot.start();
+        QByteArray err;
+        while (boot.elapsed() < kKokoroBootMs && p.state() == QProcess::Running) {
+            // Ready is on stderr; poll both channels so stdout never fills up.
+            p.waitForReadyRead(100);
+            err += p.readAllStandardError();
+            // Discard any unexpected stdout noise during boot.
+            (void)p.readAllStandardOutput();
+            if (err.contains("kokoro_worker: ready")) {
+                if (err_out) *err_out = err;
+                return true;
+            }
+            if (err.contains("failed to load") || err.contains("not installed") ||
+                err.contains("model not found") || err.contains("voices not found")) {
+                break;
+            }
+        }
+        err += p.readAllStandardError();
+        if (err_out) *err_out = err;
+        return err.contains("kokoro_worker: ready");
+    }
+
     // Ensure a live TTS process for `voice`. Restarts on voice change / crash.
     bool ensureProc(const std::string& voice) {
         std::lock_guard<std::mutex> lock(proc_mu);
@@ -307,41 +378,14 @@ struct TtsPiper::Impl {
         proc->setProcessChannelMode(QProcess::SeparateChannels);
 
         if (engine == "kokoro") {
-            // Prefer python.exe + worker.py (reliable under QProcess). The .cmd
-            // wrapper is only a fallback. Always unbuffer stdout for raw PCM.
             std::string kvoice = name;
             if (kvoice.rfind("kokoro-", 0) == 0)
                 kvoice = kvoice.substr(7);
             if (kvoice.empty()) kvoice = "af_heart";
 
-            const auto engDir = piper_exe.parent_path();
-            const auto py     = engDir / "venv" / "Scripts" / "python.exe";
-            const auto worker = engDir / "kokoro_worker.py";
-            const auto modelp = engDir / "kokoro-v1.0.onnx";
-            const auto voices = engDir / "voices-v1.0.bin";
-
-            QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-            env.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
-            env.insert(QStringLiteral("KOKORO_VOICE"), QString::fromStdString(kvoice));
-            env.insert(QStringLiteral("KOKORO_SPEED"), QString::number(speed, 'f', 3));
-            proc->setProcessEnvironment(env);
-
-            if (std::filesystem::exists(py) && std::filesystem::exists(worker)) {
-                proc->setProgram(QString::fromStdString(py.string()));
-                proc->setArguments(QStringList{}
-                    << QString::fromStdString(worker.string())
-                    << QStringLiteral("--model")  << QString::fromStdString(modelp.string())
-                    << QStringLiteral("--voices") << QString::fromStdString(voices.string())
-                    << QStringLiteral("--voice")  << QString::fromStdString(kvoice)
-                    << QStringLiteral("--speed")  << QString::number(speed, 'f', 3)
-                    << QStringLiteral("--sample-rate") << QStringLiteral("24000"));
-            } else {
-                // Fall back: cmd.exe /c kokoro_worker.cmd
-                proc->setProgram(QStringLiteral("cmd.exe"));
-                proc->setArguments(QStringList{}
-                    << QStringLiteral("/c")
-                    << QString::fromStdString(piper_exe.string())
-                    << QStringLiteral("--voice") << QString::fromStdString(kvoice));
+            if (!configureKokoroProcess(*proc, kvoice)) {
+                proc.reset();
+                return false;
             }
         } else {
             const auto cfg = voices_dir / name / (name + ".onnx.json");
@@ -357,26 +401,15 @@ struct TtsPiper::Impl {
             proc.reset();
             return false;
         }
-        // Kokoro cold-load: wait until stderr says "ready" (or timeout).
+        // Kokoro: require the ready banner. Returning true without it made the
+        // first speak() race a still-loading model and produce zero PCM.
         if (engine == "kokoro") {
-            QElapsedTimer boot;
-            boot.start();
             QByteArray err;
-            while (boot.elapsed() < 60000 &&
-                   proc->state() == QProcess::Running) {
-                if (proc->waitForReadyRead(200)) {
-                    err += proc->readAllStandardError();
-                    if (err.contains("kokoro_worker: ready"))
-                        break;
-                } else {
-                    err += proc->readAllStandardError();
-                    if (err.contains("kokoro_worker: ready"))
-                        break;
-                }
-            }
-            if (!err.contains("kokoro_worker: ready")) {
-                PM_WARN("audio.tts: kokoro boot signal not seen yet ({})",
-                        QString::fromUtf8(err.left(200)).toStdString());
+            if (!waitKokoroReady(*proc, &err)) {
+                PM_ERROR("audio.tts: kokoro failed to become ready ({})",
+                         QString::fromUtf8(err.left(400)).toStdString());
+                killProcUnlocked();
+                return false;
             }
         }
         proc_voice = name;
@@ -436,13 +469,20 @@ struct TtsPiper::Impl {
         }
 
         if (raw.isEmpty()) {
-            const QByteArray err = proc->readAllStandardError().left(200);
+            const QByteArray err = proc->readAllStandardError().left(400);
             PM_ERROR("audio.tts: {} produced no audio ({})",
                      engine, QString::fromUtf8(err).toStdString());
             return false;
         }
-        // Piper may emit an odd trailing byte; drop incomplete sample.
+        // Near-silence (e.g. Kokoro error path writes 240 zero samples) is not
+        // usable speech — treat as failure so the caller can restart/retry.
         const size_t n = static_cast<size_t>(raw.size()) / sizeof(int16_t);
+        if (n < 800) {  // < ~33 ms @ 24 kHz
+            PM_ERROR("audio.tts: {} produced only {} samples (too short)",
+                     engine, n);
+            return false;
+        }
+        // Piper may emit an odd trailing byte; drop incomplete sample.
         out.resize(n);
         std::memcpy(out.data(), raw.constData(), n * sizeof(int16_t));
         return !out.empty();
@@ -452,13 +492,77 @@ struct TtsPiper::Impl {
     bool synthOnce(const std::string& text, const std::string& voice,
                    std::vector<int16_t>& out, int& sr) {
         out.clear();
-        std::string name = voice.empty() ? default_voice : voice;
+        std::string name = mapVoice(voice);
         auto model = resolveModel(name);
-        if (model.empty() && name != default_voice) {
+        if (model.empty() && engine != "kokoro" && name != default_voice) {
             name = default_voice;
             model = resolveModel(name);
         }
-        if (model.empty()) return false;
+        if (model.empty() && engine != "kokoro") return false;
+
+        if (engine == "kokoro") {
+            sr = engine_sr > 0 ? engine_sr : 24000;
+            std::string kvoice = name;
+            if (kvoice.rfind("kokoro-", 0) == 0) kvoice = kvoice.substr(7);
+            if (kvoice.empty()) kvoice = "af_heart";
+
+            QProcess p;
+            if (!configureKokoroProcess(p, kvoice)) return false;
+            p.start();
+            if (!p.waitForStarted(15000)) return false;
+            QByteArray bootErr;
+            if (!waitKokoroReady(p, &bootErr)) {
+                PM_ERROR("audio.tts: kokoro one-shot boot failed ({})",
+                         QString::fromUtf8(bootErr.left(300)).toStdString());
+                p.kill();
+                p.waitForFinished(2000);
+                return false;
+            }
+            QByteArray payload = QByteArray::fromStdString(text);
+            if (!payload.endsWith('\n')) payload.append('\n');
+            p.write(payload);
+            p.waitForBytesWritten(2000);
+            p.closeWriteChannel();
+
+            QByteArray raw;
+            QElapsedTimer timer;
+            timer.start();
+            qint64 last_data_ms = -1;
+            while (timer.elapsed() < kUtteranceMaxMs) {
+                if (p.state() != QProcess::Running) {
+                    raw += p.readAllStandardOutput();
+                    break;
+                }
+                if (p.waitForReadyRead(40)) {
+                    raw += p.readAllStandardOutput();
+                    last_data_ms = timer.elapsed();
+                } else {
+                    const QByteArray more = p.readAllStandardOutput();
+                    if (!more.isEmpty()) {
+                        raw += more;
+                        last_data_ms = timer.elapsed();
+                    } else if (last_data_ms >= 0 &&
+                               (timer.elapsed() - last_data_ms) >= kUtteranceIdleMs) {
+                        break;
+                    } else if (last_data_ms < 0 && timer.elapsed() > kFirstByteMs) {
+                        break;
+                    }
+                }
+                (void)p.readAllStandardError();
+            }
+            p.kill();
+            p.waitForFinished(2000);
+            const size_t n = static_cast<size_t>(raw.size()) / sizeof(int16_t);
+            if (n < 800) {
+                PM_ERROR("audio.tts: kokoro one-shot produced no usable audio");
+                return false;
+            }
+            out.resize(n);
+            std::memcpy(out.data(), raw.constData(), n * sizeof(int16_t));
+            return true;
+        }
+
+        // Piper one-shot.
         const auto cfg = voices_dir / name / (name + ".onnx.json");
         sr = sampleRate(cfg);
 
