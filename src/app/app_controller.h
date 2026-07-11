@@ -42,6 +42,7 @@ class SettingsController;
 class NotificationsModel;
 class SessionsModel;
 class AgentSessionService;
+class PersonalityModel;
 
 class AppController : public QObject {
     Q_OBJECT
@@ -60,6 +61,8 @@ class AppController : public QObject {
     Q_PROPERTY(QObject* cameraModel   READ cameraModel   CONSTANT)
     Q_PROPERTY(QObject* taskModel     READ taskModel     CONSTANT)
     Q_PROPERTY(QObject* timelineModel READ timelineModel CONSTANT)
+    // E2: personality editor's list model (mirrors PersonalityManager::all()).
+    Q_PROPERTY(QObject* personalityModel READ personalityModel CONSTANT)
     // Overhaul A2: VRAM HUD + wake pulse + settings/notifications facades.
     Q_PROPERTY(int vramUsedMiB  READ vramUsedMiB  NOTIFY vramChanged)
     Q_PROPERTY(int vramTotalMiB READ vramTotalMiB NOTIFY vramChanged)
@@ -94,6 +97,7 @@ public:
     QObject* cameraModel() const;
     QObject* taskModel() const;
     QObject* timelineModel() const;
+    QObject* personalityModel() const;
 
     int vramUsedMiB() const { return vram_used_mib_; }
     int vramTotalMiB() const { return vram_total_mib_; }
@@ -103,6 +107,24 @@ public:
     Q_INVOKABLE void pushToTalk(bool down);
     Q_INVOKABLE void setPersonality(const QString& name);
     Q_INVOKABLE QStringList personalities() const;
+
+    // --- E2: personality editor pass-throughs (PersonalityManager write API) ---
+    // See PersonalityManager::createBundle/saveBundle/setAvatar/deleteBundle
+    // for the exact contract; these just forward with a null-guard since
+    // personality_ isn't constructed until initialize() has run.
+    Q_INVOKABLE bool createPersonality(const QString& name);
+    Q_INVOKABLE bool savePersonality(const QString& name, const QString& json);
+    Q_INVOKABLE bool setPersonalityAvatar(const QString& name, const QString& sourcePath);
+    Q_INVOKABLE bool deletePersonality(const QString& name);
+    // Tool names the editor's allow-list multi-select offers (ToolRegistry's
+    // full registered set — the persona's own `tools` array is the subset
+    // filter, not this list). Empty until AgentRuntime has registered its
+    // built-in tools (happens moments after start(), on the agent thread).
+    Q_INVOKABLE QStringList availableToolNames() const;
+    // Model choices for the "preferred model" combo: the two role keywords
+    // the runtime resolves at call time ("fast"/"heavy") plus every specific
+    // registered model id, for personas that want to pin an exact model.
+    Q_INVOKABLE QStringList availableModels() const;
     Q_INVOKABLE void setPrivacy(const QString& key, bool enabled);
     Q_INVOKABLE bool privacy(const QString& key) const;
     Q_INVOKABLE void findObject(const QString& query);
@@ -191,6 +213,11 @@ private:
     std::unique_ptr<NotificationsModel>  notifications_model_;
     std::unique_ptr<SessionsModel>        sessions_model_;
     std::unique_ptr<SettingsController>  settings_;
+    // E2: mirrors personality_->all() for the in-GUI editor. Holds a plain
+    // reference to personality_ (constructed first in initialize(), destroyed
+    // last in shutdown()'s teardown order below) — must be reset before
+    // personality_ is.
+    std::unique_ptr<PersonalityModel>    personality_model_;
     // The QML engine takes ownership of the image provider on registration; we
     // keep a non-owning pointer to push frames into it. Guarded for lifetime by
     // disconnecting the feed in shutdown().

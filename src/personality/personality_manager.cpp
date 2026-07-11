@@ -48,6 +48,58 @@ Personality defaultPersona() {
     return p;
 }
 
+// ---------------------------------------------------------------------------
+//  write-API helpers (overhaul2 E2)
+// ---------------------------------------------------------------------------
+
+// Bundle folder names are a single path segment, not a path: reject traversal
+// outright and replace filesystem-hostile characters (Windows-illegal plus a
+// couple of POSIX-awkward ones) so a persona display name like "Weird: Name?"
+// still yields a legal, unsurprising directory.
+std::string sanitizeBundleFolder(const std::string& name) {
+    if (name.empty() || name == "." || name == "..") return {};
+    if (name.find("..") != std::string::npos) return {};
+    std::string out;
+    out.reserve(name.size());
+    for (unsigned char c : name) {
+        if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' ||
+            c == '"' || c == '<' || c == '>' || c == '|')
+            out.push_back('_');
+        else
+            out.push_back(static_cast<char>(c));
+    }
+    // Trailing dots/spaces are invalid on Windows and get silently stripped by
+    // the OS anyway — strip them ourselves so exists()-checks stay accurate.
+    while (!out.empty() && (out.back() == '.' || out.back() == ' ')) out.pop_back();
+    return out;
+}
+
+// tmp-file-then-rename write so a crash or concurrent QFileSystemWatcher scan
+// never observes a half-written persona.json.
+bool writeJsonAtomic(const fs::path& file, const nlohmann::json& j) {
+    std::error_code ec;
+    fs::create_directories(file.parent_path(), ec);
+    const auto tmp = file.parent_path() / (file.filename().string() + ".tmp");
+    {
+        std::ofstream out(tmp, std::ios::trunc | std::ios::binary);
+        if (!out) return false;
+        const std::string body = j.dump(2);
+        out.write(body.data(), static_cast<std::streamsize>(body.size()));
+        if (!out) return false;
+    }
+    fs::rename(tmp, file, ec);
+    if (ec) {
+        // Cross-device or "target exists" on some filesystems — fall back to
+        // remove-then-rename rather than leaving the .tmp orphaned.
+        std::error_code rmec;
+        fs::remove(file, rmec);
+        ec.clear();
+        fs::rename(tmp, file, ec);
+        if (ec) { fs::remove(tmp, rmec); return false; }
+    }
+    return true;
+}
+
 } // namespace
 
 PersonalityManager::~PersonalityManager() = default;  // QFileSystemWatcher complete here
@@ -115,6 +167,7 @@ void PersonalityManager::scanBundles() {
                 p.preferred_model = j.value("preferred_model", "fast");
                 p.wake_phrase     = j.value("wake_phrase", "");
                 p.tools           = j.value("tools", std::vector<std::string>{});
+                p.bundle_dir      = entry.path().filename().string();
                 if (j.contains("sampling")) {
                     const auto& s = j["sampling"];
                     p.sampling.temperature    = s.value("temperature", p.sampling.temperature);
@@ -191,7 +244,16 @@ void PersonalityManager::scanBundles() {
 
 std::vector<Personality> PersonalityManager::all() const { return personas_; }
 
-const Personality& PersonalityManager::active() const { return personas_[active_]; }
+const Personality& PersonalityManager::active() const {
+    // Guard the window before start()/scanBundles() has populated personas_
+    // (e.g. PersonalityModel built during AppController::buildModels(), which
+    // runs before personality_->start()). Out-of-bounds here is a hard crash.
+    if (active_ < 0 || active_ >= static_cast<int>(personas_.size())) {
+        static const Personality kNone;
+        return kNone;
+    }
+    return personas_[active_];
+}
 
 bool PersonalityManager::setActive(const std::string& name) {
     for (size_t i = 0; i < personas_.size(); ++i) {
@@ -322,6 +384,186 @@ void PersonalityManager::onDirChanged() {
     // defer the actual rescan so a burst of writes coalesces into one reload.
     rewatch();
     rescan_timer_.start();   // restarts the single-shot debounce
+}
+
+// ---------------------------------------------------------------------------
+//  write API (overhaul2 E2: in-GUI personality editor)
+// ---------------------------------------------------------------------------
+bool PersonalityManager::createBundle(QString qname) {
+    const std::string name = qname.trimmed().toStdString();
+    if (name.empty()) return false;
+    const std::string folder = sanitizeBundleFolder(name);
+    if (folder.empty()) return false;
+
+    const auto dir = Paths::instance().personalities();
+    const auto bundleDir = dir / folder;
+    std::error_code ec;
+    if (fs::exists(bundleDir, ec)) {
+        PM_WARN("personality: createBundle('{}') — bundle already exists", name);
+        return false;
+    }
+    fs::create_directories(bundleDir, ec);
+    if (ec) {
+        PM_WARN("personality: createBundle('{}') — mkdir failed: {}", name, ec.message());
+        return false;
+    }
+
+    nlohmann::json j;
+    j["name"]            = name;
+    j["system_prompt"]   = "You are " + name + ", a helpful local home assistant.";
+    j["voice"]           = "";
+    j["preferred_model"] = "fast";
+    j["wake_phrase"]     = "";
+    j["tools"]           = nlohmann::json::array();
+    j["sampling"] = {
+        {"temperature",    0.7},
+        {"top_p",          0.9},
+        {"top_k",          40},
+        {"repeat_penalty", 1.1},
+        {"max_tokens",     1024},
+    };
+
+    if (!writeJsonAtomic(bundleDir / "persona.json", j)) {
+        PM_WARN("personality: createBundle('{}') — write failed", name);
+        std::error_code rmec;
+        fs::remove_all(bundleDir, rmec);
+        return false;
+    }
+
+    PM_INFO("personality: created bundle '{}' ({})", name, folder);
+    scanBundles();
+    return true;
+}
+
+bool PersonalityManager::saveBundle(QString qname, QString qjson) {
+    const std::string name = qname.trimmed().toStdString();
+    if (name.empty()) return false;
+
+    nlohmann::json j;
+    try {
+        j = nlohmann::json::parse(qjson.toStdString());
+    } catch (const std::exception& e) {
+        PM_WARN("personality: saveBundle('{}') — invalid JSON: {}", name, e.what());
+        return false;
+    }
+    if (!j.is_object()) {
+        PM_WARN("personality: saveBundle('{}') — JSON root must be an object", name);
+        return false;
+    }
+    // The bundle's `name` field is authoritative from the argument, not
+    // whatever the caller's JSON blob happened to carry.
+    j["name"] = name;
+
+    // Reuse the existing on-disk folder if this persona is already loaded
+    // (keeps shipped kebab-case-folder bundles stable across edits); else
+    // this is effectively create-on-save, so derive a fresh folder.
+    std::string folder;
+    for (const auto& p : personas_)
+        if (p.name == name) { folder = p.bundle_dir; break; }
+    if (folder.empty()) folder = sanitizeBundleFolder(name);
+    if (folder.empty()) return false;
+
+    const auto dir = Paths::instance().personalities();
+    const auto bundleDir = dir / folder;
+    std::error_code ec;
+    fs::create_directories(bundleDir, ec);
+
+    if (!writeJsonAtomic(bundleDir / "persona.json", j)) {
+        PM_WARN("personality: saveBundle('{}') — write failed", name);
+        return false;
+    }
+
+    PM_INFO("personality: saved bundle '{}'", name);
+    scanBundles();
+    return true;
+}
+
+bool PersonalityManager::setAvatar(QString qname, QString qsourcePath) {
+    const std::string name = qname.trimmed().toStdString();
+    const std::string source = qsourcePath.trimmed().toStdString();
+    if (name.empty() || source.empty()) return false;
+
+    std::error_code ec;
+    const fs::path src = fs::u8path(source);
+    if (!fs::exists(src, ec) || !fs::is_regular_file(src, ec)) {
+        PM_WARN("personality: setAvatar('{}') — source not found: {}", name, source);
+        return false;
+    }
+    std::string ext = src.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                    [](unsigned char c) { return std::tolower(c); });
+    if (ext != ".png" && ext != ".jpg" && ext != ".jpeg") {
+        PM_WARN("personality: setAvatar('{}') — unsupported image type: {}", name, ext);
+        return false;
+    }
+
+    std::string folder;
+    for (const auto& p : personas_)
+        if (p.name == name) { folder = p.bundle_dir; break; }
+    if (folder.empty()) folder = sanitizeBundleFolder(name);
+    if (folder.empty()) return false;
+
+    const auto dir = Paths::instance().personalities();
+    const auto bundleDir = dir / folder;
+    if (!fs::exists(bundleDir, ec)) {
+        PM_WARN("personality: setAvatar('{}') — bundle does not exist yet: {}", name, folder);
+        return false;
+    }
+
+    // Drop any previous avatar of a *different* extension so scanBundles()'s
+    // fixed-order probe (png, then jpg, then jpeg) can't resolve a stale file
+    // instead of the one just imported.
+    for (const char* fname : {"avatar.png", "avatar.jpg", "avatar.jpeg"})
+        fs::remove(bundleDir / fname, ec);
+
+    fs::copy_file(src, bundleDir / ("avatar" + ext), fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        PM_WARN("personality: setAvatar('{}') — copy failed: {}", name, ec.message());
+        return false;
+    }
+
+    PM_INFO("personality: set avatar for '{}' (avatar{})", name, ext);
+    scanBundles();
+    return true;
+}
+
+bool PersonalityManager::deleteBundle(QString qname) {
+    const std::string name = qname.trimmed().toStdString();
+    if (name.empty()) return false;
+
+    if (active_ >= 0 && active_ < static_cast<int>(personas_.size()) &&
+        personas_[active_].name == name) {
+        PM_WARN("personality: deleteBundle('{}') refused — persona is active, switch first", name);
+        return false;
+    }
+
+    std::string folder;
+    for (const auto& p : personas_)
+        if (p.name == name) { folder = p.bundle_dir; break; }
+    if (folder.empty()) folder = sanitizeBundleFolder(name);
+    if (folder.empty()) return false;
+
+    const auto dir = Paths::instance().personalities();
+    const auto bundleDir = dir / folder;
+    std::error_code ec;
+    if (!fs::exists(bundleDir, ec)) {
+        PM_WARN("personality: deleteBundle('{}') — no such bundle on disk", name);
+        return false;
+    }
+
+    const auto trashDir = dir / ".trash";
+    fs::create_directories(trashDir, ec);
+    const int64_t ts = to_unix(Clock::now());
+    const auto dest = trashDir / (folder + "-" + std::to_string(ts));
+    fs::rename(bundleDir, dest, ec);
+    if (ec) {
+        PM_WARN("personality: deleteBundle('{}') — move to trash failed: {}", name, ec.message());
+        return false;
+    }
+
+    PM_INFO("personality: moved bundle '{}' to trash ({})", name, dest.string());
+    scanBundles();
+    return true;
 }
 
 } // namespace polymath

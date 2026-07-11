@@ -29,6 +29,13 @@ struct Personality {
     SamplingParams sampling;
     std::vector<std::string> tools;   // allow-list ("" -> all)
     std::string avatar_path;
+    // On-disk folder name under personalities/ (e.g. "marcus-aurelius" for a
+    // persona whose display `name` is "Marcus Aurelius"). The shipped starter
+    // bundles use kebab-case folders that don't match their display name, so
+    // the E2 write API needs this to resolve save/delete/avatar targets to the
+    // *actual* directory instead of re-deriving one from `name` and creating a
+    // duplicate. Populated by scanBundles(); empty on the built-in fallback.
+    std::string bundle_dir;
 };
 
 class PersonalityManager : public QObject, public IService {
@@ -45,6 +52,35 @@ public:
     std::vector<Personality> all() const;
     const Personality& active() const;
     bool setActive(const std::string& name);
+
+    // --- write API (overhaul2 E2: in-GUI personality editor) ---------------
+    // These are additive — the methods above stay frozen exactly as-is.
+
+    // Scaffolds personalities/<name>/persona.json from a sensible template
+    // (name/system_prompt seeded, empty voice/wake phrase, "fast" preferred
+    // model, no tool restriction, default sampling). Fails (false) if `name`
+    // is empty/unsafe as a path segment or a bundle already exists on disk
+    // under it. Rescans synchronously so the new card appears immediately
+    // (the QFileSystemWatcher would also catch it, just not before the QML
+    // caller's next paint).
+    Q_INVOKABLE bool createBundle(QString name);
+    // Atomic (tmp file + rename) overwrite of the bundle's persona.json.
+    // `json` must parse as a JSON object; the "name" field is forced to match
+    // `name`. Writes into the existing bundle's on-disk folder when `name`
+    // matches an already-loaded persona (so editing a shipped kebab-case
+    // bundle doesn't fork a duplicate folder); otherwise derives a fresh
+    // folder from `name` (create-on-save for a persona new this session).
+    Q_INVOKABLE bool saveBundle(QString name, QString json);
+    // Copies `sourcePath` (an arbitrary absolute path, e.g. pasted from
+    // Explorer — no native file-picker QML module is linked yet) into the
+    // bundle as avatar.<ext> (png/jpg/jpeg only), replacing any previous
+    // avatar of a different extension. Requires the bundle to already exist.
+    Q_INVOKABLE bool setAvatar(QString name, QString sourcePath);
+    // Moves personalities/<name>/ to personalities/.trash/<folder>-<epoch>/ —
+    // reversible, never a hard delete. Refuses (returns false, no-op) when
+    // `name` is the currently active persona; the caller must switch personas
+    // first.
+    Q_INVOKABLE bool deleteBundle(QString name);
 
 signals:
     void activeChanged(QString name, QString voice);

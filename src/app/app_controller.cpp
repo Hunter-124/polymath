@@ -25,6 +25,7 @@
 #include "settings_controller.h"
 #include "camera_image_provider.h"
 #include "agent_session_service.h"
+#include "personality_model.h"
 
 #include "app_bridge.h"
 #include "gateway_service.h"
@@ -289,6 +290,14 @@ void AppController::buildModels() {
         sessions_model_->setService(sessions_.get());
     image_provider_ = new CameraImageProvider();   // engine takes ownership later
 
+    // E2: personality_ is constructed earlier in initialize() (before
+    // buildModels()), so it's safe to bind here even though personality_->
+    // start() (which actually populates it) runs later — the model wires its
+    // refresh to personalitiesChanged()/activeChanged() first, so start()'s
+    // first scanBundles() lands correctly.
+    if (personality_)
+        personality_model_ = std::make_unique<PersonalityModel>(*personality_, this);
+
     // SettingsController needs Config (seeded in initialize before buildModels).
     if (config_)
         settings_ = std::make_unique<SettingsController>(db_, *config_, this);
@@ -376,6 +385,8 @@ void AppController::registerWithEngine(QQmlApplicationEngine& engine) {
     ctx->setContextProperty("cameraModel",   camera_model_.get());
     ctx->setContextProperty("taskModel",     task_model_.get());
     ctx->setContextProperty("timelineModel", timeline_model_.get());
+    // E2: personality editor's list model.
+    ctx->setContextProperty("personalityModel", personality_model_.get());
     // Mobile gateway pairing helpers for Settings ▸ Mobile Access (remote toggle,
     // pairing payload/QR, connected-device count). Its Q_INVOKABLEs are
     // thread-safe (auth pair-code store is mutex-guarded; the relay toggle
@@ -395,6 +406,7 @@ QObject* AppController::shoppingModel() const { return shopping_model_.get(); }
 QObject* AppController::cameraModel() const   { return camera_model_.get(); }
 QObject* AppController::taskModel() const     { return task_model_.get(); }
 QObject* AppController::timelineModel() const { return timeline_model_.get(); }
+QObject* AppController::personalityModel() const { return personality_model_.get(); }
 
 void AppController::shutdown() {
     // Stop feeding the (engine-owned) image provider and detach the bus from the
@@ -419,9 +431,12 @@ void AppController::shutdown() {
     threads_.clear();
 
     // Drop the UI models (parented to this, but reset explicitly for order).
+    // personality_model_ holds a PersonalityManager& — must go before
+    // personality_.reset() further down.
     chat_model_.reset(); shopping_model_.reset(); camera_model_.reset();
     task_model_.reset(); timeline_model_.reset();
     sessions_model_.reset(); notifications_model_.reset(); settings_.reset();
+    personality_model_.reset();
 
     // Gateway first (its thread is already joined above): it holds refs to the
     // bridge, db_ and config_, so it must die before them.
@@ -451,6 +466,48 @@ void AppController::setPersonality(const QString& name) { personality_->setActiv
 QStringList AppController::personalities() const {
     QStringList out;
     for (const auto& p : personality_->all()) out << QString::fromStdString(p.name);
+    return out;
+}
+
+// --- E2: personality editor pass-throughs ---------------------------------
+
+bool AppController::createPersonality(const QString& name) {
+    return personality_ ? personality_->createBundle(name) : false;
+}
+
+bool AppController::savePersonality(const QString& name, const QString& json) {
+    return personality_ ? personality_->saveBundle(name, json) : false;
+}
+
+bool AppController::setPersonalityAvatar(const QString& name, const QString& sourcePath) {
+    return personality_ ? personality_->setAvatar(name, sourcePath) : false;
+}
+
+bool AppController::deletePersonality(const QString& name) {
+    return personality_ ? personality_->deleteBundle(name) : false;
+}
+
+QStringList AppController::availableToolNames() const {
+    QStringList out;
+    if (!agent_) return out;
+    // ToolRegistry lives on the agent worker thread but is populated once at
+    // startup (registerBuiltinTools, called from AgentRuntime::start()) and
+    // never mutated afterward, so this cross-thread read of its name list is
+    // safe in practice even though it isn't marshaled through the event loop.
+    // (agent_.get() already yields a non-const AgentRuntime* even from this
+    // const method — unique_ptr constness only guards the pointer itself.)
+    for (const auto& n : agent_->tools().names())
+        out << QString::fromStdString(n);
+    out.sort(Qt::CaseInsensitive);
+    return out;
+}
+
+QStringList AppController::availableModels() const {
+    QStringList out{QStringLiteral("fast"), QStringLiteral("heavy")};
+    for (const auto& row : models()) {
+        const QString id = row.toMap().value(QStringLiteral("id")).toString();
+        if (!id.isEmpty() && !out.contains(id)) out << id;
+    }
     return out;
 }
 
