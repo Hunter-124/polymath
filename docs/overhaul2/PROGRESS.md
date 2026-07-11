@@ -6,15 +6,15 @@ machine/harness. Legend: [ ] pending · [~] in progress · [x] done · [!] block
 (see docs/overhaul2/results/).
 
 ## Wave A — harness correctness
-- [ ] A1 final-answer hygiene + router v2 (kills tool-call leak; "open a youtube video" routes)
+- [x] A1 final-answer hygiene + router v2 (kills tool-call leak; "open a youtube video" routes)
 - [ ] A2 goal execution integrity (run_skill executes, resumeActiveGoals, session rejoin)
-- [ ] A3 ui_control schema v2 (open_page, window verbs, surface args)
+- [x] A3 ui_control schema v2 (open_page, window verbs, surface args)
 - [ ] A4 risk-gate enforcement (SafetyPolicy core + waiting_user + audit)
 
 ## Wave B — YouTube pipeline (top priority)
-- [ ] B1 youtube_search tool (Innertube, no API key)
-- [ ] B2 video surface v2 + VideoPickerSurface
-- [ ] B3 adblock + clean-mode hardening (YtClean.js, interceptor)
+- [x] B1 youtube_search tool (Innertube, no API key)
+- [x] B2 video surface v2 + VideoPickerSurface
+- [x] B3 adblock + clean-mode hardening (YtClean.js, interceptor)
 - [ ] B4 watch_video skill + slop_mode upgrade + live e2e
 
 ## Wave C — computer use + safeguards
@@ -26,7 +26,7 @@ machine/harness. Legend: [ ] pending · [~] in progress · [x] done · [!] block
 - [ ] D1 scheduler v2 (timed/recurring agent goals + tools + Tasks UI)
 - [ ] D2 goal-tree orchestration (local subagents, join policies)
 - [ ] D3 advisor/supervisor persona + skills + seed schedules
-- [ ] D4 TTS v2 (engine/voice/speed config + UI, per-persona voices, chunking)
+- [x] D4 TTS v2 (engine/voice/speed config + UI, per-persona voices, chunking)
 
 ## Wave E — GUI features
 - [ ] E1 chat text selection + drag-scroll coexistence
@@ -42,4 +42,18 @@ machine/harness. Legend: [ ] pending · [~] in progress · [x] done · [!] block
 - [ ] F3 docs + graphify + tag v0.3.0-overhaul2 + installer
 
 ## Notes / deviations
-- (add as they happen)
+- Batch 1 (A1,A3,B1,B2,B3,D4) executed by parallel subagents, integrated centrally.
+  CPU build + full ctest (17/17) green serially. Integration fixes folded in:
+  * B-LEAK residual closed at the bus→UI funnel: app_controller filters internal
+    phase-suffixed request_ids (:route/:plan/:gen/:reflect/:step/:final) so the
+    shadow :final generation can't form its own chat bubble. A1's shadow-rid alone
+    was insufficient because InferenceManager streams tokenStreamed globally.
+  * Pre-existing TTS bug fixed (surfaced by D4's reliable Kokoro start): stop() left
+    cancel=true permanently → every later synthesize()/synthesizeSentences() went
+    mute. Both now clear cancel at entry like speak(). (Real app impact: TTS would
+    go silent after any barge-in.)
+  * test_youtube_search include path (tools/ prefix); test_agent_e2e tool count 25→26
+    (youtube_search); test_integration_e2e speak assertion checks answer content
+    rather than the empty flush=true stream terminator.
+- Audio e2e is flaky under `ctest -j4` (Kokoro+whisper+inference+memory contend);
+  passes standalone and under `-j1`. Run heavy suites serially. Not a code defect.
