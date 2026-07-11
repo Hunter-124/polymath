@@ -203,6 +203,12 @@ ApplicationWindow {
             run: function () { window.openSettings("agents") }
         })
         acts.push({
+            id: "settings.safety",
+            title: "Settings: Safety",
+            section: "Settings",
+            run: function () { window.openSettings("safety") }
+        })
+        acts.push({
             id: "ui.effects.toggle",
             title: "Toggle glass effects",
             section: "Appearance",
@@ -950,6 +956,11 @@ ApplicationWindow {
         z: 3
     }
 
+    // C1: SafetyPolicy confirmation dialog (Approve / Deny / Always allow).
+    ConfirmDialog {
+        id: confirmDialog
+    }
+
     Shortcut {
         sequence: "Ctrl+K"
         context: Qt.ApplicationShortcut
@@ -976,6 +987,7 @@ ApplicationWindow {
     }
 
     // A3 → E4: ui_control open_page / window relays (agent-driven).
+    // C1: SafetyPolicy confirmRequested → ConfirmDialog.
     Connections {
         target: typeof app !== "undefined" ? app : null
         ignoreUnknownSignals: true
@@ -984,6 +996,22 @@ ApplicationWindow {
         }
         function onWindowRequested(verb) {
             window.handleWindowVerb(verb)
+        }
+        function onConfirmRequested(id, tool, summary, argsPreview, reason) {
+            confirmDialog.openConfirm(id, tool, summary, argsPreview, reason)
+            // Surface a warn toast so the request is visible even if the dialog
+            // is behind another overlay (and for capture / accessibility).
+            if (typeof toastStack !== "undefined" && toastStack.pushToast)
+                toastStack.pushToast("warn", "safety",
+                    summary && summary.length ? summary
+                        : ("Needs approval: " + (tool || "tool")))
+        }
+        function onConfirmSettled(id) {
+            // Voice / notification / other path answered — dismiss if showing.
+            if (confirmDialog.confirmId === id) {
+                confirmDialog.confirmId = ""
+                confirmDialog.close()
+            }
         }
     }
 

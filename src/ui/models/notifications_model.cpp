@@ -19,30 +19,34 @@ QVariant NotificationsModel::data(const QModelIndex& index, int role) const {
         return {};
     const auto& r = rows_.at(index.row());
     switch (role) {
-    case IdRole:        return r.id;
-    case SeverityRole:  return r.severity;
-    case SourceRole:    return r.source;
-    case TitleRole:     return r.title;
-    case BodyRole:      return r.body;
-    case TimestampRole: return static_cast<qint64>(r.timestamp);
-    case TimeLabelRole: return r.timeLabel;
-    case ReadRole:      return r.read;
-    case CategoryRole:  return r.category;
-    default:            return {};
+    case IdRole:           return r.id;
+    case SeverityRole:     return r.severity;
+    case SourceRole:       return r.source;
+    case TitleRole:        return r.title;
+    case BodyRole:         return r.body;
+    case TimestampRole:    return static_cast<qint64>(r.timestamp);
+    case TimeLabelRole:    return r.timeLabel;
+    case ReadRole:         return r.read;
+    case CategoryRole:     return r.category;
+    case PendingActionRole: return r.pending_action;
+    case ConfirmIdRole:    return r.confirm_id;
+    default:               return {};
     }
 }
 
 QHash<int, QByteArray> NotificationsModel::roleNames() const {
     return {
-        {IdRole,        "id"},
-        {SeverityRole,  "severity"},
-        {SourceRole,    "source"},
-        {TitleRole,     "title"},
-        {BodyRole,      "body"},
-        {TimestampRole, "timestamp"},
-        {TimeLabelRole, "timeLabel"},
-        {ReadRole,      "read"},
-        {CategoryRole,  "category"},
+        {IdRole,            "id"},
+        {SeverityRole,      "severity"},
+        {SourceRole,        "source"},
+        {TitleRole,         "title"},
+        {BodyRole,          "body"},
+        {TimestampRole,     "timestamp"},
+        {TimeLabelRole,     "timeLabel"},
+        {ReadRole,          "read"},
+        {CategoryRole,      "category"},
+        {PendingActionRole, "pendingAction"},
+        {ConfirmIdRole,     "confirmId"},
     };
 }
 
@@ -74,6 +78,20 @@ void NotificationsModel::prepend(Row row) {
         endRemoveRows();
     }
     recomputeUnread();
+}
+
+void NotificationsModel::removeByConfirmId(const QString& confirmId) {
+    if (confirmId.isEmpty()) return;
+    for (int i = 0; i < rows_.size(); ++i) {
+        if (rows_[i].confirm_id == confirmId ||
+            (rows_[i].category == QLatin1String("confirm") && rows_[i].id == confirmId)) {
+            beginRemoveRows({}, i, i);
+            rows_.removeAt(i);
+            endRemoveRows();
+            recomputeUnread();
+            return;
+        }
+    }
 }
 
 void NotificationsModel::markAllRead() {
@@ -132,6 +150,26 @@ void NotificationsModel::refreshFromEvents() {
     }
     endResetModel();
     recomputeUnread();
+}
+
+void NotificationsModel::respondConfirm(const QString& confirmId, bool approved) {
+    if (confirmId.isEmpty()) return;
+    ConfirmResponse resp;
+    resp.id = confirmId;
+    resp.approved = approved;
+    resp.always_allow = false;
+    EventBus::instance().publishConfirmResponse(resp);
+    // Row removal also arrives via onConfirmResponse; do it eagerly so the
+    // center updates before the queued bus hop returns to this object.
+    removeByConfirmId(confirmId);
+}
+
+void NotificationsModel::approveConfirm(const QString& confirmId) {
+    respondConfirm(confirmId, true);
+}
+
+void NotificationsModel::denyConfirm(const QString& confirmId) {
+    respondConfirm(confirmId, false);
 }
 
 void NotificationsModel::onNotice(const Notice& n) {
@@ -212,6 +250,34 @@ void NotificationsModel::onGoalUpdate(const GoalUpdate& g) {
     r.timeLabel = formatTime(r.timestamp);
     r.read = false;
     prepend(std::move(r));
+}
+
+void NotificationsModel::onConfirmRequest(const ConfirmRequest& req) {
+    if (req.id.isEmpty()) return;
+    // Replace any existing pending row for the same confirm id (re-publish).
+    removeByConfirmId(req.id);
+
+    Row r;
+    // Use the ConfirmRequest id as the notification id so approve/deny from
+    // the center can pass model.id straight through.
+    r.id = req.id;
+    r.category = QStringLiteral("confirm");
+    r.severity = QStringLiteral("warn");
+    r.source = QStringLiteral("safety");
+    r.title = req.tool.isEmpty()
+                  ? QStringLiteral("Needs your approval")
+                  : QStringLiteral("Needs approval: %1").arg(req.tool);
+    r.body = req.summary.isEmpty() ? req.reason : req.summary;
+    r.timestamp = QDateTime::currentSecsSinceEpoch();
+    r.timeLabel = formatTime(r.timestamp);
+    r.read = false;
+    r.pending_action = true;
+    r.confirm_id = req.id;
+    prepend(std::move(r));
+}
+
+void NotificationsModel::onConfirmResponse(const ConfirmResponse& resp) {
+    removeByConfirmId(resp.id);
 }
 
 } // namespace polymath

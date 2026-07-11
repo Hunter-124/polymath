@@ -20,6 +20,8 @@ namespace keys {
     inline constexpr const char* AmbientTranscription  = "privacy.ambient_transcription";
     inline constexpr const char* FaceRecognition       = "privacy.face_recognition";
     inline constexpr const char* CamerasEnabled        = "privacy.cameras_enabled";
+    // Overhaul2 C3: desktop screen capture / describe tools (default ON).
+    inline constexpr const char* ScreenCapture         = "privacy.screen_capture";
     inline constexpr const char* EncryptAtRest         = "privacy.encrypt_at_rest";
     // Retention (days; 0 = keep forever).
     inline constexpr const char* RetainAmbientDays     = "retention.ambient_days";
@@ -81,6 +83,10 @@ namespace keys {
     inline constexpr const char* SafetyMaxFileWriteKb  = "safety.max_file_write_kb";
     // Record every gated invocation (decision + reason) to the ActivityLog.
     inline constexpr const char* SafetyAudit           = "safety.audit";
+    // C1: ';'-separated tool names the user permanently auto-allowed via the
+    // confirm dialog's "Always allow this tool". Deny (path/cmd/write-cap) still
+    // wins — overrides only skip the risk/mode Confirm gate.
+    inline constexpr const char* SafetyToolOverrides   = "safety.tool_overrides";
 }
 
 class Config {
@@ -89,10 +95,10 @@ public:
     void seedDefaults();   // inserts any missing keys with product defaults
 
     // Reads a boolean setting. For the per-feature privacy sense toggles
-    // (mic / ambient / face / cameras) the result is AND-ed with the master
-    // kill-switch: if privacy.master_enabled is OFF this returns false even when
-    // the feature's own value is "1". Pass respectMaster=false to read the raw
-    // stored value (e.g. so the UI can show the toggle's own state).
+    // (mic / ambient / face / cameras / screen_capture) the result is AND-ed
+    // with the master kill-switch: if privacy.master_enabled is OFF this returns
+    // false even when the feature's own value is "1". Pass respectMaster=false
+    // to read the raw stored value (e.g. so the UI can show the toggle's own state).
     bool        getBool(const char* key, bool respectMaster = true) const;
     int         getInt(const char* key, int def = 0) const;
     std::string getStr(const char* key, const std::string& def = "") const;

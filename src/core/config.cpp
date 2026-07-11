@@ -16,6 +16,7 @@ void Config::seedDefaults() {
         {keys::AmbientTranscription, "1"},
         {keys::FaceRecognition,      "1"},
         {keys::CamerasEnabled,       "1"},
+        {keys::ScreenCapture,        "1"},
         {keys::EncryptAtRest,        "0"},
         {keys::RetainAmbientDays,    "7"},
         {keys::RetainEventsDays,     "30"},
@@ -83,6 +84,8 @@ void Config::seedDefaults() {
              "\\bformat-volume\\b;\\bclear-disk\\b"},
         {keys::SafetyMaxFileWriteKb,     "2048"},
         {keys::SafetyAudit,              "1"},
+        // C1: per-tool "always allow" list (written by ConfirmDialog Always allow).
+        {keys::SafetyToolOverrides,      ""},
     };
     // INSERT OR IGNORE seeds only missing keys (never clobbers user changes),
     // since settings.key is the PRIMARY KEY.
@@ -99,7 +102,8 @@ bool Config::isMasterGated(const char* key) {
     return std::strcmp(key, keys::MicEnabled) == 0
         || std::strcmp(key, keys::AmbientTranscription) == 0
         || std::strcmp(key, keys::FaceRecognition) == 0
-        || std::strcmp(key, keys::CamerasEnabled) == 0;
+        || std::strcmp(key, keys::CamerasEnabled) == 0
+        || std::strcmp(key, keys::ScreenCapture) == 0;
 }
 
 bool Config::masterEnabled() const {

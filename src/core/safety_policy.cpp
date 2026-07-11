@@ -169,19 +169,20 @@ void SafetyPolicy::refresh() const {
     const std::string globs    = cfg.getStr(keys::SafetyFsDeniedGlobs, "");
     const std::string cmds     = cfg.getStr(keys::SafetyCmdDenylist, "");
     const std::string maxkb    = cfg.getStr(keys::SafetyMaxFileWriteKb, "2048");
+    const std::string overrides= cfg.getStr(keys::SafetyToolOverrides, "");
 
     if (built_ &&
         cache_.raw_mode == mode && cache_.raw_autoconfirm == autoconf &&
         cache_.raw_roots == roots && cache_.raw_agent_dirs == agentDirs &&
         cache_.raw_globs == globs && cache_.raw_cmds == cmds &&
-        cache_.raw_maxkb == maxkb) {
+        cache_.raw_maxkb == maxkb && cache_.raw_tool_overrides == overrides) {
         return;   // nothing changed
     }
 
     Compiled c;
     c.raw_mode = mode; c.raw_autoconfirm = autoconf; c.raw_roots = roots;
     c.raw_agent_dirs = agentDirs; c.raw_globs = globs; c.raw_cmds = cmds;
-    c.raw_maxkb = maxkb;
+    c.raw_maxkb = maxkb; c.raw_tool_overrides = overrides;
 
     c.mode = toLower(trim(mode.empty() ? "standard" : mode));
     c.autoconfirm_max = riskLevelFromString(autoconf);
@@ -223,6 +224,9 @@ void SafetyPolicy::refresh() const {
         try { c.cmd_denylist.emplace_back(r, std::regex::icase | std::regex::optimize); }
         catch (const std::exception& e) { PM_WARN("SafetyPolicy: bad cmd regex '{}': {}", r, e.what()); }
     }
+    // C1: exact tool-name matches (case-sensitive; tool registry names are snake_case).
+    for (const std::string& t : splitList(overrides, ';'))
+        c.tool_overrides.insert(t);
 
     cache_ = std::move(c);
     built_ = true;
@@ -278,6 +282,12 @@ Ruling SafetyPolicy::check(const std::string& tool, RiskLevel risk,
                     "write payload (" + std::to_string(n / 1024) + " KB) exceeds the "
                     + std::to_string(c.max_write_bytes / 1024) + " KB limit"};
     }
+
+    // 3a) C1 tool overrides ("Always allow this tool"): after hard Deny checks
+    // only — path/cmd denylist and write-cap still win. Skips risk/mode Confirm
+    // and the schedule_task recurring Confirm gate.
+    if (!tool.empty() && c.tool_overrides.count(tool))
+        return {Decision::Allow, "tool is always allowed (user override)"};
 
     // 3b) schedule_task standing rules (every/rrule) always need Confirm even
     // though the tool's static registration is WriteLocal (D1 design note).

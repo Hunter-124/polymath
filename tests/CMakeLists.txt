@@ -222,3 +222,13 @@ add_test(NAME safety_policy COMMAND test_safety_policy)
 set_tests_properties(safety_policy PROPERTIES
     TIMEOUT 60
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Overhaul2 C2 — system tools (fs_*/run_command/app_launch/clipboard). Temp-dir
+# sandbox: create/append/read/list/move/delete(trash)/clipboard. No model/network.
+add_executable(test_system_tools test_system_tools.cpp)
+target_link_libraries(test_system_tools PRIVATE
+    pm_core pm_agent Qt6::Core Qt6::Gui)
+add_test(NAME system_tools COMMAND test_system_tools)
+set_tests_properties(system_tools PROPERTIES
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

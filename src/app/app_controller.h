@@ -7,6 +7,7 @@
 // QAbstractListModels (chat, shopping, cameras, tasks, timeline).
 //
 #include "database.h"
+#include <QHash>
 #include <QObject>
 #include <QStringList>
 #include <QVariantList>
@@ -176,6 +177,13 @@ public:
     // Dev/demo: publish a placeholder SurfaceRequest (bus → surfaceRequested).
     Q_INVOKABLE void spawnSurfaceDemo();
 
+    // C1: human answer to a SafetyPolicy ConfirmRequest. Publishes ConfirmResponse
+    // on the EventBus (AgentLoop resumes the parked goal). When alwaysAllow is
+    // true (and approved), appends the tool name to safety.tool_overrides so
+    // future calls auto-Allow (Deny still wins for path/cmd gates).
+    Q_INVOKABLE void respondConfirm(const QString& id, bool approved,
+                                    bool alwaysAllow = false);
+
 signals:
     void listeningChanged();
     void activePersonalityChanged();
@@ -199,6 +207,11 @@ signals:
     // A3: ui_control open_page / window relays (QML handlers land in E4).
     void navigateRequested(QString page);
     void windowRequested(QString verb);
+    // C1: SafetyPolicy ConfirmRequest flattened for QML (ConfirmDialog + toast).
+    void confirmRequested(QString id, QString tool, QString summary,
+                          QString argsPreview, QString reason);
+    // C1: any path answered (dialog / notification / voice) — close the dialog.
+    void confirmSettled(QString id);
 
 private:
     void wireEventBus();
@@ -258,6 +271,8 @@ private:
     QString model_status_ = "no model loaded";
     int     vram_used_mib_ = 0;
     int     vram_total_mib_ = 0;
+    // C1: ConfirmRequest id → tool name (for always-allow override writes).
+    QHash<QString, QString> pending_confirm_tools_;
 };
 
 } // namespace polymath

@@ -15,6 +15,8 @@
 #include "skill_tools.h"
 #include "uicontrol_tool.h"
 #include "agent_session_tools.h"
+#include "system_tools.h"
+#include "screen_tools.h"
 #include "skills/skill_registry.h"
 #include "paths.h"
 #include "logging.h"
@@ -135,6 +137,24 @@ void registerBuiltinTools(ToolRegistry& reg, BuiltinToolDeps deps) {
     // spend / destructive (require confirmation — harness parks waiting_user)
     reg.add(std::make_shared<PrintDocumentTool>(),     ToolRiskClass::Spend);
     reg.add(std::make_shared<PrintImageTool>(),         ToolRiskClass::Spend);
+
+    // --- C2 system tools (fs / process / clipboard) ---------------------------
+    // Path/command gates live in SafetyPolicy (AgentLoop); risk classes only.
+    reg.add(std::make_shared<FsListTool>(),             ToolRiskClass::Read);
+    reg.add(std::make_shared<FsReadTool>(),             ToolRiskClass::Read);
+    reg.add(std::make_shared<ClipboardReadTool>(),      ToolRiskClass::Read);
+    reg.add(std::make_shared<FsWriteTool>(),            ToolRiskClass::WriteLocal);
+    reg.add(std::make_shared<ClipboardWriteTool>(),     ToolRiskClass::WriteLocal);
+    // overwrite of existing files stays WriteLocal; C1/A4 Confirm is by risk
+    // ceiling / mode, not a special mode=overwrite escalate (see C2_notes).
+    reg.add(std::make_shared<FsMoveTool>(),             ToolRiskClass::Destructive);
+    reg.add(std::make_shared<FsDeleteTool>(),           ToolRiskClass::Destructive);
+    reg.add(std::make_shared<RunCommandTool>(),         ToolRiskClass::Destructive);
+    reg.add(std::make_shared<AppLaunchTool>(),          ToolRiskClass::External);
+
+    // C3: screen awareness (privacy-gated by privacy.screen_capture).
+    reg.add(std::make_shared<ScreenCaptureTool>(),     ToolRiskClass::Read);
+    reg.add(std::make_shared<ScreenDescribeTool>(),    ToolRiskClass::Read);
 
     // skills (write_local: expand/persist goals or author skill.json)
     if (skills) {

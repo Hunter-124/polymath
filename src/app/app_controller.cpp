@@ -274,6 +274,24 @@ void AppController::wireEventBus() {
             [this](const WindowRequest& w) {
                 emit windowRequested(w.verb);
             });
+    // C1: ConfirmRequest relay (bus → QML ConfirmDialog / notifications).
+    // Remember tool names so respondConfirm(alwaysAllow) can write
+    // safety.tool_overrides without the QML side re-passing the tool.
+    connect(&bus, &EventBus::confirmRequested, this,
+            [this](const ConfirmRequest& r) {
+                if (!r.id.isEmpty())
+                    pending_confirm_tools_.insert(r.id, r.tool);
+                emit confirmRequested(r.id, r.tool, r.summary, r.args_preview,
+                                      r.reason);
+            });
+    // Drop the map entry once any path (dialog / notification / voice) answers,
+    // and tell QML to close ConfirmDialog if it was showing this id.
+    connect(&bus, &EventBus::confirmResponse, this,
+            [this](const ConfirmResponse& r) {
+                pending_confirm_tools_.remove(r.id);
+                if (!r.id.isEmpty())
+                    emit confirmSettled(r.id);
+            });
 }
 
 // --- Wave-3 UI data layer ------------------------------------------------
@@ -364,6 +382,11 @@ void AppController::wireModels() {
                 &NotificationsModel::onDetection);
         connect(&bus, &EventBus::goalUpdated, notifications_model_.get(),
                 &NotificationsModel::onGoalUpdate);
+        // C1: pending SafetyPolicy confirms → notification center (approve/deny).
+        connect(&bus, &EventBus::confirmRequested, notifications_model_.get(),
+                &NotificationsModel::onConfirmRequest);
+        connect(&bus, &EventBus::confirmResponse, notifications_model_.get(),
+                &NotificationsModel::onConfirmResponse);
     }
 
     // C4: external agent sessions → SessionsModel (queued onto UI thread).
@@ -725,6 +748,43 @@ void AppController::spawnSurfaceDemo() {
     r.title = QStringLiteral("Demo surface");
     r.args_json = QStringLiteral("{\"note\":\"spawnSurfaceDemo\"}");
     EventBus::instance().publishSurfaceRequest(r);
+}
+
+void AppController::respondConfirm(const QString& id, bool approved, bool alwaysAllow) {
+    if (id.isEmpty()) return;
+
+    const bool doAlways = approved && alwaysAllow;
+    if (doAlways && config_) {
+        // Append tool name to safety.tool_overrides if we still know it.
+        // pending_confirm_tools_ is filled when confirmRequested fires.
+        const QString tool = pending_confirm_tools_.value(id);
+        if (!tool.isEmpty()) {
+            const std::string raw =
+                config_->getStr(keys::SafetyToolOverrides, "");
+            QStringList list;
+            if (!raw.empty()) {
+                const auto parts = QString::fromStdString(raw)
+                                       .split(QLatin1Char(';'), Qt::SkipEmptyParts);
+                for (const QString& p : parts) {
+                    const QString t = p.trimmed();
+                    if (!t.isEmpty()) list.push_back(t);
+                }
+            }
+            if (!list.contains(tool)) {
+                list.push_back(tool);
+                config_->set(keys::SafetyToolOverrides,
+                             list.join(QLatin1Char(';')).toStdString());
+                PM_INFO("AppController: always-allow override added for tool '{}'",
+                        tool.toStdString());
+            }
+        }
+    }
+
+    ConfirmResponse resp;
+    resp.id = id;
+    resp.approved = approved;
+    resp.always_allow = doAlways;
+    EventBus::instance().publishConfirmResponse(resp);
 }
 
 } // namespace polymath

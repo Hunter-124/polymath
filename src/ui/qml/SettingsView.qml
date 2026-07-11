@@ -26,6 +26,7 @@ Item {
             "web": secSearch,
             "behavior": secBehavior,
             "agents": secAgents,
+            "safety": secSafety,
             "privacy": secPrivacyLink
         }
         var target = map[key.toLowerCase()]
@@ -53,6 +54,15 @@ Item {
     property string inputDevice: settings.getString("audio.input_device", "")
     property string outputDevice: settings.getString("audio.output_device", "")
 
+    // C1: SafetyPolicy knobs (safety.* — free-form via getString/setString).
+    property string safetyMode: settings.getString("safety.mode", "standard")
+    property string safetyRootsRaw: settings.getString("safety.fs_allowed_roots",
+                                                       "Documents;Desktop;Downloads;@data")
+    property bool safetyAudit: settings.getBool("safety.audit", true)
+    property string safetyDenylist: settings.getString("safety.cmd_denylist", "")
+    property string safetyToolOverrides: settings.getString("safety.tool_overrides", "")
+    property string safetyRootDraft: ""
+
     property var inputDevices: []
     property var outputDevices: []
     property var inputLabels: []
@@ -79,6 +89,67 @@ Item {
     function indexOfVoice(id) {
         var i = root.ttsVoiceIds.indexOf(id)
         return i >= 0 ? i : 0
+    }
+
+    // C1: semicolon-list helpers for allowed roots / tool overrides.
+    function splitSemi(s) {
+        if (!s || s.length === 0) return []
+        var parts = String(s).split(";")
+        var out = []
+        for (var i = 0; i < parts.length; ++i) {
+            var t = parts[i].trim()
+            if (t.length > 0) out.push(t)
+        }
+        return out
+    }
+    function joinSemi(list) {
+        return (list || []).join(";")
+    }
+    function safetyRootsList() {
+        return root.splitSemi(root.safetyRootsRaw)
+    }
+    function setSafetyRootsList(list) {
+        root.safetyRootsRaw = root.joinSemi(list)
+        settings.setString("safety.fs_allowed_roots", root.safetyRootsRaw)
+    }
+    function addSafetyRoot(path) {
+        var t = (path || "").trim()
+        if (t.length === 0) return
+        var list = root.safetyRootsList()
+        if (list.indexOf(t) >= 0) return
+        list.push(t)
+        root.setSafetyRootsList(list)
+        root.safetyRootDraft = ""
+    }
+    function removeSafetyRoot(path) {
+        var list = root.safetyRootsList().filter(function (p) { return p !== path })
+        root.setSafetyRootsList(list)
+    }
+    function removeToolOverride(tool) {
+        var list = root.splitSemi(root.safetyToolOverrides).filter(function (t) {
+            return t !== tool
+        })
+        root.safetyToolOverrides = root.joinSemi(list)
+        settings.setString("safety.tool_overrides", root.safetyToolOverrides)
+    }
+    function safetyModeIndex(mode) {
+        var m = (mode || "standard").toLowerCase()
+        if (m === "strict") return 0
+        if (m === "trusted") return 2
+        return 1
+    }
+    function safetyModeIdAt(index) {
+        if (index === 0) return "strict"
+        if (index === 2) return "trusted"
+        return "standard"
+    }
+    function safetyModeDescription(mode) {
+        var m = (mode || "standard").toLowerCase()
+        if (m === "strict")
+            return "Strict — only read/local-write tools run without asking. Network, spend, and destructive actions always need approval."
+        if (m === "trusted")
+            return "Trusted — most tools auto-run, including spend. Only destructive actions still need your approval."
+        return "Standard — everyday tools (including web/media) auto-run. Spend and destructive actions need approval."
     }
 
     function refreshDevices() {
@@ -138,6 +209,11 @@ Item {
             else if (key === "agents.max_concurrent") root.maxConcurrent = Number(value)
             else if (key === "audio.input_device") root.inputDevice = String(value)
             else if (key === "audio.output_device") root.outputDevice = String(value)
+            else if (key === "safety.mode") root.safetyMode = String(value)
+            else if (key === "safety.fs_allowed_roots") root.safetyRootsRaw = String(value)
+            else if (key === "safety.audit") root.safetyAudit = (value === true || value === 1 || value === "1")
+            else if (key === "safety.cmd_denylist") root.safetyDenylist = String(value)
+            else if (key === "safety.tool_overrides") root.safetyToolOverrides = String(value)
         }
     }
 
@@ -150,7 +226,7 @@ Item {
             Layout.fillWidth: true
             title: "Settings"
             section: "Settings"
-            subtitle: "Appearance · Audio · Voice · Search · Behavior · Agents"
+            subtitle: "Appearance · Audio · Voice · Search · Behavior · Agents · Safety"
         }
 
         Flickable {
@@ -702,6 +778,208 @@ Item {
                                 var n = parseInt(model[currentIndex], 10)
                                 root.maxConcurrent = n
                                 settings.setInt("agents.max_concurrent", n)
+                            }
+                        }
+                    }
+                }
+
+                // ---------- Safety (C1) ----------
+                SettingsSection {
+                    id: secSafety
+                    sectionKey: "safety"
+                    title: "Safety"
+                    Layout.fillWidth: true
+
+                    ColumnLayout {
+                        width: parent.width
+                        spacing: Style.gap
+
+                        Text {
+                            text: "Confirmation mode"
+                            color: Style.textDim
+                            font.family: Style.fontFamily
+                            font.pixelSize: Style.fsSmall
+                        }
+                        PmComboBox {
+                            id: safetyModeBox
+                            Layout.fillWidth: true
+                            model: ["Strict", "Standard", "Trusted"]
+                            currentIndex: root.safetyModeIndex(root.safetyMode)
+                            onActivated: {
+                                var id = root.safetyModeIdAt(currentIndex)
+                                root.safetyMode = id
+                                settings.setString("safety.mode", id)
+                            }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.safetyModeDescription(root.safetyMode)
+                            color: Style.textFaint
+                            font.family: Style.fontFamily
+                            font.pixelSize: Style.fsTiny
+                            wrapMode: Text.WordWrap
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Style.gap
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    text: "Audit gated actions"
+                                    color: Style.text
+                                    font.family: Style.fontFamily
+                                    font.pixelSize: Style.fsBody
+                                }
+                                Text {
+                                    text: "Record every safety decision to the activity log"
+                                    color: Style.textFaint
+                                    font.family: Style.fontFamily
+                                    font.pixelSize: Style.fsTiny
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
+                            }
+                            PmSwitch {
+                                checked: root.safetyAudit
+                                onToggled: {
+                                    root.safetyAudit = checked
+                                    settings.setBool("safety.audit", checked)
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: "Allowed filesystem roots"
+                            color: Style.textDim
+                            font.family: Style.fontFamily
+                            font.pixelSize: Style.fsSmall
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Tools may only read/write under these roots. Tokens Documents, Desktop, Downloads, and @data resolve automatically."
+                            color: Style.textFaint
+                            font.family: Style.fontFamily
+                            font.pixelSize: Style.fsTiny
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Repeater {
+                            model: root.safetyRootsList()
+                            delegate: RowLayout {
+                                required property string modelData
+                                Layout.fillWidth: true
+                                spacing: Style.gapSm
+                                Text {
+                                    text: modelData
+                                    color: Style.text
+                                    font.family: Style.fontFamily
+                                    font.pixelSize: Style.fsSmall
+                                    elide: Text.ElideMiddle
+                                    Layout.fillWidth: true
+                                }
+                                PmButton {
+                                    text: qsTr("Remove")
+                                    flat: true
+                                    tone: Style.bad
+                                    onClicked: root.removeSafetyRoot(modelData)
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Style.gapSm
+                            PmTextField {
+                                Layout.fillWidth: true
+                                text: root.safetyRootDraft
+                                placeholderText: "Documents · C:\\\\Users\\\\…\\\\Projects · @data"
+                                onTextChanged: root.safetyRootDraft = text
+                                onEditingFinished: {
+                                    if (text.trim().length > 0)
+                                        root.addSafetyRoot(text)
+                                }
+                            }
+                            PmButton {
+                                text: qsTr("Add")
+                                tone: Style.sectionColor("Settings")
+                                onClicked: root.addSafetyRoot(root.safetyRootDraft)
+                            }
+                        }
+
+                        Text {
+                            text: "Always-allowed tools"
+                            color: Style.textDim
+                            font.family: Style.fontFamily
+                            font.pixelSize: Style.fsSmall
+                            visible: root.splitSemi(root.safetyToolOverrides).length > 0
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: root.splitSemi(root.safetyToolOverrides).length > 0
+                            text: "From the confirm dialog's “Always allow this tool”. Hard denials (outside roots, command denylist) still apply."
+                            color: Style.textFaint
+                            font.family: Style.fontFamily
+                            font.pixelSize: Style.fsTiny
+                            wrapMode: Text.WordWrap
+                        }
+                        Repeater {
+                            model: root.splitSemi(root.safetyToolOverrides)
+                            delegate: RowLayout {
+                                required property string modelData
+                                Layout.fillWidth: true
+                                spacing: Style.gapSm
+                                Text {
+                                    text: modelData
+                                    color: Style.text
+                                    font.family: Style.fontFamily
+                                    font.pixelSize: Style.fsSmall
+                                    Layout.fillWidth: true
+                                }
+                                PmButton {
+                                    text: qsTr("Remove")
+                                    flat: true
+                                    tone: Style.bad
+                                    onClicked: root.removeToolOverride(modelData)
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: "Command denylist (read-only)"
+                            color: Style.textDim
+                            font.family: Style.fontFamily
+                            font.pixelSize: Style.fsSmall
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Math.min(denylistText.implicitHeight + Style.gapSm * 2,
+                                                             Style.controlH * 4)
+                            radius: Style.radiusSm
+                            color: Style.surface2
+                            border.width: 1
+                            border.color: Style.glassBorder
+                            clip: true
+                            Flickable {
+                                anchors.fill: parent
+                                anchors.margins: Style.gapSm
+                                contentWidth: width
+                                contentHeight: denylistText.implicitHeight
+                                clip: true
+                                boundsBehavior: Flickable.StopAtBounds
+                                ScrollBar.vertical: PmScrollBar { }
+                                Text {
+                                    id: denylistText
+                                    width: parent.width
+                                    text: root.safetyDenylist.length > 0
+                                          ? root.safetyDenylist
+                                          : qsTr("(empty)")
+                                    color: Style.textFaint
+                                    font.family: Style.fontFamily
+                                    font.pixelSize: Style.fsTiny
+                                    wrapMode: Text.WrapAnywhere
+                                }
                             }
                         }
                     }

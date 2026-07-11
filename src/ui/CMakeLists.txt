@@ -41,6 +41,8 @@ qt_add_qml_module(pm_ui
         qml/ToastStack.qml
         qml/NotificationBell.qml
         qml/NotificationCenter.qml
+        # C1: SafetyPolicy confirm modal (hosted from Main.qml).
+        qml/ConfirmDialog.qml
         qml/CommandPalette.qml
         qml/SurfaceHost.qml
         qml/AgentSessionsView.qml

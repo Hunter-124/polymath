@@ -90,9 +90,10 @@ void testAllToolsDirect(const std::filesystem::path& root) {
 
     // C5: 17 legacy leaf tools + run_skill/save_skill + 5 agent_* + ui_control = 25.
     // overhaul2 B1: + youtube_search = 26. D1: + schedule_task/list_schedules/
-    // cancel_schedule = 29.
+    // cancel_schedule = 29. C2: +9 system tools = 38. C3: + screen_capture/
+    // screen_describe = 40.
     const auto names = reg.names();
-    assert(names.size() == 29 && "expected 29 builtin tools");
+    assert(names.size() == 40 && "expected 40 builtin tools");
     for (const char* n : {"shopping_add", "shopping_list", "shopping_remove",
                           "web_search", "fetch_page", "browser_drive", "draft_document",
                           "generate_lab_report", "print_document", "print_image",
@@ -101,7 +102,10 @@ void testAllToolsDirect(const std::filesystem::path& root) {
                           "run_skill", "save_skill",
                           "agent_spawn", "agent_send", "agent_status", "agent_stop",
                           "agent_watch", "ui_control", "youtube_search",
-                          "schedule_task", "list_schedules", "cancel_schedule"})
+                          "schedule_task", "list_schedules", "cancel_schedule",
+                          "fs_list", "fs_read", "fs_write", "fs_move", "fs_delete",
+                          "run_command", "app_launch", "clipboard_read",
+                          "clipboard_write", "screen_capture", "screen_describe"})
         assert(reg.get(n) != nullptr && "missing builtin tool");
 
     // Risk metadata (03 §5).
@@ -115,6 +119,22 @@ void testAllToolsDirect(const std::filesystem::path& root) {
     assert(!reg.requiresConfirmation("recall"));
     assert(reg.riskOf("ui_control") == ToolRiskClass::WriteLocal);
     assert(reg.riskOf("run_skill") == ToolRiskClass::WriteLocal);
+    // C2 system-tool risk classes
+    assert(reg.riskOf("fs_list") == ToolRiskClass::Read);
+    assert(reg.riskOf("fs_read") == ToolRiskClass::Read);
+    assert(reg.riskOf("clipboard_read") == ToolRiskClass::Read);
+    assert(reg.riskOf("fs_write") == ToolRiskClass::WriteLocal);
+    assert(reg.riskOf("clipboard_write") == ToolRiskClass::WriteLocal);
+    assert(reg.riskOf("fs_move") == ToolRiskClass::Destructive);
+    assert(reg.riskOf("fs_delete") == ToolRiskClass::Destructive);
+    assert(reg.riskOf("run_command") == ToolRiskClass::Destructive);
+    assert(reg.riskOf("app_launch") == ToolRiskClass::External);
+    assert(reg.riskOf("screen_capture") == ToolRiskClass::Read);
+    assert(reg.riskOf("screen_describe") == ToolRiskClass::Read);
+    assert(reg.requiresConfirmation("fs_delete"));
+    assert(reg.requiresConfirmation("run_command"));
+    assert(!reg.requiresConfirmation("fs_read"));
+    assert(!reg.requiresConfirmation("screen_capture"));
 
     // InferenceManager is required by MemoryService; no GGUF needed for keyword
     // fallback. ToolContext.memory is wired so remember/recall prefer the service.

@@ -17,6 +17,7 @@
 #include <mutex>
 #include <regex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace polymath {
@@ -86,10 +87,13 @@ private:
         std::vector<std::string> allowed_roots;       // normalized (lower, '/')
         std::vector<std::regex> denied_globs;
         std::vector<std::regex> cmd_denylist;
+        // C1: tools the user permanently auto-allowed (safety.tool_overrides).
+        // Exact tool-name match; Deny (path/cmd/write-cap) still wins.
+        std::unordered_set<std::string> tool_overrides;
         long long               max_write_bytes = 2048LL * 1024;
         // Raw config strings this Compiled was built from (cache invalidation).
         std::string raw_mode, raw_autoconfirm, raw_roots, raw_agent_dirs,
-                    raw_globs, raw_cmds, raw_maxkb;
+                    raw_globs, raw_cmds, raw_maxkb, raw_tool_overrides;
     };
 
     // Rebuilds `cache_` from Config if any underlying key changed. Caller holds mtx_.

@@ -27,6 +27,7 @@ qt_add_library(pm_agent STATIC
     tools/reminders.cpp
     tools/memory_tools.cpp
     tools/camera_tools.cpp
+    tools/screen_tools.cpp
     tools/queue_tool.cpp
     tools/schedule_tools.cpp
     tools/skill_tools.cpp
@@ -34,6 +35,7 @@ qt_add_library(pm_agent STATIC
     # #include "ui_*.h" as a Qt Designer form header.
     tools/uicontrol_tool.cpp
     tools/agent_session_tools.cpp
+    tools/system_tools.cpp
 )
 target_include_directories(pm_agent PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # Qt Core: QFileSystemWatcher / QTimer for SkillRegistry hot-reload.
