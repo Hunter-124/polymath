@@ -1,146 +1,67 @@
 # Build status
 
-**Overhaul v0.2.0 complete** (waves A–D including D5 WebEngine). Hardware truth and
-resource budget live in [`docs/overhaul/04_VOICE_RESOURCES.md`](overhaul/04_VOICE_RESOURCES.md) §1.
-Execution ledger: [`docs/overhaul/PROGRESS.md`](overhaul/PROGRESS.md).
+**Overhaul 2 → v0.3.0** (waves A–F). Master plan: [`docs/overhaul2/00_MASTER_PLAN.md`](overhaul2/00_MASTER_PLAN.md).
+DAG: [`docs/overhaul2/01_DAG.md`](overhaul2/01_DAG.md). Ledger: [`docs/overhaul2/PROGRESS.md`](overhaul2/PROGRESS.md).
+Handoff cursor: [`docs/overhaul2/HANDOFF.md`](overhaul2/HANDOFF.md).
 
-## Hardware (target / this machine)
+Hardware truth and resource budget: [`docs/overhaul/04_VOICE_RESOURCES.md`](overhaul/04_VOICE_RESOURCES.md) §1.
+
+## Hardware (this machine)
 
 | Resource | Value |
 |---|---|
-| CPU | Intel i7-9750H, 6C/12T (laptop) |
+| CPU | Intel i7-9750H, 6C/12T |
 | RAM | 32 GB |
-| GPU | **RTX 2070 Max-Q, 8 GB VRAM (sm_75)** — deploy target is 8 GB+ cards |
+| GPU | **RTX 2070 Max-Q, 8 GB VRAM (sm_75)** |
 | Use profile | Dedicated to Polymath + browser/video research |
 
-Steady-state VRAM budget (Fast @ 4096 ctx + q8 KV + Embedding + OS baseline) ≈
-**5.7–6.2 GB** with ~1.9–2.4 GB headroom. **Heavy 27B is parked**.
+Steady-state VRAM budget (Fast @ 4096 ctx + q8 KV + Embedding + OS) ≈ **5.7–6.2 GB**.
 
-## Build / verify (Wave D)
+## Overhaul 2 gates
 
 | Gate | Status | Notes |
 |------|--------|--------|
-| **D1** CPU Release build + captures | ✅ green | `build/cpu`; `capture_views` 13/13 |
-| **D2** ctest | ✅ green | 14/14 suites |
-| **D3** models + live e2e | ✅ green | Minimal models + live LLM path |
-| **D4** docs + tag prep | ✅ green | `v0.2.0-overhaul` |
-| **D5** QtWebEngine WebSurface | ✅ green | adblock + YouTube clean-mode |
-| **GPU tree** | ✅ green | `build/cuda`, CUDA 13.3, `CUDA=true`, ngl=36, ~5.9 GB VRAM |
-| **Kokoro TTS** | ✅ green | `scripts/setup-kokoro.ps1`; real-time sentence stream |
+| Waves A–E (all nodes) | ✅ green | A1–A4, B1–B4, C1–C3, D1–D4, E1–E5, EV |
+| CPU Release + serial ctest | ✅ green | `build/cpu`, **21/21** suites (`ctest -j1`) |
+| `capture_views` | ✅ green | **19/19** PNGs (`captures_overhaul2/`) |
+| GPU tree (CUDA arch 75) | 🔄 F1 | `scripts/build-gpu.ps1` → `build/cuda` |
+| F2 live e2e | ⏳ owner | Checklist: `docs/overhaul2/results/F2_e2e.md` — **YouTube + TTS need owner sign-off** |
+| F3 tag + installer | ⏳ | tag `v0.3.0-overhaul2` after F2 sign-off |
 
-- **CPU build** — `scripts/build-cpu.ps1` → `build/cpu/bin/Release/Polymath.exe`
-- **GPU build (preferred)** — `scripts/build-gpu.ps1` → `build/cuda/bin/Polymath.exe`
-  (CUDA 13.3 / VS 2026 host with `-allow-unsupported-compiler`, arch=75)
-
-Service threads (EventBus only): Inference · Scheduler · Proactive · Idle ·
-Memory · Agent · Vision · Audio · Sessions · Gateway.
-
-## Known non-blockers
-
-| Item | Notes |
-|------|--------|
-| Vision ONNX CUDA EP | CPU ORT package; YOLO/face fall back to CPU (LLM is CUDA) |
-| Gateway relay deploy | Optional operator step — see `WIRING.md` §E |
-| mDNS / PWA icons / mobile push | Nice-to-have — `WIRING.md` §F |
-
-UI-only iteration (no CUDA):
+## Build recipes
 
 ```powershell
-cmake --build build/cpu --config Release --target capture_views
+# CPU (VS 18 2026 + C:\pm junction)
+cmake --build C:/pm/build/cpu --config Release -j 6
+ctest -C Release -j1 --output-on-failure   # always serial for heavy suites
+
+# UI-only captures
 $env:QT_QPA_PLATFORM='offscreen'
-build/cpu/bin/Release/capture_views.exe <outdir> [--empty]
+C:/pm/build/cpu/bin/Release/capture_views.exe <outdir>
+
+# GPU
+pwsh scripts/build-gpu.ps1 -Arch 75   # → build/cuda/bin/Polymath.exe
 ```
 
-## What the 2026-07 overhaul landed
+## What Overhaul 2 landed
 
 | Area | Landed |
 |------|--------|
-| **GUI** | Holographic aurora design system (`Style.qml` tokens only); glass primitives + `Pm*` controls; frameless shell; Settings; command palette (Ctrl+K); toast/bell/notification center; SurfaceHost (placeholder/image/web/video); real QtWebEngine WebSurface with adblock + YouTube clean-mode (D5) |
-| **Harness v2** | `AgentLoop` plan → execute → reflect; SQLite goals/plan_steps; token-budgeted context + memory injection; TaskScheduler tool/summarizer dispatch + delivery |
-| **Skills** | `SkillRegistry` + `run_skill` / `save_skill`; starters `slop_mode`, `morning_brief`, `research_brief` under `data/skills/` |
-| **Agent sessions** | `AgentSessionService` + Claude Code / Codex / generic PTY providers; `SessionsModel` + Agents view; tools `agent_spawn` / `send` / `status` / `stop` / `watch` |
-| **Tools** | **25** registered tools with risk classes (read / write_local / external / spend); `ui_control`; improved `browser_drive` (session reuse) |
-| **Audio** | VAD-gated wake word; lazy GPU whisper + idle unload; AsrWorker/TtsWorker threads; 16 s capture ring; persistent Piper + sentence streaming; barge-in v1 |
-| **Inference** | Fast default **n_ctx=4096** + **KV q8_0**; VramBudget honest for 8 GB Max-Q |
+| **Harness** | Router v2 + final-answer hygiene; goal resume/rejoin; SafetyPolicy risk-gate + waiting_user; goal-tree spawn_subtask/join policies |
+| **YouTube** | `youtube_search` (Innertube); VideoPickerSurface; adblock/YtClean; `watch_video` skill with `{{result:…}}` step chaining; slop_mode top-hit autoplay |
+| **Computer use** | Confirm dialog + Settings ▸ Safety; fs_*/run_command/app_launch/clipboard; screen_capture/describe (privacy.screen_capture) |
+| **Scheduler v2** | timed/recurring agent goals; schedule_task tools; Tasks Scheduled UI |
+| **Advisor** | Advisor persona + daily_briefing / standup / project_review / session_digest skills |
+| **GUI** | Chat select+scroll; personalities editor; NoteSurface + research boards; window takeover (present/Esc/pill); copy polish |
+| **TTS v2** | engine/voice/speed config + Settings Voice; default `af_heart` |
+| **Tools** | **42** registered tools |
 
-## Tests
+## Tests (CPU Release, serial)
 
-`ctest` green: **14/14** suites on the CPU Release tree:
-
-| Suite | Binary |
+| Suite | Notes |
 |-------|--------|
-| core | `test_core` |
-| tools | `test_tools` |
-| audio | `test_audio_e2e` |
-| agent | `test_agent_e2e` |
-| vision | `test_vision_e2e` |
-| inference | `test_inference_e2e` |
-| memory | `test_memory_e2e` |
-| privacy | `test_privacy_e2e` |
-| integration | `test_integration_e2e` |
-| ui | `test_ui_e2e` |
-| j_phase2 | `test_j_phase2_e2e` |
-| harness | `test_harness_e2e` |
-| skills | `test_skills` |
-| sessions | `test_sessions_e2e` |
+| core, tools, audio, agent, vision, inference, memory, privacy, integration, ui | legacy e2e |
+| j_phase2, harness, skills, youtube_search, sessions, adblock | overhaul 1–2 |
+| goals, router, scheduler_v2, safety_policy, system_tools | overhaul 2 |
 
-Model-gated / live-CLI cases **skip-green** when weights or `claude` are absent — that is
-expected until **D3**.
-
-## Module status
-
-| Module | Status |
-|--------|--------|
-| core, inference, audio, vision, scheduler, memory, agent, personality, sessions, ui/app | ✅ compile + link; CPU verify green (D1/D2) |
-| inference (llama.cpp ggml-CUDA) | ✅ GPU path; target **RTX 2070 Max-Q 8 GB (`sm_75`)**, Fast @ 4k + q8 KV |
-| AgentLoop v2 + skills + agent sessions | ✅ code + unit/e2e suites; live multi-step voice goals await D3 models |
-| VLM (`describeImage` / mtmd) | ✅ built when `LLAMA_BUILD_TOOLS/COMMON=ON`; `mtmd.dll` linked + deployed |
-| Piper TTS | ✅ persistent `piper.exe` via QProcess |
-| ESP32-CAM firmware | ✅ complete (compile in Arduino IDE) |
-| Mobile companion | Parked for this overhaul pass (code retained; not a Wave D gate). Desktop **Settings ▸ Mobile Access** still present. |
-| at-rest encryption | ✅ ACTIVE — vendored SQLCipher + OpenSSL; per-install DPAPI-protected key |
-| packaging | ✅ portable zips + Inno Setup for CPU & CUDA (`docs/SHIP.md`) — version bump for 0.2.0 is release process |
-
-## Models
-
-`scripts/fetch-models.ps1` downloads the default local set into `data/models/` (see
-[`docs/MODELS.md`](MODELS.md)): Gemma 3n E4B (Fast), EmbeddingGemma, Gemma 3 4B + mmproj
-(VLM), whisper base/tiny, Piper voices, Silero VAD, openWakeWord, SCRFD, ArcFace, and
-**yolov8n.onnx**. **Gemma 3 27B (Heavy) is opt-in** (`-Heavy`); not part of the default
-8 GB Max-Q set.
-
-**D3 note:** until models are fetched on this machine, live wake→ASR→LLM→TTS and full
-agent-session e2e are **not** claimed green in this doc.
-
-## Honest remaining notes
-
-1. **D3 pending** — model fetch, live voice loop, resource audit screenshots vs 04 §1 budget.
-2. **Perception on GPU.** YOLO/SCRFD/ArcFace run on CPU (CPU ORT package). CUDA ORT is a
-   drop-in later step; code already requests the CUDA EP and falls back cleanly.
-3. **Heavy model parked on 8 GB.** Deep work uses external agent sessions (overhaul 05) or
-   the Fast idle queue.
-4. **Web surfaces.** **D5 landed:** QtWebEngine installed into the 6.6.3 kit; `WebSurface`
-   embeds `WebEngineView` with a shared adblock interceptor and YouTube clean-mode script.
-5. **Packaging.** `scripts/package.ps1 -Flavor {cpu,cuda}` produces zips/installers.
-   Remaining ship TODOs (code signing, clean-VM smoke) in [`SHIP.md`](SHIP.md).
-
-## How it was built (reproducible)
-
-```powershell
-git submodule update --init --recursive   # or scripts/setup-dev.ps1
-pwsh scripts/build-cpu.ps1                 # configures + builds build/cpu
-pwsh scripts/fetch-models.ps1              # D3: download default local models
-pwsh scripts/build-gpu.ps1                 # configures + builds + deploys build/cuda
-```
-
-`build-gpu.ps1` builds through a no-space NTFS junction (`C:\pm` → repo) because **nvcc
-cannot tolerate a space anywhere in its paths**. See `BUILD.md`.
-
-## Notes from the CUDA bring-up (still valid)
-
-- **nvcc + MSVC `/flag` leak.** Global `add_compile_options` must be gated with
-  `$<COMPILE_LANGUAGE:…>` so flags never reach `.cu` files.
-- **char8_t split.** Third_party builds at C++17; app modules stay C++20.
-- **nvcc + spaces.** Always build through the `C:\pm` junction.
-- **Runtime DLLs.** `build-gpu.ps1` deploys fmt/spdlog, OpenCV ffmpeg plugin, and CUDA
-  runtime DLLs next to the exe.
+Always run **`ctest -j1`** — audio/inference/memory contend under `-j4`.
