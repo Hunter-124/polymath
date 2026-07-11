@@ -101,14 +101,122 @@ Item {
                             anchors.fill: parent
                             anchors.margins: 9
                             spacing: Style.gapSm
-                            Label {
+                            // Read-only selectable body (was Label). TextEdit's own
+                            // selectByMouse drag-selection coexists with the ListView's
+                            // flick: Qt's TextInput/TextEdit machinery keeps the mouse
+                            // grab once a genuine text-selection drag is recognized, so
+                            // the enclosing Flickable does not steal it mid-drag: wheel,
+                            // the scrollbar, and drags on the RowLayout margins / gaps
+                            // between bubbles (not on glyphs) still reach the ListView
+                            // untouched. Desktop mouse is the target per the DAG note;
+                            // see docs/overhaul2/results/E1_notes.md for the touch caveat.
+                            TextEdit {
                                 id: msg
                                 Layout.fillWidth: true
                                 text: bubbleRow.text
+                                textFormat: TextEdit.MarkdownText
+                                readOnly: true
+                                selectByMouse: true
+                                persistentSelection: true
+                                wrapMode: TextEdit.Wrap
                                 color: Style.text
-                                wrapMode: Text.WordWrap
+                                selectionColor: Style.sectionColor("Chat")
+                                selectedTextColor: Style.accentText
                                 font.family: Style.fontFamily
                                 font.pixelSize: Style.fsBody
+
+                                // Right-click-only overlay so left-button drag still
+                                // reaches TextEdit's own selection handling underneath.
+                                MouseArea {
+                                    anchors.fill: parent
+                                    acceptedButtons: Qt.RightButton
+                                    onClicked: function (mouse) {
+                                        contextMenu.x = mouse.x
+                                        contextMenu.y = mouse.y
+                                        contextMenu.popup()
+                                    }
+                                }
+
+                                Menu {
+                                    id: contextMenu
+
+                                    background: Rectangle {
+                                        implicitWidth: 168
+                                        radius: Style.radiusSm
+                                        color: Style.surface
+                                        border.width: 1
+                                        border.color: Style.glassBorder
+                                    }
+
+                                    MenuItem {
+                                        id: copyItem
+                                        text: "Copy"
+                                        enabled: msg.selectedText.length > 0
+                                        onTriggered: msg.copy()
+                                        contentItem: Text {
+                                            text: copyItem.text
+                                            color: copyItem.enabled ? Style.text : Style.textFaint
+                                            font.family: Style.fontFamily
+                                            font.pixelSize: Style.fsBody
+                                            verticalAlignment: Text.AlignVCenter
+                                            leftPadding: 10
+                                            rightPadding: 10
+                                        }
+                                        background: Rectangle {
+                                            implicitHeight: Style.controlHsm
+                                            radius: Style.radiusXs
+                                            color: copyItem.highlighted
+                                                   ? Style.tint(Style.sectionColor("Chat"), 0.16)
+                                                   : "transparent"
+                                        }
+                                    }
+                                    MenuItem {
+                                        id: selectAllItem
+                                        text: "Select All"
+                                        onTriggered: msg.selectAll()
+                                        contentItem: Text {
+                                            text: selectAllItem.text
+                                            color: Style.text
+                                            font.family: Style.fontFamily
+                                            font.pixelSize: Style.fsBody
+                                            verticalAlignment: Text.AlignVCenter
+                                            leftPadding: 10
+                                            rightPadding: 10
+                                        }
+                                        background: Rectangle {
+                                            implicitHeight: Style.controlHsm
+                                            radius: Style.radiusXs
+                                            color: selectAllItem.highlighted
+                                                   ? Style.tint(Style.sectionColor("Chat"), 0.16)
+                                                   : "transparent"
+                                        }
+                                    }
+                                    MenuItem {
+                                        id: copyMessageItem
+                                        text: "Copy Message"
+                                        onTriggered: {
+                                            msg.selectAll()
+                                            msg.copy()
+                                            msg.deselect()
+                                        }
+                                        contentItem: Text {
+                                            text: copyMessageItem.text
+                                            color: Style.text
+                                            font.family: Style.fontFamily
+                                            font.pixelSize: Style.fsBody
+                                            verticalAlignment: Text.AlignVCenter
+                                            leftPadding: 10
+                                            rightPadding: 10
+                                        }
+                                        background: Rectangle {
+                                            implicitHeight: Style.controlHsm
+                                            radius: Style.radiusXs
+                                            color: copyMessageItem.highlighted
+                                                   ? Style.tint(Style.sectionColor("Chat"), 0.16)
+                                                   : "transparent"
+                                        }
+                                    }
+                                }
                             }
                             // Streaming caret ▍ (ASCII-safe block) keeps blink
                             Label {
