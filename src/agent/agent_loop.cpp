@@ -11,6 +11,8 @@
 #include "paths.h"
 #include "logging.h"
 #include "grammar.h"
+#include "skills/skill_registry.h"
+#include "skills/skill.h"
 
 #include <QString>
 
@@ -121,21 +123,6 @@ nlohmann::json parseJsonObject(const std::string& text) {
     return j;
 }
 
-std::string substituteParams(std::string text, const nlohmann::json& params) {
-    if (!params.is_object()) return text;
-    for (auto it = params.begin(); it != params.end(); ++it) {
-        const std::string needle = "{" + it.key() + "}";
-        std::string val;
-        if (it.value().is_string()) val = it.value().get<std::string>();
-        else val = it.value().dump();
-        for (size_t pos = 0; (pos = text.find(needle, pos)) != std::string::npos; ) {
-            text.replace(pos, needle.size(), val);
-            pos += val.size();
-        }
-    }
-    return text;
-}
-
 PlanStepRec stepFromJson(const nlohmann::json& s, int idx) {
     PlanStepRec st;
     st.idx = idx;
@@ -164,45 +151,113 @@ std::vector<PlanStepRec> stepsFromPlanJson(const nlohmann::json& plan) {
     return out;
 }
 
-// Minimal skill expand (C3 will own SkillRegistry; this keeps kind=skill usable).
-bool tryExpandSkill(const std::string& name, const nlohmann::json& params,
-                    std::vector<PlanStepRec>& out_steps) {
+// Unified skill expansion (A1): one loader, one directory scheme. Delegates to
+// the process-shared SkillRegistry (same instance run_skill / save_skill use)
+// so kind=skill steps and the command path agree on which skills exist and how
+// they expand ({param} substitution + required-param checks live in the
+// registry). Returns false on unknown skill / missing required param / empty.
+bool expandSkillViaRegistry(const std::string& name, const nlohmann::json& params,
+                            std::vector<PlanStepRec>& out_steps) {
     if (name.empty()) return false;
-    namespace fs = std::filesystem;
-    const fs::path path = Paths::instance().root() / "skills" / name / "skill.json";
-    std::ifstream f(path);
-    if (!f) {
-        // Also try data/skills under root (portable layout).
-        const fs::path alt = Paths::instance().root() / "data" / "skills" / name / "skill.json";
-        f.open(alt);
-        if (!f) return false;
-    }
-    std::stringstream ss;
-    ss << f.rdbuf();
-    nlohmann::json j = nlohmann::json::parse(ss.str(), nullptr, false);
-    if (j.is_discarded() || !j.is_object()) return false;
-    if (!j.contains("steps") || !j["steps"].is_array()) return false;
-
+    SkillRegistry* reg = defaultSkillRegistry();
+    if (!reg) return false;
+    nlohmann::json goal = reg->expand(name, params);
+    if (!goal.is_object() || goal.contains("error")) return false;
+    if (!goal.contains("steps") || !goal["steps"].is_array()) return false;
     int i = 0;
-    for (const auto& s : j["steps"]) {
+    for (const auto& s : goal["steps"]) {
         if (!s.is_object()) continue;
-        nlohmann::json copy = s;
-        // Param substitution on string fields.
-        if (copy.contains("description") && copy["description"].is_string())
-            copy["description"] = substituteParams(copy["description"].get<std::string>(), params);
-        if (copy.contains("tool") && copy["tool"].is_string())
-            copy["tool"] = substituteParams(copy["tool"].get<std::string>(), params);
-        if (copy.contains("args") && copy["args"].is_object()) {
-            // Walk string leaves.
-            for (auto it = copy["args"].begin(); it != copy["args"].end(); ++it) {
-                if (it.value().is_string())
-                    it.value() = substituteParams(it.value().get<std::string>(), params);
-            }
-        }
-        out_steps.push_back(stepFromJson(copy, i++));
+        out_steps.push_back(stepFromJson(s, i++));
         if (static_cast<int>(out_steps.size()) >= AgentLoop::kMaxPlanSteps) break;
     }
     return !out_steps.empty();
+}
+
+// --- Router v2 word helpers ------------------------------------------------
+
+// Lowercased alphanumeric word tokens (word-boundary matching).
+std::vector<std::string> wordsOf(const std::string& lower) {
+    std::vector<std::string> w;
+    std::string cur;
+    for (char c : lower) {
+        if (std::isalnum(static_cast<unsigned char>(c))) cur += c;
+        else if (!cur.empty()) { w.push_back(cur); cur.clear(); }
+    }
+    if (!cur.empty()) w.push_back(cur);
+    return w;
+}
+
+bool hasWord(const std::vector<std::string>& words, const std::string& w) {
+    return std::find(words.begin(), words.end(), w) != words.end();
+}
+
+// Contiguous multi-word phrase match (e.g. verb "put on").
+bool hasPhrase(const std::vector<std::string>& words,
+               const std::vector<std::string>& phrase) {
+    if (phrase.empty() || phrase.size() > words.size()) return false;
+    for (size_t i = 0; i + phrase.size() <= words.size(); ++i) {
+        bool match = true;
+        for (size_t j = 0; j < phrase.size(); ++j)
+            if (words[i + j] != phrase[j]) { match = false; break; }
+        if (match) return true;
+    }
+    return false;
+}
+
+// Ordered subsequence with gaps allowed: trigger "open youtube" matches
+// "open a youtube video for me".
+bool hasSubsequence(const std::vector<std::string>& words,
+                    const std::vector<std::string>& seq) {
+    if (seq.empty() || seq.size() > words.size()) return false;
+    size_t k = 0;
+    for (const auto& w : words) {
+        if (w == seq[k] && ++k == seq.size()) return true;
+    }
+    return false;
+}
+
+// Any loaded skill whose one of its triggers is an ordered subsequence of the
+// user's words. Returns the skill name, or "" if none. Tolerant of an
+// uninitialized/empty registry.
+std::string matchSkillTrigger(const std::vector<std::string>& words) {
+    SkillRegistry* reg = defaultSkillRegistry();
+    if (!reg) return {};
+    try {
+        for (const auto& sk : reg->all()) {
+            for (const auto& trig : sk.triggers) {
+                const auto tw = wordsOf(toLower(trig));
+                if (!tw.empty() && hasSubsequence(words, tw)) return sk.name;
+            }
+        }
+    } catch (const std::exception&) {
+        // Registry not ready — fall through to verb/phrase heuristics.
+    }
+    return {};
+}
+
+// Intent-verb + media/site-object table → Command (e.g. "open a youtube video",
+// "play some lofi", "put on some music"). Conservative: needs BOTH a launch verb
+// and a media/site object so plain "open the door" / "play chess" stay Quick.
+bool matchesMediaIntent(const std::vector<std::string>& words) {
+    static const char* kVerbs[] = {
+        "open", "play", "show", "watch", "launch", "stream", "unmute", "queue",
+    };
+    static const std::vector<std::vector<std::string>> kVerbPhrases = {
+        {"put", "on"}, {"pull", "up"}, {"turn", "on"},
+    };
+    static const char* kObjects[] = {
+        "youtube", "video", "videos", "music", "song", "songs", "playlist",
+        "playlists", "lofi", "movie", "movies", "film", "films", "netflix",
+        "spotify", "twitch", "podcast", "trailer", "channel", "livestream",
+        "stream", "tv", "website", "webpage", "browser", "tab",
+    };
+    bool verb = false;
+    for (const char* v : kVerbs) if (hasWord(words, v)) { verb = true; break; }
+    if (!verb)
+        for (const auto& p : kVerbPhrases) if (hasPhrase(words, p)) { verb = true; break; }
+    if (!verb) return false;
+    for (const char* o : kObjects) if (hasWord(words, o)) return true;
+    return false;
 }
 
 } // namespace
@@ -694,6 +749,233 @@ void AgentLoop::streamOrPublishAnswer(const std::string& answer,
 }
 
 // ---------------------------------------------------------------------------
+// Final-answer hygiene (B-LEAK)
+// ---------------------------------------------------------------------------
+
+std::string AgentLoop::sanitizeFinalText(const std::string& raw,
+                                         const std::string& tool_digest) {
+    auto trim = [](const std::string& s) -> std::string {
+        const size_t a = s.find_first_not_of(" \t\r\n");
+        if (a == std::string::npos) return {};
+        const size_t b = s.find_last_not_of(" \t\r\n");
+        return s.substr(a, b - a + 1);
+    };
+    auto synth = [&]() -> std::string {
+        const std::string d = trim(tool_digest);
+        if (!d.empty()) return "Here's what I found:\n" + d;
+        return {};
+    };
+
+    const std::string t = trim(raw);
+    if (t.empty()) return synth();
+
+    // If it parses as a tool call, salvage a prose argument when present.
+    std::string tool;
+    nlohmann::json args;
+    if (parseToolCall(t, tool, args)) {
+        if (tool == kFinalAnswerTool) {
+            const std::string a = trim(args.value("answer", std::string{}));
+            if (!a.empty() && a.front() != '{') return a;
+        }
+        for (const char* key : {"answer", "text", "content", "message", "response"}) {
+            if (args.contains(key) && args[key].is_string()) {
+                const std::string a = trim(args[key].get<std::string>());
+                if (!a.empty() && a.front() != '{') return a;
+            }
+        }
+        // No salvageable argument — fall through to blob stripping.
+    }
+
+    // Strip any JSON object blob, keep surrounding prose.
+    const size_t br = t.find('{');
+    if (br != std::string::npos) {
+        const size_t end = t.rfind('}');
+        const std::string pre  = trim(t.substr(0, br));
+        const std::string post = (end != std::string::npos && end + 1 <= t.size())
+                                     ? trim(t.substr(end + 1))
+                                     : std::string{};
+        std::string rest = pre.empty() ? post
+                         : (post.empty() ? pre : pre + " " + post);
+        if (!rest.empty() && rest.front() != '{') return rest;
+        return synth();   // may be empty — caller supplies a generic fallback
+    }
+    return t;   // no JSON present
+}
+
+std::string AgentLoop::sanitizeFinalAnswer(const std::string& raw,
+                                           std::vector<ChatMessage>& clean_msgs,
+                                           const Persona& persona,
+                                           const QString& request_id,
+                                           const std::string& tool_digest,
+                                           int depth) {
+    std::string tool;
+    nlohmann::json args;
+    if (depth < 2 && parseToolCall(raw, tool, args) && tool != kFinalAnswerTool) {
+        ITool* impl = tools_.get(tool);
+        if (impl) {
+            // (b) Another known tool leaked in as the "answer": run it once, then
+            // regenerate prose from the enriched digest.
+            auto& bus = EventBus::instance();
+            bus.publishToolCall({request_id, QString::fromStdString(tool),
+                                 QString::fromStdString(args.dump())});
+            ToolResult result;
+            if (impl->isDeepTask()) {
+                const qint64 task_id = sched_.enqueue(tool, args, /*priority*/ 0);
+                result.ok = true;
+                result.content = {{"queued", true}, {"task_id", task_id}, {"tool", tool}};
+                result.summary = "Queued " + tool + " as background task " +
+                                 std::to_string(task_id);
+            } else {
+                ToolContext tctx;
+                tctx.inference = &inf_;
+                tctx.db = &db_;
+                tctx.memory = memory_;
+                tctx.active_user_id = -1;
+                tctx.active_personality = persona.name;
+                try {
+                    result = impl->invoke(args, tctx);
+                } catch (const std::exception& e) {
+                    result.ok = false;
+                    result.content = {{"error", e.what()}};
+                    result.summary = std::string("tool threw: ") + e.what();
+                }
+            }
+            const std::string resultJson = compactToolResult(result.content.dump());
+            bus.publishToolResult({request_id, QString::fromStdString(tool),
+                                   QString::fromStdString(resultJson), result.ok});
+            std::string digest2 = tool_digest;
+            digest2 += "- " + tool + ": " +
+                       (result.summary.empty() ? fitTokens(resultJson, 120)
+                                               : result.summary) + "\n";
+            if (!result.summary.empty()) {
+                bus.publishNotice({result.ok ? "info" : "warn", "agent",
+                                   QString::fromStdString(result.summary)});
+                ActivityLog(db_).record(tool, result.summary, result.ok);
+            }
+            // Regenerate prose off a shadow id (not shown to ChatModel).
+            std::vector<ChatMessage> msgs2 = clean_msgs;
+            msgs2.push_back({Role::System,
+                "Results from tools you used this turn:\n" + digest2});
+            msgs2.push_back({Role::User,
+                "Answer my request in natural prose. Plain text only — no JSON."});
+            bool ok2 = false;
+            const std::string regen = unconstrainedComplete(
+                msgs2, persona, request_id, /*stream*/ false, &ok2);
+            if (ok2 && !regen.empty())
+                return sanitizeFinalAnswer(regen, clean_msgs, persona, request_id,
+                                           digest2, depth + 1);
+            return sanitizeFinalText("", digest2);
+        }
+        // Unknown tool → strip / synthesize (static path).
+    }
+    return sanitizeFinalText(raw, tool_digest);
+}
+
+std::string AgentLoop::finalizeAndPublishAnswer(std::vector<ChatMessage> clean_msgs,
+                                                const Persona& persona,
+                                                const QString& request_id,
+                                                const std::string& tool_digest,
+                                                const std::string& fallback,
+                                                bool speak) {
+    auto& bus = EventBus::instance();
+    const QString voice = QString::fromStdString(persona.voice);
+
+    // Generate under a SHADOW request_id so raw tokens never hit ChatModel
+    // (which subscribes to tokenStreamed under the real id). We forward clean
+    // prose to the real id ourselves once the leading chars prove non-JSON.
+    ChatRequest req;
+    req.model_id   = modelIdFor(persona);
+    req.request_id = (request_id + QStringLiteral(":final")).toStdString();
+    req.messages   = clean_msgs;
+    req.sampling   = persona.sampling;
+    req.sampling.grammar.clear();
+
+    struct SniffState {
+        std::string full;
+        std::string speak_buf;
+        bool decided = false;
+        bool clean = false;
+    } st;
+    constexpr size_t kSniffWindow = 24;
+
+    // Sentence-chunked TTS for the clean-streaming path (mirrors
+    // unconstrainedComplete's hook, but gated on the streaming guard).
+    auto feedTts = [&](const std::string& piece, bool done) {
+        if (!speak) return;
+        st.speak_buf += piece;
+        auto isEnd = [](char c) {
+            return c == '.' || c == '!' || c == '?' || c == ';' || c == '\n';
+        };
+        size_t start = 0;
+        for (size_t i = 0; i < st.speak_buf.size(); ++i) {
+            if (!isEnd(st.speak_buf[i])) continue;
+            size_t end = i + 1;
+            while (end < st.speak_buf.size() && st.speak_buf[end] == ' ') ++end;
+            const std::string sentence = st.speak_buf.substr(start, end - start);
+            start = end;
+            if (sentence.size() < 4) continue;
+            bus.publishSpeak({QString::fromStdString(sentence), voice, request_id,
+                              /*append*/ true, /*flush*/ false});
+        }
+        if (start > 0) st.speak_buf.erase(0, start);
+        if (done) {
+            if (!st.speak_buf.empty()) {
+                bus.publishSpeak({QString::fromStdString(st.speak_buf), voice,
+                                  request_id, /*append*/ true, /*flush*/ false});
+                st.speak_buf.clear();
+            }
+            bus.publishSpeak({QString(), voice, request_id,
+                              /*append*/ true, /*flush*/ true});
+        }
+    };
+
+    TurnCollector::TokenHook hook = [&](const std::string& delta, bool done) {
+        st.full += delta;
+        if (!st.decided) {
+            const size_t nb = st.full.find_first_not_of(" \t\r\n");
+            if (nb != std::string::npos &&
+                (st.full.size() - nb >= kSniffWindow || done)) {
+                st.decided = true;
+                st.clean = (st.full[nb] != '{');   // leading '{' ⇒ hold as JSON
+                if (st.clean) {
+                    bus.publishToken({request_id, QString::fromStdString(st.full), false});
+                    feedTts(st.full, false);
+                }
+            } else if (done) {
+                st.decided = true;   // whitespace only
+                st.clean = true;
+            }
+        } else if (st.clean) {
+            bus.publishToken({request_id, QString::fromStdString(delta), false});
+            feedTts(delta, false);
+        }
+        // decided && !clean ⇒ suspected JSON: hold, post-process after the run.
+    };
+
+    bool ok = false;
+    const std::string raw =
+        collector_.run(inf_, req, kStepTimeoutMs, &ok, std::move(hook));
+
+    const bool hasProse = raw.find_first_not_of(" \t\r\n") != std::string::npos;
+    if (st.decided && st.clean && hasProse) {
+        // Clean prose already streamed to the UI. Finish TTS + close the stream.
+        feedTts("", /*done*/ true);
+        bus.publishToken({request_id, QString(), true});
+        persistTranscript(raw, /*assistant*/ true);
+        return raw;
+    }
+
+    // Held as JSON / failed / empty → sanitize into prose and publish fresh.
+    std::string prose =
+        sanitizeFinalAnswer(raw, clean_msgs, persona, request_id, tool_digest, 0);
+    if (prose.empty())
+        prose = fallback.empty() ? std::string("Sorry, I couldn't complete that.")
+                                 : fallback;
+    streamOrPublishAnswer(prose, persona, request_id, speak);
+    return prose;
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
@@ -712,13 +994,20 @@ TurnRoute AgentLoop::classifyRouteHeuristic(const std::string& user_text) {
                 "gather", "multi", "steps", "and then", "find out"}))
             return TurnRoute::Goal;
     }
-    // Command: pure UI / skill invocation.
-    if (containsAny(t, {
-            "slop mode", "put on", "put something on", "open youtube",
-            "play youtube", "launch ", "show me the", "switch to",
-            "turn on", "run skill", "start skill", "open the"})) {
+    // Command: pure UI / skill invocation. Router v2 (B-ROUTE) — three signals,
+    // in cheap-first order:
+    //   1) a small set of explicit command phrases (deterministic, registry-free);
+    //   2) an intent-verb + media/site-object table ("open a youtube video",
+    //      "play some lofi") — allows gaps between verb and object;
+    //   3) trigger matching against the loaded SkillRegistry (word-boundary,
+    //      ordered subsequence so "open a youtube video" matches "open youtube").
+    if (containsAny(t, {"slop mode", "run skill", "start skill", "run the skill"}))
         return TurnRoute::Command;
-    }
+    const std::vector<std::string> words = wordsOf(t);
+    if (matchesMediaIntent(words))
+        return TurnRoute::Command;
+    if (!matchSkillTrigger(words).empty())
+        return TurnRoute::Command;
     return TurnRoute::Quick;
 }
 
@@ -850,6 +1139,7 @@ std::string AgentLoop::runQuick(const std::string& user_text,
         assembleContext(persona, user_text, specs, user_text, /*tool protocol*/ true);
 
     std::string finalAnswer;
+    std::string toolDigest;   // human-ish summary of this turn's tool results
     bool gotFinal = false;
     int toolCalls = 0;
 
@@ -923,6 +1213,9 @@ std::string AgentLoop::runQuick(const std::string& user_text,
         messages.push_back({Role::Tool, resultJson, tool});
         bus.publishToolResult({request_id, QString::fromStdString(tool),
                                QString::fromStdString(resultJson), result.ok});
+        toolDigest += "- " + tool + ": " +
+                      (result.summary.empty() ? fitTokens(resultJson, 120)
+                                              : result.summary) + "\n";
         if (!result.summary.empty()) {
             bus.publishNotice({result.ok ? "info" : "warn", "agent",
                                QString::fromStdString(result.summary)});
@@ -930,23 +1223,28 @@ std::string AgentLoop::runQuick(const std::string& user_text,
         }
     }
 
-    // Final unconstrained answer (streams under real request_id).
-    messages.push_back({Role::User,
-        "Now write the final answer for the user in natural language. Do not output JSON "
-        "or call any tool."});
-    bool ok = false;
-    std::string answer = unconstrainedComplete(messages, persona, request_id,
-                                               /*stream*/ true, &ok);
-    if (!ok || answer.empty()) {
-        answer = finalAnswer.empty()
-                     ? std::string("Sorry, I couldn't complete that.")
-                     : finalAnswer;
-        // Stream path didn't emit — publish whole answer (+ speak).
-        streamOrPublishAnswer(answer, persona, request_id, /*speak*/ true);
-    } else {
-        // Tokens (+ streaming TTS sentences) already went out under request_id.
-        persistTranscript(answer, /*assistant*/ true);
-    }
+    // Final answer — B-LEAK fix. Build a CLEAN context with NO tool protocol
+    // (persona + memory + summary + history + user turn, no JSON instructions),
+    // append a compact digest of this turn's tool results, then generate under a
+    // shadow request_id with a streaming guard so no raw tool-call JSON can ever
+    // reach ChatModel. finalizeAndPublishAnswer post-processes anything that
+    // still comes back as JSON into prose before publishing.
+    std::vector<ChatMessage> finalMsgs =
+        assembleContext(persona, user_text, nlohmann::json::array(), user_text,
+                        /*include_tool_protocol*/ false);
+    if (!toolDigest.empty())
+        finalMsgs.push_back({Role::System,
+            "Results from tools you used this turn:\n" + toolDigest});
+    finalMsgs.push_back({Role::User,
+        "Using any tool results above, answer my request in natural, conversational "
+        "prose. Reply with plain text only — do not output JSON or call any tool."});
+
+    // Fallback prose if generation fails entirely: sanitized final_answer text
+    // from the tool loop (never raw JSON), else a synthesized digest summary.
+    const std::string fallback = sanitizeFinalText(finalAnswer, toolDigest);
+    const std::string answer = finalizeAndPublishAnswer(
+        std::move(finalMsgs), persona, request_id, toolDigest, fallback,
+        /*speak*/ true);
     (void)from_voice;
     return answer;
 }
@@ -959,32 +1257,57 @@ std::string AgentLoop::runCommand(const std::string& user_text,
                                   const Persona& persona,
                                   const QString& request_id,
                                   bool from_voice) {
-    auto& bus = EventBus::instance();
-    // Try skill expand for known trigger phrases (minimal until C3 SkillRegistry).
+    // Router v2 unifies skill loading through the shared SkillRegistry. Resolve
+    // the command to a skill by matching triggers (word-boundary, gaps), then
+    // expand ANY matched skill (not just slop_mode) into an executable goal.
     const std::string lower = toLower(user_text);
-    std::string skillName;
-    nlohmann::json params = nlohmann::json::object();
-    if (lower.find("slop mode") != std::string::npos ||
-        lower.find("put something on") != std::string::npos) {
-        skillName = "slop_mode";
-        // Crude topic extract: after "about" / "on".
-        auto pos = lower.find(" about ");
-        if (pos == std::string::npos) pos = lower.find(" on ");
-        if (pos != std::string::npos) {
-            params["topic"] = user_text.substr(pos + 1);
-            while (!params["topic"].get<std::string>().empty() &&
-                   params["topic"].get<std::string>()[0] == ' ') {
-                auto s = params["topic"].get<std::string>();
-                params["topic"] = s.substr(1);
+    const std::vector<std::string> words = wordsOf(lower);
+
+    std::string skillName = matchSkillTrigger(words);
+    // Explicit "run/start skill <name>" form: take the trailing token as a name.
+    if (skillName.empty() &&
+        containsAny(lower, {"run skill", "start skill", "run the skill"})) {
+        if (!words.empty()) {
+            SkillRegistry* reg = defaultSkillRegistry();
+            for (auto it = words.rbegin(); reg && it != words.rend(); ++it) {
+                if (reg->has(*it)) { skillName = *it; break; }
             }
-        } else {
-            params["topic"] = "lofi";
         }
     }
 
     if (!skillName.empty()) {
+        // Best-effort fill of a topic/query-style required param from the phrasing.
+        nlohmann::json params = nlohmann::json::object();
+        if (SkillRegistry* reg = defaultSkillRegistry()) {
+            if (const Skill* sk = reg->get(skillName)) {
+                std::string topic;
+                for (const char* kw : {" about ", " on ", " of ", " for "}) {
+                    const auto pos = lower.find(kw);
+                    if (pos != std::string::npos) {
+                        topic = user_text.substr(pos + std::string(kw).size());
+                        break;
+                    }
+                }
+                const size_t a = topic.find_first_not_of(" \t\r\n");
+                topic = (a == std::string::npos) ? std::string() : topic.substr(a);
+                if (sk->params.is_object() && sk->params.contains("required") &&
+                    sk->params["required"].is_array()) {
+                    for (const auto& r : sk->params["required"]) {
+                        if (!r.is_string()) continue;
+                        const std::string key = r.get<std::string>();
+                        if (params.contains(key)) continue;
+                        if (key == "topic" || key == "query" || key == "q" ||
+                            key == "search" || key == "prompt")
+                            params[key] = topic.empty() ? std::string("lofi") : topic;
+                        else
+                            params[key] = topic.empty() ? user_text : topic;
+                    }
+                }
+            }
+        }
+
         std::vector<PlanStepRec> steps;
-        if (tryExpandSkill(skillName, params, steps)) {
+        if (expandSkillViaRegistry(skillName, params, steps)) {
             nlohmann::json ctx = {{"skill", skillName}, {"params", params},
                                   {"request_id", request_id.toStdString()}};
             const int64_t gid = createGoal(skillName, from_voice ? "voice" : "chat",
@@ -997,15 +1320,13 @@ std::string AgentLoop::runCommand(const std::string& user_text,
             streamOrPublishAnswer(answer, persona, request_id, /*speak*/ from_voice);
             return answer;
         }
+        PM_WARN("AgentLoop: skill '{}' matched but failed to expand — falling back to quick",
+                skillName);
     }
 
-    // Generic command: acknowledge (UI wiring lands in C1/C5).
-    const std::string answer =
-        "Understood — I'll treat that as a command. "
-        "(Full skill/UI control lands with the skills + ui_control nodes.)";
-    bus.publishNotice({"info", "agent", QString::fromStdString(answer)});
-    streamOrPublishAnswer(answer, persona, request_id, /*speak*/ from_voice);
-    return answer;
+    // No skill matched (or expansion failed): fall back to the Quick path so the
+    // user still gets a real answer instead of a canned dead-end string.
+    return runQuick(user_text, persona, request_id, from_voice);
 }
 
 // ---------------------------------------------------------------------------
@@ -1393,7 +1714,7 @@ bool AgentLoop::dispatchSkillStep(GoalRec& goal, PlanStepRec& step) {
     const std::string name = step.tool.empty() ? step.args.value("name", "") : step.tool;
     nlohmann::json params = step.args.value("params", step.args);
     std::vector<PlanStepRec> expanded;
-    if (!tryExpandSkill(name, params, expanded)) {
+    if (!expandSkillViaRegistry(name, params, expanded)) {
         step.result = {{"error", "skill not found or empty: " + name}, {"ok", false}};
         return false;
     }

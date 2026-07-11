@@ -139,7 +139,17 @@ set_tests_properties(skills PROPERTIES
     TIMEOUT 120
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-# Overhaul C4 � agent sessions (providers, allowlist, model, bus).
+# Overhaul B1 — youtube_search: fixture-driven parser tests (Innertube/
+# ytInitialData videoRenderer walking, duration parsing, ytInitialData HTML
+# scrape). Pure JSON-in/JSON-out parsing, no network — links pm_agent only
+# for the youtube_search_internal:: helpers (i_tool.h / nlohmann::json).
+add_executable(test_youtube_search test_youtube_search.cpp)
+target_link_libraries(test_youtube_search PRIVATE pm_core pm_agent)
+target_compile_definitions(test_youtube_search PRIVATE
+    PM_YOUTUBE_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+add_test(NAME youtube_search COMMAND test_youtube_search)
+
+# Overhaul C4 — agent sessions (providers, allowlist, model, bus).
 add_executable(test_sessions_e2e test_sessions_e2e.cpp)
 target_link_libraries(test_sessions_e2e PRIVATE
     pm_core pm_sessions pm_ui Qt6::Core)
@@ -148,4 +158,25 @@ target_compile_definitions(test_sessions_e2e PRIVATE
 add_test(NAME sessions COMMAND test_sessions_e2e)
 set_tests_properties(sessions PROPERTIES
     TIMEOUT 180
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Overhaul2 B3 — adblock URL classifier (pure isAdRequest() rules table:
+# 2026 YouTube ad/analytics hosts, wildcard-TLD adservice.google.* prefix,
+# ad path markers, googlevideo ctier=L/oad= stream heuristics). No network,
+# no QApplication — just the classifier out of pm_ui's web_adblock_interceptor.
+add_executable(test_adblock test_adblock.cpp)
+target_link_libraries(test_adblock PRIVATE pm_ui Qt6::Core)
+add_test(NAME adblock COMMAND test_adblock)
+set_tests_properties(adblock PROPERTIES
+    TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Overhaul2 A1 — router v2 + final-answer hygiene. Deterministic, no model/DB:
+# classifyRouteHeuristic route table (media-intent verbs + skill triggers) and
+# the sanitizeFinalText() tool-call-JSON → prose guarantee (no leading '{').
+add_executable(test_router test_router.cpp)
+target_link_libraries(test_router PRIVATE pm_core pm_agent Qt6::Core)
+add_test(NAME router COMMAND test_router)
+set_tests_properties(router PROPERTIES
+    TIMEOUT 120
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

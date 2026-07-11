@@ -110,7 +110,18 @@ public:
         bool include_tool_protocol = true) const;
 
     // Deterministic 3-way classifier (no model). Also used as model fallback.
+    // Router v2 (A1): trigger matching against loaded skills (word-boundary,
+    // gaps allowed) + an intent-verb/media-object table, on top of the existing
+    // Quick/Goal heuristics.
     static TurnRoute classifyRouteHeuristic(const std::string& user_text);
+
+    // Final-answer hygiene (A1 / B-LEAK): normalize a model final answer that
+    // may be (or contain) a tool-call JSON blob into user-facing prose. Pure and
+    // static so tests can assert it directly; NEVER returns a string that begins
+    // with '{'. Does NOT execute tools. `tool_digest` (optional) is used to
+    // synthesize a short summary when no salvageable prose exists.
+    static std::string sanitizeFinalText(const std::string& raw,
+                                         const std::string& tool_digest = {});
 
     // Token helpers (public for deterministic budget tests).
     int         tokens(const std::string& text) const;
@@ -203,6 +214,26 @@ private:
                                       const QString& request_id,
                                       bool stream,
                                       bool* ok = nullptr);
+    // Generate + publish the user-visible final answer with the streaming guard
+    // (A1 / B-LEAK): generates under a SHADOW request_id so raw tokens never
+    // reach ChatModel, sniffs the leading chars, and only forwards clean prose
+    // to the real request_id (post-processing any tool-call JSON first). Returns
+    // the published prose.
+    std::string finalizeAndPublishAnswer(std::vector<ChatMessage> clean_msgs,
+                                         const Persona& persona,
+                                         const QString& request_id,
+                                         const std::string& tool_digest,
+                                         const std::string& fallback,
+                                         bool speak);
+    // Turn a raw final answer into prose. Handles final_answer extraction,
+    // one bonus tool round for another known tool, and JSON stripping. Never
+    // returns a string beginning with '{'. `depth` bounds bonus-round recursion.
+    std::string sanitizeFinalAnswer(const std::string& raw,
+                                    std::vector<ChatMessage>& clean_msgs,
+                                    const Persona& persona,
+                                    const QString& request_id,
+                                    const std::string& tool_digest,
+                                    int depth);
     void streamOrPublishAnswer(const std::string& answer,
                                const Persona& persona,
                                const QString& request_id,

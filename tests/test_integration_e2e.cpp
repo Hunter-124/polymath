@@ -105,9 +105,14 @@ void testVoiceToSpeechFlow() {
     const bool spoke = waitFor([&] { return !speak.empty(); }, 30000);
     assert(spoke && "agent never published a SpeakRequest for the utterance");
 
-    // The spoken request_id is the agent's voice-turn id, and the text is the
-    // turn's final answer (here the no-model fallback) — non-empty either way.
-    assert(!speak.last().text.isEmpty() && "SpeakRequest carried empty text");
+    // The agent streams the answer as one or more SpeakRequests, then closes the
+    // TTS stream with an empty-text flush=true terminator (overhaul2 A1's
+    // sentence-streaming final path; mirrors the long-standing streaming hook).
+    // Assert the *content* hop: at least one captured SpeakRequest carried text.
+    bool spokeText = false;
+    for (const auto& s : speak.items())
+        if (!s.text.isEmpty()) { spokeText = true; break; }
+    assert(spokeText && "no SpeakRequest carried answer text");
 
     // DB side effect: the assistant turn was persisted as a transcript.
     Database& db = app.db();

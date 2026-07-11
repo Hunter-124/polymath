@@ -89,8 +89,9 @@ void testAllToolsDirect(const std::filesystem::path& root) {
     registerBuiltinTools(reg);
 
     // C5: 17 legacy leaf tools + run_skill/save_skill + 5 agent_* + ui_control = 25.
+    // overhaul2 B1: + youtube_search = 26.
     const auto names = reg.names();
-    assert(names.size() == 25 && "expected 25 builtin tools");
+    assert(names.size() == 26 && "expected 26 builtin tools");
     for (const char* n : {"shopping_add", "shopping_list", "shopping_remove",
                           "web_search", "fetch_page", "browser_drive", "draft_document",
                           "generate_lab_report", "print_document", "print_image",
