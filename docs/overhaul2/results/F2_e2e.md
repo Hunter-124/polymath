@@ -24,6 +24,10 @@ Machine: i7-9750H, 32 GB RAM, RTX 2070 Max-Q 8 GB VRAM, Windows.
 - `capture_views`: **19/19** PNGs written under `build/cpu/captures_overhaul2/`.
 - Tool registry: **42** tools (incl. system, screen, orchestration).
 - SafetyPolicy unit matrix + system_tools sandbox green.
+- Re-smoke (CUDA bin where present): skills, agent_e2e, system_tools, safety_policy,
+  youtube_search, scheduler_v2, goals, router — all **PASS**.
+- Skills on disk: watch_video, slop_mode, daily_briefing, standup_checkin;
+  advisor persona bundle present.
 
 ## Owner sign-off
 - [ ] YouTube demo (items 1–2) — voice/watch quality acceptable
