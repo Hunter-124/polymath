@@ -46,6 +46,8 @@ qt_add_qml_module(pm_ui
         qml/surfaces/PlaceholderSurface.qml
         qml/surfaces/ImageSurface.qml
         qml/surfaces/WebSurface.qml
+        # B2: results-picker grid for youtube_search results (type:"video_picker").
+        qml/surfaces/VideoPickerSurface.qml
         # Self-contained QR encoder (MIT) for the Mobile Access pairing QR; pure
         # ECMAScript usable from the Canvas, no extra Qt module / C++ dependency.
         qml/qrcode.js
@@ -79,6 +81,14 @@ qt_add_qml_module(pm_ui
     RESOURCES
         fonts/Inter.ttf
         icons/tray.png
+        # B3: standalone YouTube clean-mode script (page-context JS, injected
+        # into WebSurface's WebEngineView by B2). Listed under RESOURCES (not
+        # QML_FILES) since it is raw text read at runtime and runJavaScript()'d
+        # into the web page — it is never `import`ed as a QML JS module, so it
+        # must not go through qmlcachegen/qmllint's QML-JS-module processing.
+        # Resolves at qrc:/qt/qml/Polymath/qml/surfaces/YtClean.js — see
+        # docs/overhaul2/results/B3_contract.md for the injection contract.
+        qml/surfaces/YtClean.js
     SOURCES
         models/chat_model.h           models/chat_model.cpp
         models/shopping_model.h       models/shopping_model.cpp

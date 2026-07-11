@@ -14,12 +14,14 @@ Item {
 
     // Type → component map (Loader sources under surfaces/)
     readonly property var typeMap: ({
-        "placeholder": "surfaces/PlaceholderSurface.qml",
-        "image":       "surfaces/ImageSurface.qml",
-        "web":         "surfaces/WebSurface.qml",
+        "placeholder":  "surfaces/PlaceholderSurface.qml",
+        "image":        "surfaces/ImageSurface.qml",
+        "web":          "surfaces/WebSurface.qml",
         // video → WebSurface (YouTube clean-mode via args.mode=video)
-        "video":       "surfaces/WebSurface.qml",
-        "monitor":     "surfaces/PlaceholderSurface.qml"
+        "video":        "surfaces/WebSurface.qml",
+        // video_picker (B2): "model searched, user selects" results grid.
+        "video_picker": "surfaces/VideoPickerSurface.qml",
+        "monitor":      "surfaces/PlaceholderSurface.qml"
     })
 
     function parseArgs(json) {
@@ -33,7 +35,14 @@ Item {
         return -1
     }
 
-    function spawn(id, type, title, argsJson) {
+    // Extended args (A3): caption/md/x/y/w/h/group are optional passthrough —
+    // surfaces that understand them (NoteSurface/ImageSurface/board layout,
+    // E3) read them off the model entry; others simply ignore them. Spawning
+    // with an id that already exists on the host updates that entry IN PLACE
+    // (no arrange() call) so its layout slot/geometry is preserved — this is
+    // the mechanism VideoPickerSurface uses to hand its slot to a playing
+    // "video" surface without restacking the whole board.
+    function spawn(id, type, title, argsJson, caption, md, x, y, w, h, group) {
         var existing = indexOfId(id)
         if (existing >= 0) {
             // Update in place
@@ -42,7 +51,14 @@ Item {
                 id: id,
                 type: type || "placeholder",
                 title: title || copy[existing].title,
-                argsJson: argsJson || copy[existing].argsJson
+                argsJson: argsJson || copy[existing].argsJson,
+                caption: caption !== undefined ? caption : copy[existing].caption,
+                md: md !== undefined ? md : copy[existing].md,
+                x: x !== undefined ? x : copy[existing].x,
+                y: y !== undefined ? y : copy[existing].y,
+                w: w !== undefined ? w : copy[existing].w,
+                h: h !== undefined ? h : copy[existing].h,
+                group: group !== undefined ? group : copy[existing].group
             }
             surfaces = copy
             return
@@ -52,7 +68,14 @@ Item {
             id: id || ("surf-" + Date.now()),
             type: type || "placeholder",
             title: title || "Surface",
-            argsJson: argsJson || ""
+            argsJson: argsJson || "",
+            caption: caption || "",
+            md: md || "",
+            x: x !== undefined ? x : -1,
+            y: y !== undefined ? y : -1,
+            w: w !== undefined ? w : -1,
+            h: h !== undefined ? h : -1,
+            group: group || ""
         })
         surfaces = next
         arrange("tile")
@@ -130,9 +153,13 @@ Item {
     Connections {
         target: typeof app !== "undefined" ? app : null
         ignoreUnknownSignals: true
-        function onSurfaceRequested(id, action, type, title, argsJson) {
+        // A3 extended surfaceRequested with caption/md/x/y/w/h/group trailing
+        // params (backward-compatible: old emitters with only 5 args still
+        // work, the extra formal params just arrive undefined).
+        function onSurfaceRequested(id, action, type, title, argsJson,
+                                     caption, md, x, y, w, h, group) {
             if (action === "spawn" || action === "spawn_surface")
-                root.spawn(id, type, title, argsJson)
+                root.spawn(id, type, title, argsJson, caption, md, x, y, w, h, group)
             else if (action === "close" || action === "close_surface")
                 root.closeSurface(id)
             else if (action === "arrange")
@@ -223,6 +250,30 @@ Item {
                         item.source = args.url || args.path || args.source || ""
                     if (item.url !== undefined && args.url)
                         item.url = args.url
+
+                    // Extended args passthrough (A3): caption/group land on the
+                    // item only when the loaded surface declares those
+                    // properties (NoteSurface/ImageSurface/board layout — E3);
+                    // harmless no-op for surfaces that don't.
+                    if (item.caption !== undefined && surfWrap.modelData.caption)
+                        item.caption = surfWrap.modelData.caption
+                    if (item.group !== undefined && surfWrap.modelData.group)
+                        item.group = surfWrap.modelData.group
+
+                    // B2: id + host-handled signals for surfaces that need to
+                    // close themselves or replace their own slot (picker →
+                    // video). Surfaces can't reach AppController/EventBus
+                    // directly, so this plain-signal contract is the relay.
+                    if (item.surfaceId !== undefined)
+                        item.surfaceId = surfWrap.modelData.id
+                    if (item.requestSpawn !== undefined)
+                        item.requestSpawn.connect(function(id, type, title, argsJson) {
+                            root.spawn(id, type, title, argsJson)
+                        })
+                    if (item.requestClose !== undefined)
+                        item.requestClose.connect(function() {
+                            root.closeSurface(surfWrap.modelData.id)
+                        })
                 }
             }
 
