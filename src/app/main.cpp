@@ -143,7 +143,19 @@ int main(int argc, char* argv[]) try {
 
     // D5: adblock interceptor on the default profile (all WebSurface views).
     auto* adblock = new WebAdblockInterceptor(&app);
-    QWebEngineProfile::defaultProfile()->setUrlRequestInterceptor(adblock);
+    auto* profile = QWebEngineProfile::defaultProfile();
+    profile->setUrlRequestInterceptor(adblock);
+    // YouTube's embed player is picky about UA + referrer (Error 153). Present
+    // as a current desktop Chrome rather than the bare "QtWebEngine" default.
+    {
+        const QString ver = QString::fromLatin1(qVersion()); // e.g. 6.6.3
+        profile->setHttpUserAgent(
+            QStringLiteral(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 "
+                "PolymathWeb/%1")
+                .arg(ver));
+    }
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("app", &controller);

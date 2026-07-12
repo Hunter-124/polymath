@@ -56,13 +56,18 @@ GlassCard {
         return ""
     }
 
-    // Prefer the nocookie embed (fewer ads/overlays than a watch page) whenever
-    // we have a resolvable video id; otherwise fall back to whatever URL/page
-    // was requested.
-    readonly property string embedUrl: resolvedVideoId.length > 0
-        ? ("https://www.youtube-nocookie.com/embed/" + resolvedVideoId + "?autoplay=1&rel=0&modestbranding=1")
+    // Direct /embed/ top-level navigations in WebEngine hit YouTube Error 153
+    // (missing client identity / referrer). We host a tiny HTML shell under a
+    // youtube-nocookie origin via loadHtml(baseUrl) and put the real player in
+    // an <iframe referrerpolicy=...>. See WebAdblockInterceptor Referer stamp.
+    readonly property string embedSrc: resolvedVideoId.length > 0
+        ? ("https://www.youtube-nocookie.com/embed/" + resolvedVideoId
+           + "?autoplay=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1"
+           + "&origin=" + encodeURIComponent("https://www.youtube-nocookie.com"))
         : ""
-    readonly property string effectiveUrl: embedUrl.length > 0 ? embedUrl : resolvedUrl
+    readonly property string embedUrl: embedSrc
+    readonly property string effectiveUrl: embedSrc.length > 0 ? embedSrc : resolvedUrl
+    property bool usingHtmlPlayer: false
 
     readonly property bool isYouTube: {
         if (resolvedVideoId.length > 0) return true
@@ -82,17 +87,57 @@ GlassCard {
     property bool hasLoadedOnce: false
 
     function injectClean() {
+        // HTML-player shell is same-origin youtube-nocookie; clean script still
+        // helps if we fall back to a full watch page. Skip about:blank.
         if ((root.isYouTube || root.resolvedMode === "video") && root.ytCleanScript.length > 0
                 && web && web.url && web.url.toString().indexOf("about:blank") < 0) {
-            web.runJavaScript(root.ytCleanScript)
+            // Prefer injecting into the iframe document when possible.
+            var js = "(function(){ try {"
+                   + " var f=document.querySelector('iframe');"
+                   + " if(f && f.contentWindow) {"
+                   + "   try { f.contentWindow.eval(" + JSON.stringify(root.ytCleanScript) + "); }"
+                   + "   catch(e1) { /* cross-origin: fall through */ }"
+                   + " }"
+                   + " eval(" + JSON.stringify(root.ytCleanScript) + ");"
+                   + "} catch(e) {} })();"
+            web.runJavaScript(js)
         }
+    }
+
+    function buildPlayerHtml(videoId) {
+        var src = "https://www.youtube-nocookie.com/embed/" + videoId
+                + "?autoplay=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1"
+                + "&origin=" + encodeURIComponent("https://www.youtube-nocookie.com")
+        return "<!DOCTYPE html><html><head>"
+             + "<meta charset=\"utf-8\">"
+             + "<meta name=\"referrer\" content=\"strict-origin-when-cross-origin\">"
+             + "<style>"
+             + "html,body{margin:0;height:100%;background:#0b0d12;overflow:hidden}"
+             + "iframe{position:absolute;inset:0;width:100%;height:100%;border:0}"
+             + "</style></head><body>"
+             + "<iframe id=\"yt\" src=\"" + src + "\" title=\"YouTube\""
+             + " allow=\"accelerometer; autoplay; clipboard-write; encrypted-media;"
+             + " gyroscope; picture-in-picture; web-share\""
+             + " allowfullscreen"
+             + " referrerpolicy=\"strict-origin-when-cross-origin\""
+             + "></iframe>"
+             + "</body></html>"
     }
 
     function navigateTo(target) {
         root.loadError = ""
+        root.usingHtmlPlayer = false
         var u = (target || "").trim()
         if (!u || u.length === 0) {
             web.url = "about:blank"
+            return
+        }
+        // If the user pasted a YouTube watch/share URL, switch to the HTML player.
+        var m = u.match(/[?&]v=([A-Za-z0-9_-]{6,})/)
+                || u.match(/youtu\.be\/([A-Za-z0-9_-]{6,})/)
+                || u.match(/youtube(?:-nocookie)?\.com\/embed\/([A-Za-z0-9_-]{6,})/)
+        if (m && m[1]) {
+            playVideoId(m[1])
             return
         }
         if (u.indexOf("://") < 0 && u.indexOf(".") >= 0)
@@ -100,7 +145,19 @@ GlassCard {
         web.url = u
     }
 
+    function playVideoId(videoId) {
+        root.loadError = ""
+        root.usingHtmlPlayer = true
+        // baseUrl gives the document a youtube-nocookie origin so the iframe
+        // player receives a valid Referer (avoids Error 153).
+        web.loadHtml(buildPlayerHtml(videoId), "https://www.youtube-nocookie.com/")
+    }
+
     function applyEffectiveUrl() {
+        if (root.resolvedVideoId.length > 0) {
+            playVideoId(root.resolvedVideoId)
+            return
+        }
         if (root.effectiveUrl && root.effectiveUrl.length > 0)
             navigateTo(root.effectiveUrl)
         else

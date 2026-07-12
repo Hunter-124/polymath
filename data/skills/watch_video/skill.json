@@ -7,7 +7,14 @@
     "open youtube",
     "put on",
     "show me a video",
-    "play a video"
+    "play a video",
+    "find a video",
+    "search youtube",
+    "youtube video",
+    "watch youtube",
+    "play youtube",
+    "put on a video",
+    "show youtube"
   ],
   "params": {
     "type": "object",

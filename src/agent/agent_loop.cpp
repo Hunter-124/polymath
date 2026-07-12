@@ -374,16 +374,26 @@ bool hasSubsequence(const std::vector<std::string>& words,
 // Any loaded skill whose one of its triggers is an ordered subsequence of the
 // user's words. Returns the skill name, or "" if none. Tolerant of an
 // uninitialized/empty registry.
+//
+// Prefer longer trigger matches so "play some youtube slop" hits slop_mode's
+// multi-word trigger instead of a short "play youtube" / "watch" hit.
 std::string matchSkillTrigger(const std::vector<std::string>& words) {
     SkillRegistry* reg = defaultSkillRegistry();
     if (!reg) return {};
     try {
+        std::string best;
+        size_t best_len = 0;
         for (const auto& sk : reg->all()) {
             for (const auto& trig : sk.triggers) {
                 const auto tw = wordsOf(toLower(trig));
-                if (!tw.empty() && hasSubsequence(words, tw)) return sk.name;
+                if (tw.empty() || !hasSubsequence(words, tw)) continue;
+                if (tw.size() > best_len) {
+                    best_len = tw.size();
+                    best = sk.name;
+                }
             }
         }
+        return best;
     } catch (const std::exception&) {
         // Registry not ready — fall through to verb/phrase heuristics.
     }
@@ -402,9 +412,10 @@ bool matchesMediaIntent(const std::vector<std::string>& words) {
     };
     static const char* kObjects[] = {
         "youtube", "video", "videos", "music", "song", "songs", "playlist",
-        "playlists", "lofi", "movie", "movies", "film", "films", "netflix",
-        "spotify", "twitch", "podcast", "trailer", "channel", "livestream",
-        "stream", "tv", "website", "webpage", "browser", "tab",
+        "playlists", "lofi", "slop", "ambient", "chill", "movie", "movies",
+        "film", "films", "netflix", "spotify", "twitch", "podcast", "trailer",
+        "channel", "livestream", "stream", "tv", "website", "webpage", "browser",
+        "tab",
     };
     bool verb = false;
     for (const char* v : kVerbs) if (hasWord(words, v)) { verb = true; break; }
@@ -413,6 +424,62 @@ bool matchesMediaIntent(const std::vector<std::string>& words) {
     if (!verb) return false;
     for (const char* o : kObjects) if (hasWord(words, o)) return true;
     return false;
+}
+
+// Infer youtube/ambient skill when the user clearly wants media but no
+// skill trigger fired (e.g. phrasing the starters never listed).
+std::string inferMediaSkill(const std::vector<std::string>& words) {
+    if (!matchesMediaIntent(words)) return {};
+    const bool ambient =
+        hasWord(words, "slop") || hasWord(words, "ambient") ||
+        hasWord(words, "lofi") || hasWord(words, "chill") ||
+        hasWord(words, "background") || hasPhrase(words, {"put", "something", "on"});
+    if (ambient) return "slop_mode";
+    if (hasWord(words, "youtube") || hasWord(words, "video") ||
+        hasWord(words, "videos") || hasWord(words, "music") ||
+        hasWord(words, "song") || hasWord(words, "songs"))
+        return "watch_video";
+    return {};
+}
+
+// Pull a free-text topic out of a media command, stripping intent glue words.
+std::string extractMediaTopic(const std::string& user_text,
+                              const std::vector<std::string>& words) {
+    const std::string lower = toLower(user_text);
+    // Prefer explicit "about/on/of/for <topic>" — but ignore trailing "for me/us".
+    for (const char* kw : {" about ", " on ", " of ", " for "}) {
+        const auto pos = lower.find(kw);
+        if (pos == std::string::npos) continue;
+        std::string topic = user_text.substr(pos + std::string(kw).size());
+        // Trim.
+        size_t a = topic.find_first_not_of(" \t\r\n");
+        size_t b = topic.find_last_not_of(" \t\r\n");
+        if (a == std::string::npos) continue;
+        topic = topic.substr(a, b - a + 1);
+        const std::string tl = toLower(topic);
+        if (tl == "me" || tl == "us" || tl == "myself" || tl == "please")
+            continue;
+        if (tl.rfind("me ", 0) == 0 || tl == "me please") continue;
+        return topic;
+    }
+    // Strip common intent/filler tokens; leftover words are the topic.
+    static const char* kDrop[] = {
+        "play", "put", "on", "some", "a", "an", "the", "me", "us", "please",
+        "watch", "show", "open", "find", "search", "youtube", "video", "videos",
+        "slop", "mode", "ambient", "background", "lofi", "music", "song", "songs",
+        "and", "my", "agents", "babysit", "for", "of", "to", "up", "pull",
+        "something", "stuff", "can", "you", "just", "wanna", "want", "i",
+    };
+    std::vector<std::string> kept;
+    for (const auto& w : words) {
+        bool drop = false;
+        for (const char* d : kDrop) if (w == d) { drop = true; break; }
+        if (!drop) kept.push_back(w);
+    }
+    if (kept.empty()) return "lofi chill";
+    std::string out = kept[0];
+    for (size_t i = 1; i < kept.size(); ++i) out += " " + kept[i];
+    return out;
 }
 
 } // namespace
@@ -1183,7 +1250,9 @@ TurnRoute AgentLoop::classifyRouteHeuristic(const std::string& user_text) {
     //      "play some lofi") — allows gaps between verb and object;
     //   3) trigger matching against the loaded SkillRegistry (word-boundary,
     //      ordered subsequence so "open a youtube video" matches "open youtube").
-    if (containsAny(t, {"slop mode", "run skill", "start skill", "run the skill"}))
+    if (containsAny(t, {"slop mode", "slop", "run skill", "start skill",
+                        "run the skill", "youtube slop", "background youtube",
+                        "ambient youtube", "play youtube", "watch youtube"}))
         return TurnRoute::Command;
     const std::vector<std::string> words = wordsOf(t);
     if (matchesMediaIntent(words))
@@ -1476,22 +1545,25 @@ std::string AgentLoop::runCommand(const std::string& user_text,
             }
         }
     }
+    // Media intent without a trigger hit (or wrong skill): force the youtube
+    // skills so the model cannot "open youtube.com" as a bare web page.
+    // Ambient words always win over watch_video (e.g. "play youtube slop").
+    {
+        const std::string media = inferMediaSkill(words);
+        if (!media.empty()) {
+            if (skillName.empty() || skillName == "watch_video" || skillName == "slop_mode"
+                || (skillName != "watch_video" && skillName != "slop_mode"
+                    && matchesMediaIntent(words)))
+                skillName = media;
+        }
+    }
 
     if (!skillName.empty()) {
         // Best-effort fill of a topic/query-style required param from the phrasing.
         nlohmann::json params = nlohmann::json::object();
         if (SkillRegistry* reg = defaultSkillRegistry()) {
             if (const Skill* sk = reg->get(skillName)) {
-                std::string topic;
-                for (const char* kw : {" about ", " on ", " of ", " for "}) {
-                    const auto pos = lower.find(kw);
-                    if (pos != std::string::npos) {
-                        topic = user_text.substr(pos + std::string(kw).size());
-                        break;
-                    }
-                }
-                const size_t a = topic.find_first_not_of(" \t\r\n");
-                topic = (a == std::string::npos) ? std::string() : topic.substr(a);
+                const std::string topic = extractMediaTopic(user_text, words);
                 if (sk->params.is_object() && sk->params.contains("required") &&
                     sk->params["required"].is_array()) {
                     for (const auto& r : sk->params["required"]) {
@@ -1500,7 +1572,7 @@ std::string AgentLoop::runCommand(const std::string& user_text,
                         if (params.contains(key)) continue;
                         if (key == "topic" || key == "query" || key == "q" ||
                             key == "search" || key == "prompt")
-                            params[key] = topic.empty() ? std::string("lofi") : topic;
+                            params[key] = topic.empty() ? std::string("lofi chill") : topic;
                         else
                             params[key] = topic.empty() ? user_text : topic;
                     }

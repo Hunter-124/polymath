@@ -196,8 +196,33 @@ bool WebAdblockInterceptor::shouldBlock(const QUrl& url) const {
 }
 
 void WebAdblockInterceptor::interceptRequest(QWebEngineUrlRequestInfo& info) {
-    if (shouldBlock(info.requestUrl()))
+    if (shouldBlock(info.requestUrl())) {
         info.block(true);
+        return;
+    }
+
+    // YouTube Error 153 ("Video player configuration error") is triggered when
+    // the player loads without a usable Referer / client identity — common in
+    // embedded WebEngineViews that navigate to /embed/ as a top-level document
+    // (null/stripped referrer). Stamp a stable YouTube origin on every YT
+    // family request so the player config endpoint accepts the session.
+    // See: developers.google.com/youtube/terms/required-minimum-functionality
+    //      (Embedded Player API Client Identity) and Error 153 writeups 2025-26.
+    const QString host = info.requestUrl().host().toLower();
+    if (host.contains(QLatin1String("youtube.com")) ||
+        host.contains(QLatin1String("youtube-nocookie.com")) ||
+        host.contains(QLatin1String("youtu.be")) ||
+        host.contains(QLatin1String("googlevideo.com")) ||
+        host.contains(QLatin1String("ytimg.com")) ||
+        host.contains(QLatin1String("ggpht.com")) ||
+        host.contains(QLatin1String("googleusercontent.com")) ||
+        host.endsWith(QLatin1String(".googlevideo.com"))) {
+        // Prefer the privacy-enhanced origin we host the embed under.
+        static const QByteArray kYtOrigin = "https://www.youtube-nocookie.com";
+        info.setHttpHeader(QByteArrayLiteral("Referer"), kYtOrigin + "/");
+        // Some player config paths also check Origin on the XHR.
+        info.setHttpHeader(QByteArrayLiteral("Origin"), kYtOrigin);
+    }
 }
 
 } // namespace polymath

@@ -3,8 +3,22 @@
   "description": "Ambient YouTube + agent-session babysitting",
   "triggers": [
     "slop mode",
+    "slop",
+    "youtube slop",
+    "play slop",
+    "some slop",
+    "play some youtube slop",
+    "put on some slop",
+    "put something on",
     "put something on and watch my agents",
-    "background youtube and watch agents"
+    "background youtube",
+    "background youtube and watch agents",
+    "ambient youtube",
+    "ambient video",
+    "play ambient",
+    "put on youtube",
+    "background music youtube",
+    "lofi youtube"
   ],
   "params": {
     "type": "object",
