@@ -649,6 +649,78 @@ bool hostAllowed(const std::string& host, const std::string& allowlistCsv) {
     return false;
 }
 
+// Pull a YouTube video id from watch / youtu.be / embed / shorts URLs.
+std::string youtubeVideoId(const std::string& url) {
+    auto dig = [&](const std::string& marker) -> std::string {
+        const auto p = url.find(marker);
+        if (p == std::string::npos) return {};
+        size_t i = p + marker.size();
+        std::string id;
+        while (i < url.size()) {
+            const char c = url[i];
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                (c >= '0' && c <= '9') || c == '_' || c == '-')
+                id.push_back(c);
+            else
+                break;
+            ++i;
+        }
+        return id.size() >= 6 ? id : std::string{};
+    };
+    if (auto id = dig("v="); !id.empty()) return id;
+    if (auto id = dig("youtu.be/"); !id.empty()) return id;
+    if (auto id = dig("/embed/"); !id.empty()) return id;
+    if (auto id = dig("/shorts/"); !id.empty()) return id;
+    return {};
+}
+
+bool hasAutomationArgs(const nlohmann::json& args) {
+    auto nonEmpty = [&](const char* k) {
+        return args.contains(k) && args[k].is_string() &&
+               !args[k].get<std::string>().empty();
+    };
+    return nonEmpty("click") || nonEmpty("type_into") || nonEmpty("type_text") ||
+           nonEmpty("extract_selector");
+}
+
+// Mirror navigate into an in-app glass surface so the user actually sees the
+// page. Headless Chrome is invisible — models still pick browser_drive for
+// "open YouTube" and the user got a blank card / no player.
+void spawnInAppSurfaceForUrl(const std::string& url, const std::string& titleHint) {
+    if (url.empty()) return;
+    const std::string vid = youtubeVideoId(url);
+
+    SurfaceRequest r;
+    r.action = QStringLiteral("spawn");
+    r.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    r.w = 640;
+    r.h = 400;
+
+    nlohmann::json a = nlohmann::json::object();
+    if (!vid.empty()) {
+        r.type = QStringLiteral("video");
+        r.title = QString::fromStdString(
+            titleHint.empty() ? std::string{"YouTube"} : titleHint);
+        a["videoId"] = vid;
+        a["url"] = url;
+        a["mode"] = "video";
+    } else {
+        r.type = QStringLiteral("web");
+        r.title = QString::fromStdString(
+            titleHint.empty() ? std::string{"Web"} : titleHint);
+        a["url"] = url;
+        a["mode"] = "page";
+    }
+    r.args_json = QString::fromStdString(a.dump());
+    EventBus::instance().publishSurfaceRequest(r);
+    PM_INFO("browser_drive: spawned in-app {} surface for {}",
+            r.type.toStdString(), url);
+    EventBus::instance().publishNotice(
+        {"info", "browser",
+         QStringLiteral("browser_drive: showing in-app %1 — %2")
+             .arg(r.type, QString::fromStdString(url))});
+}
+
 } // namespace
 
 ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext& ctx) {
@@ -665,6 +737,38 @@ ToolResult BrowserDriveTool::invoke(const nlohmann::json& args, ToolContext& ctx
     }
     const std::string session_key = args.value("session", std::string{"default"});
     const std::string url = args.value("url", "");
+
+    // Pure "open this URL" (no click/type/extract_selector): show in the
+    // glass WebSurface / YouTube player. YouTube watch URLs skip headless
+    // Chrome entirely — CDP can't play the player for the user, and the old
+    // path left a blank white card while the model claimed success.
+    const bool automating = hasAutomationArgs(args);
+    if (!url.empty() && !close_after && !automating) {
+        const std::string vid = youtubeVideoId(url);
+        if (!vid.empty()) {
+            spawnInAppSurfaceForUrl(url, /*titleHint=*/"YouTube");
+            nlohmann::json content = {
+                {"url", url},
+                {"videoId", vid},
+                {"shown_in_app", true},
+                {"surface_type", "video"},
+                {"title", "YouTube"},
+                {"text", "Opened YouTube video in-app (videoId=" + vid + "). "
+                         "browser_drive is headless; use ui_control type=video for display."},
+                {"session", session_key},
+                {"skipped_headless", true},
+            };
+            EventBus::instance().publishNotice(
+                {"info", "browser",
+                 QStringLiteral("browser_drive: in-app YouTube player for %1")
+                     .arg(QString::fromStdString(vid))});
+            return {true, std::move(content),
+                    "Playing YouTube in-app (videoId=" + vid + ")"};
+        }
+        // Non-YouTube pure navigate: still spawn a live WebSurface so the user
+        // sees the page, then continue into headless extract for the model.
+        spawnInAppSurfaceForUrl(url, /*titleHint=*/"");
+    }
 
     // close-only: tear down without navigating (also wipes profile temp dir).
     if (close_after && url.empty() && !args.contains("click") && !args.contains("type_into")) {

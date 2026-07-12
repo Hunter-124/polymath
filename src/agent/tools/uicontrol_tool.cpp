@@ -269,6 +269,47 @@ ToolResult UiControlTool::invoke(const nlohmann::json& args, ToolContext& /*ctx*
                      {"hint", "Embed pages with ui_control; do not open an external browser."}},
                     "ui_control: web surface missing url"};
         }
+
+        // YouTube watch/share/embed URLs as type=web paint a blank/broken
+        // top-level player (Error 153). Promote to the HTML-iframe video path.
+        if (type == "web" || type == "video") {
+            std::string u;
+            if (surfaceArgs.contains("url") && surfaceArgs["url"].is_string())
+                u = surfaceArgs["url"].get<std::string>();
+            std::string vid;
+            if (surfaceArgs.contains("videoId") && surfaceArgs["videoId"].is_string())
+                vid = surfaceArgs["videoId"].get<std::string>();
+            if (vid.empty() && !u.empty()) {
+                auto dig = [&](const char* marker) -> std::string {
+                    const auto p = u.find(marker);
+                    if (p == std::string::npos) return {};
+                    size_t i = p + std::char_traits<char>::length(marker);
+                    std::string id;
+                    while (i < u.size()) {
+                        const char c = u[i++];
+                        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                            (c >= '0' && c <= '9') || c == '_' || c == '-')
+                            id.push_back(c);
+                        else
+                            break;
+                    }
+                    return id.size() >= 6 ? id : std::string{};
+                };
+                if (vid.empty()) vid = dig("v=");
+                if (vid.empty()) vid = dig("youtu.be/");
+                if (vid.empty()) vid = dig("/embed/");
+                if (vid.empty()) vid = dig("/shorts/");
+            }
+            if (!vid.empty()) {
+                type = "video";
+                r.type = QStringLiteral("video");
+                surfaceArgs["videoId"] = vid;
+                surfaceArgs["mode"] = "video";
+                if (u.empty())
+                    surfaceArgs["url"] = "https://www.youtube.com/watch?v=" + vid;
+            }
+        }
+
         r.args_json = QString::fromStdString(surfaceArgs.dump());
 
         // A3: optional extended spawn args (backward compatible — all default-empty).

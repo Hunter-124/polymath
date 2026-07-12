@@ -492,6 +492,15 @@ Item {
                         item.source = args.url || args.path || args.source || ""
                     if (item.url !== undefined && args.url)
                         item.url = args.url
+                    // video type → WebSurface clean/player mode + videoId
+                    if (item.mode !== undefined) {
+                        if (surfWrap.modelData.type === "video" || args.mode === "video")
+                            item.mode = "video"
+                        else if (args.mode)
+                            item.mode = args.mode
+                    }
+                    if (item.videoId !== undefined && args.videoId)
+                        item.videoId = args.videoId
 
                     // Extended args passthrough (A3): caption/md/group land on
                     // the item only when the loaded surface declares those
