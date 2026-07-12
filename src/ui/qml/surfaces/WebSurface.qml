@@ -87,20 +87,13 @@ GlassCard {
     property bool hasLoadedOnce: false
 
     function injectClean() {
-        // HTML-player shell is same-origin youtube-nocookie; clean script still
-        // helps if we fall back to a full watch page. Skip about:blank.
+        // Skip about:blank and our HTML player shell (iframe is cross-origin;
+        // adblock + referrer fix handle most of that path). Clean-mode still
+        // runs on full watch pages.
+        if (root.usingHtmlPlayer) return
         if ((root.isYouTube || root.resolvedMode === "video") && root.ytCleanScript.length > 0
                 && web && web.url && web.url.toString().indexOf("about:blank") < 0) {
-            // Prefer injecting into the iframe document when possible.
-            var js = "(function(){ try {"
-                   + " var f=document.querySelector('iframe');"
-                   + " if(f && f.contentWindow) {"
-                   + "   try { f.contentWindow.eval(" + JSON.stringify(root.ytCleanScript) + "); }"
-                   + "   catch(e1) { /* cross-origin: fall through */ }"
-                   + " }"
-                   + " eval(" + JSON.stringify(root.ytCleanScript) + ");"
-                   + "} catch(e) {} })();"
-            web.runJavaScript(js)
+            web.runJavaScript(root.ytCleanScript)
         }
     }
 
