@@ -711,6 +711,8 @@ int main(int argc, char* argv[]) {
         ctx->setContextProperty("agentSessions", agentSessions);
         // Software capture path: force faux-glass (no MultiEffect blur).
         ctx->setContextProperty("pmEffectsEnabled", false);
+        // WebSurface expects this (main.cpp loads YtClean.js); empty in captures.
+        ctx->setContextProperty("ytCleanScriptText", QString());
 
         // E3 board demo (or any full custom Window string).
         if (!customWindowQml.isEmpty()) {

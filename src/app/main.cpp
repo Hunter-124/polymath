@@ -161,21 +161,32 @@ int main(int argc, char* argv[]) try {
     auto* adblock = new WebAdblockInterceptor(&app);
     auto* profile = QWebEngineProfile::defaultProfile();
     profile->setUrlRequestInterceptor(adblock);
-    // YouTube's embed player is picky about UA + referrer (Error 153). Present
-    // as a current desktop Chrome rather than the bare "QtWebEngine" default.
-    {
-        const QString ver = QString::fromLatin1(qVersion()); // e.g. 6.6.3
-        profile->setHttpUserAgent(
-            QStringLiteral(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 "
-                "PolymathWeb/%1")
-                .arg(ver));
-    }
+    // YouTube's embed player is picky about UA (Error 153). Use a plain desktop
+    // Chrome UA — no custom product token (sites treat "PolymathWeb" as a bot
+    // and break Search / interactive chrome). Keep Chrome major near Qt 6.6's
+    // Chromium (~112) so Client Hints don't fight the real engine.
+    profile->setHttpUserAgent(
+        QStringLiteral(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36"));
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("app", &controller);
     engine.rootContext()->setContextProperty("webAdblock", adblock);
+
+    // YtClean.js for WebSurface — load from qrc in C++. QML XMLHttpRequest to
+    // local/qrc is disabled by default in Qt 6.5+ ("Using GET on a local file
+    // is disabled"), which left ytCleanScript empty and clean-mode dead.
+    {
+        QFile ytClean(QStringLiteral(":/qt/qml/Polymath/qml/surfaces/YtClean.js"));
+        QString ytCleanText;
+        if (ytClean.open(QIODevice::ReadOnly | QIODevice::Text))
+            ytCleanText = QString::fromUtf8(ytClean.readAll());
+        else
+            qWarning("Polymath: could not load YtClean.js from qrc");
+        engine.rootContext()->setContextProperty(
+            QStringLiteral("ytCleanScriptText"), ytCleanText);
+    }
 
     // Register the Wave-3 data models (context properties) and the camera image
     // provider ("image://cameras/<id>") before the QML is loaded.

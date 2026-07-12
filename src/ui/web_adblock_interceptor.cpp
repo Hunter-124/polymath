@@ -204,19 +204,34 @@ void WebAdblockInterceptor::interceptRequest(QWebEngineUrlRequestInfo& info) {
     // YouTube Error 153 ("Video player configuration error") is triggered when
     // the player loads without a usable Referer / client identity — common in
     // embedded WebEngineViews that navigate to /embed/ as a top-level document
-    // (null/stripped referrer). Stamp a stable YouTube origin on every YT
-    // family request so the player config endpoint accepts the session.
-    // See: developers.google.com/youtube/terms/required-minimum-functionality
-    //      (Embedded Player API Client Identity) and Error 153 writeups 2025-26.
+    // (null/stripped referrer). Stamp a stable YouTube origin ONLY on YouTube
+    // player traffic.
+    //
+    // CRITICAL: do NOT rewrite Referer/Origin for shared Google CDNs
+    // (googleusercontent.com, ggpht.com, …). Those hosts also serve Google
+    // Search / Maps / account UI; stamping youtube-nocookie there breaks
+    // search suggestions, result cards, and other page chrome.
     const QString host = info.requestUrl().host().toLower();
-    if (host.contains(QLatin1String("youtube.com")) ||
-        host.contains(QLatin1String("youtube-nocookie.com")) ||
-        host.contains(QLatin1String("youtu.be")) ||
-        host.contains(QLatin1String("googlevideo.com")) ||
-        host.contains(QLatin1String("ytimg.com")) ||
-        host.contains(QLatin1String("ggpht.com")) ||
-        host.contains(QLatin1String("googleusercontent.com")) ||
-        host.endsWith(QLatin1String(".googlevideo.com"))) {
+    const QString firstParty = info.firstPartyUrl().host().toLower();
+
+    auto isYouTubeHost = [](const QString& h) {
+        return h.contains(QLatin1String("youtube.com"))
+            || h.contains(QLatin1String("youtube-nocookie.com"))
+            || h.contains(QLatin1String("youtu.be"));
+    };
+    // Pure player / media hosts (not shared with Search).
+    auto isYouTubeMediaHost = [&](const QString& h) {
+        return isYouTubeHost(h)
+            || h.contains(QLatin1String("googlevideo.com"))
+            || h.contains(QLatin1String("ytimg.com"));
+    };
+
+    // Stamp only when the request itself is YT media AND the page is YT
+    // (or first-party is empty / about:blank during our loadHtml shell).
+    const bool pageIsYouTube = isYouTubeHost(firstParty)
+        || firstParty.isEmpty()
+        || firstParty == QLatin1String("localhost");
+    if (isYouTubeMediaHost(host) && pageIsYouTube) {
         // Prefer the privacy-enhanced origin we host the embed under.
         static const QByteArray kYtOrigin = "https://www.youtube-nocookie.com";
         info.setHttpHeader(QByteArrayLiteral("Referer"), kYtOrigin + "/");

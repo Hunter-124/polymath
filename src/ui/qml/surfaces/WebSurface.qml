@@ -255,13 +255,14 @@ GlassCard {
                 onLoadingProgressChanged: root.loadProgress = web.loadingProgress
             }
 
-            // Loading overlay
+            // Loading overlay (must not steal clicks once faded out)
             Rectangle {
                 anchors.fill: parent
                 anchors.margins: 1
                 color: Style.bgDeep
                 opacity: web.loading ? 0.55 : 0
-                visible: opacity > 0.01
+                visible: web.loading
+                enabled: false
                 Behavior on opacity { NumberAnimation { duration: 120 } }
                 Column {
                     anchors.centerIn: parent
@@ -364,15 +365,12 @@ GlassCard {
         if (args.videoId && root.videoId.length === 0)
             root.videoId = args.videoId
 
-        var xhr = new XMLHttpRequest()
-        xhr.open("GET", "qrc:/qt/qml/Polymath/qml/surfaces/YtClean.js")
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
-                root.ytCleanScript = xhr.responseText
-                root.injectClean()
-            }
+        // Script text is injected by main.cpp as a context property (Qt 6.5+
+        // blocks QML XMLHttpRequest to qrc/local files by default).
+        if (typeof ytCleanScriptText === "string" && ytCleanScriptText.length > 0) {
+            root.ytCleanScript = ytCleanScriptText
+            root.injectClean()
         }
-        xhr.send()
 
         // Navigate after the item has a real size — WebEngineView often paints
         // blank if the first load happens at 0×0 inside a Loader.
