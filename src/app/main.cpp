@@ -1,6 +1,7 @@
 #include "app_controller.h"
 #include "paths.h"
 #include "logging.h"
+#include "single_instance.h"
 #include "web_adblock_interceptor.h"
 
 #include <QGuiApplication>
@@ -100,6 +101,21 @@ int main(int argc, char* argv[]) try {
     // Main.qml hides to the system tray on close; without this, the last window
     // disappearing would still quit the process and look like a "crash".
     QGuiApplication::setQuitOnLastWindowClosed(false);
+
+    // Replace-on-launch: kill any prior/stale Polymath.exe still alive, then
+    // hold a session mutex so we never run two real instances at once.
+    // Override with --allow-multiple for debugging.
+    {
+        const SingleInstanceResult si = claimSingleInstance();
+        if (!si.ok) {
+            qCritical("Polymath: single-instance claim failed: %s",
+                      si.detail.c_str());
+            return 4;
+        }
+        if (si.killed > 0)
+            qInfo("Polymath: terminated %d prior instance(s) — %s",
+                  si.killed, si.detail.c_str());
+    }
 
     // Load Inter before any QML paints so Qt never falls through to broken
     // "MS Sans Serif" / "Inter Variable" DirectWrite paths on first frame.

@@ -8,6 +8,7 @@ qt_add_library(pm_core STATIC
     retention.cpp
     activity_log.cpp
     safety_policy.cpp
+    single_instance.cpp
 )
 
 target_include_directories(pm_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -22,3 +23,4 @@ target_link_libraries(pm_core PUBLIC
 
 # Public headers (the contract): types.h event_bus.h i_model_backend.h i_tool.h
 #                                schema.h database.h paths.h config.h logging.h
+#                                single_instance.h
